@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "overrides": [
+    {
+      "oracleId": "abe92306-e5a9-46c5-8af1-f1ecdced4428",
+      "faceName": "Split into Three Parts",
+      "source": "Codex AI semantic review",
+      "version": "2026-11-03.1",
+      "oracleText": "Choose target spell or permanent. Exile it with two time counters on it. Create two tokens that are copies of it in exile, with three and four time counters on them, respectively. They all gain suspend.",
+      "originalText": "选择目标咒语或永久物。将它放逐，且上面有两个计时指示物。派出两个衍生物，其为所放逐之牌的复制品，且上面分别有三个和四个计时指示物。它们均获得延缓异能。",
+      "translatedText": "选择目标咒语或永久物。将它放逐，且上面有两个计时指示物。在放逐区派出两个为其复制品的衍生物，且上面分别有三个和四个计时指示物。它们均获得延缓异能。",
+      "reason": "补回英文 in exile 明确指定的衍生物所在区域，并保留其对所选对象的引用。"
+    },
+    {
+      "oracleId": "9e02cefb-43f2-4c2a-8a26-c56b6cc99ea3",
+      "faceName": "Fear (split card)",
+      "source": "Codex AI semantic review",
+      "version": "2026-11-03.1",
+      "oracleText": "Target creature gains fear until end of turn. Draw a card. (It can't be blocked except by black and/or artifact creatures. Yes, this is the same as an existing Magic card name. Deal with it.)\nFuse (You may cast one or both halves of this card from your hand.)",
+      "originalText": "目标生物获得恐惧异能直到回合结束。抓一张牌。(It can't be blocked except by black and/or artifact creatures.Yes,this is the same as an existing Magic card name.Deal with it.)\n融咒(你可以从你手上单独施放此牌任一边或一同施放两边。)",
+      "translatedText": "目标生物获得恐惧异能直到回合结束。抓一张牌。（它只能被黑色生物和／或神器生物阻挡。没错，这与现有某张万智牌的牌名相同。接受吧。）\n融咒（你可以从你手上单独施放此牌任一边或一同施放两边。）",
+      "reason": "补齐原译文中仍为英文的恐惧提醒文字，保留融咒及原文的趣味说明。"
+    }
+  ]
+}

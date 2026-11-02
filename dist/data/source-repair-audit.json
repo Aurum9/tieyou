@@ -1,0 +1,34 @@
+{
+  "chunks": [
+    {
+      "url": "source-repair-audit-000.jsonl.gz",
+      "rows": 8950,
+      "bytes": 3870823,
+      "sha256": "2071e4b39b51bb185331448143c06dd7569b0dc885debf308adb6ec0a0e36656"
+    },
+    {
+      "url": "source-repair-audit-001.jsonl.gz",
+      "rows": 7778,
+      "bytes": 3780071,
+      "sha256": "714d3b33d3315bc37587d4748411e2fc79e8c3d7ba454884488252dbd1ddf22e"
+    },
+    {
+      "url": "source-repair-audit-002.jsonl.gz",
+      "rows": 7795,
+      "bytes": 3790246,
+      "sha256": "28f01d0cae04415a0325ebd595f0a047aea5076acd65910af3da733323dd7f3b"
+    },
+    {
+      "url": "source-repair-audit-003.jsonl.gz",
+      "rows": 7815,
+      "bytes": 3789839,
+      "sha256": "bf7d56712b8746e25abf0c575ed24b7bcfbf4de1b96c16f98e7fa88ad892c142"
+    },
+    {
+      "url": "source-repair-audit-004.jsonl.gz",
+      "rows": 2357,
+      "bytes": 1145297,
+      "sha256": "b3f01776330425407fc159af0c7cebec3fb4d91ca0962e772c0075a91264d3b1"
+    }
+  ]
+}

@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-11-02T19:46:19.342470+00:00",
+  "freezeDate": "2026-11-03",
+  "snapshot": {
+    "oracleDate": "2026-11-02T10:02:00.811+00:00",
+    "chineseDate": "2026-11-01"
+  },
+  "counts": {
+    "cards": 33708,
+    "faces": 34586,
+    "versions": 99822
+  },
+  "shards": [
+    {
+      "url": "catalog-000.json",
+      "count": 2472,
+      "bytes": 7999718
+    },
+    {
+      "url": "catalog-001.json",
+      "count": 2472,
+      "bytes": 7997400
+    },
+    {
+      "url": "catalog-002.json",
+      "count": 2483,
+      "bytes": 7998250
+    },
+    {
+      "url": "catalog-003.json",
+      "count": 2470,
+      "bytes": 7997797
+    },
+    {
+      "url": "catalog-004.json",
+      "count": 2462,
+      "bytes": 7999119
+    },
+    {
+      "url": "catalog-005.json",
+      "count": 2432,
+      "bytes": 7998908
+    },
+    {
+      "url": "catalog-006.json",
+      "count": 2450,
+      "bytes": 7998222
+    },
+    {
+      "url": "catalog-007.json",
+      "count": 2424,
+      "bytes": 7997463
+    },
+    {
+      "url": "catalog-008.json",
+      "count": 2424,
+      "bytes": 7998685
+    },
+    {
+      "url": "catalog-009.json",
+      "count": 2546,
+      "bytes": 7999840
+    },
+    {
+      "url": "catalog-010.json",
+      "count": 2531,
+      "bytes": 7998693
+    },
+    {
+      "url": "catalog-011.json",
+      "count": 2311,
+      "bytes": 7997751
+    },
+    {
+      "url": "catalog-012.json",
+      "count": 2479,
+      "bytes": 7997991
+    },
+    {
+      "url": "catalog-013.json",
+      "count": 1752,
+      "bytes": 5595701
+    }
+  ],
+  "coverage": {
+    "requiredFaces": 34222,
+    "translatedFaces": 34222,
+    "missingFaces": 0,
+    "staleFaces": 0
+  },
+  "sources": [
+    {
+      "name": "Scryfall Oracle Cards",
+      "url": "https://data.scryfall.io/oracle-cards/oracle-cards-20261102100200.jsonl.gz",
+      "date": "2026-11-02T10:02:00.811+00:00"
+    },
+    {
+      "name": "magic-cards-zhs (CC BY-SA 4.0)",
+      "url": "https://github.com/HeliumOctahelide/magic-cards-zhs/releases/tag/data-2026-11-01",
+      "date": "2026-11-01"
+    },
+    {
+      "name": "Scryfall Default Cards",
+      "url": "https://data.scryfall.io/default-cards/default-cards-20261102100656.jsonl.gz",
+      "date": "2026-11-02T10:06:56.614+00:00"
+    },
+    {
+      "name": "Scryfall Oracle Tags",
+      "url": "https://data.scryfall.io/oracle-tags/oracle-tags-20261102100037.jsonl.gz",
+      "date": "2026-11-02T10:00:37.579+00:00"
+    }
+  ],
+  "tagCoverage": {
+    "cards": 33507,
+    "tags": 4600,
+    "includesAncestors": true
+  },
+  "translationReview": {
+    "upstreamAIFaces": 23,
+    "manualReviewPerformed": false,
+    "overrideFaces": 2,
+    "overrideReviewStatus": "ai-reviewed"
+  },
+  "tagSource": {
+    "name": "Scryfall Oracle Tags",
+    "url": "https://data.scryfall.io/oracle-tags/oracle-tags-20261102100037.jsonl.gz",
+    "date": "2026-11-02T10:00:37.579+00:00"
+  },
+  "tagVocabulary": "tag-vocabulary.json",
+  "versionCoverage": {
+    "defaultPrintings": 99740,
+    "englishDefaultSnapshotLoaded": true,
+    "allLanguagesSnapshotLoaded": false,
+    "note": "Current default-language paper printings plus Chinese community mapped printings; not every language printing."
+  },
+  "reports": {
+    "coverage": "coverage-report.json",
+    "repairAudit": "source-repair-audit.json"
+  }
+}

@@ -1,0 +1,12 @@
+.cache/
+.openai/local/
+.openai/artifacts/
+.openai/cache/
+.openai/.hosting-*/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.log
+

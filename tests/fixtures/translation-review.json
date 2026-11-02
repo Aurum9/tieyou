@@ -1,0 +1,1328 @@
+{
+  "schemaVersion": 1,
+  "reviewDate": "2026-11-03",
+  "reviewerKind": "ai_assisted",
+  "humanAcceptancePending": true,
+  "sourceSnapshot": {
+    "freezeDate": "2026-11-03",
+    "snapshot": {
+      "oracleDate": "2026-11-02T10:02:00.811+00:00",
+      "chineseDate": "2026-11-01"
+    },
+    "manifestSha256": "24ae970532cceff2eda007c49268cc9be41f99f5598c20dcc24715b00b918bc0"
+  },
+  "scope": "仅对所存英文与中文规则文字进行语义对照；不研究具体玩法裁定，不据此宣称全卡池人工校对或完整翻译质量。",
+  "sampling": "冻结数据中全部23张含上游AI牌面的卡，另补7张复杂实体卡；按卡去重，所有牌面一并保存。",
+  "summary": {
+    "cards": 30,
+    "faces": 35,
+    "upstreamAIFaces": 23,
+    "statuses": {
+      "no_proven_mismatch": 28,
+      "incomplete_translation": 1,
+      "confirmed_mismatch": 1
+    }
+  },
+  "statusDefinitions": {
+    "no_proven_mismatch": "本次对照未发现有明确文本证据的冲突；不构成人工验收或无误保证。",
+    "confirmed_mismatch": "存在可直接指认的英文限定或数值在中文缺失或冲突。",
+    "incomplete_translation": "中文字段含未译的英文段落，语义冲突另计。"
+  },
+  "samples": [
+    {
+      "sample": 1,
+      "cardId": "f1416577-97d0-4d6c-afd2-455798556d4c",
+      "name": "Benjamin Sisko, Besieged",
+      "zhName": "身陷围城的本杰明·席斯可",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "caa90316-da18-5572-8dc3-d99414758509",
+          "name": "Benjamin Sisko, Besieged",
+          "zhName": "身陷围城的本杰明·席斯可",
+          "typeLine": "Legendary Creature — Human Officer",
+          "zhTypeLine": "传奇生物～人类／官员",
+          "manaCost": "{4}{G}{G}",
+          "oracleText": "Play with the top card of your library revealed.\nYou may play lands and cast creature spells from the top of your library.",
+          "zhText": "你以展示牌库顶牌的方式进行游戏。\n你可以从你的牌库顶使用地和施放生物咒语。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "67fb81665243758f4cb8b9bc811b55a3fc8d06f64dc10cc66cbb0dce5cea3a22"
+          },
+          "reviewedZhSha256": "691f9320be56b733fe168bd5c4c66de9c0b97c0c1fe8a12f9b279d361ad1d6ef"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "展示牌库顶为持续要求；从顶使用地与施放生物的许可均保留，未扩大至其他牌类别。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 2,
+      "cardId": "ebb58466-dca1-4a5a-83fe-f48d75063cbe",
+      "name": "Beta Ray Bill",
+      "zhName": "马面雷神",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "ed362fd0-f0a9-5023-8a72-d1de3420c762",
+          "name": "Beta Ray Bill",
+          "zhName": "马面雷神",
+          "typeLine": "Legendary Creature — Alien Warrior Hero",
+          "zhTypeLine": "传奇生物～外星人／战士／英雄",
+          "manaCost": "{2}{G/W}",
+          "oracleText": "Valiant — Whenever Beta Ray Bill becomes the target of a spell or ability you control for the first time each turn, put a +1/+1 counter on him and up to one target God you control.",
+          "zhText": "英武～每当马面雷神每回合中首度成为由你操控之咒语或异能的目标时，在他和至多一个目标由你操控的神上各放置一个+1/+1指示物。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "124c1d350b7396d04b1af497a508dcbf363b8c657ec62657986862b090e2d7f3"
+          },
+          "reviewedZhSha256": "8922d8cff739bdc964f68536bc69cee7978e17dcd795e998d431f95babc21ca5"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "保留每回合首次、由你操控的咒语或异能、本人及至多一个目标己方神、各一个+1/+1指示物。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 3,
+      "cardId": "069beed2-5139-49a2-b723-548fe44fa968",
+      "name": "Bobby, Another Dwarf",
+      "zhName": "又一个矮人博比",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "dd4219ab-d5d1-5b3e-840c-25d235460c40",
+          "name": "Bobby, Another Dwarf",
+          "zhName": "又一个矮人博比",
+          "typeLine": "Legendary Creature — Dwarf Warrior",
+          "zhTypeLine": "传奇生物～矮人／战士",
+          "manaCost": "{2}{W}",
+          "oracleText": "Dwarf creature cards, legendary creature cards, and Equipment cards in your hand have sneak {2}. (You may cast a spell for its sneak cost if you also return an unblocked attacker you control to hand during the declare blockers step. Creatures with sneak enter tapped and attacking.)\nWhen an Equipment you control sneaks in, attach it to a creature you control.",
+          "zhText": "你手上的矮人生物牌、传奇生物牌和武具牌具有奇袭{2}。（于宣告阻挡者步骤中，如果你将一个由你操控且未受阻挡的攻击生物回手，则你可以支付其奇袭费用来施放之。具奇袭异能的生物进场时须横置且正进行攻击。）\n当一个由你操控的武具奇袭进场时，将它装备在一个由你操控的生物上。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "e23aa865c44d8aa7b20c93e03136ab2eec85721855d97ea1e0032c0f76050257"
+          },
+          "reviewedZhSha256": "7ff06dc1533177e050ceb6b95d12dbe1ffa422364f31de50cf75913920aa61be"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "手牌类别并集、奇袭{2}、宣告阻挡者步骤中回手己方未受阻挡攻击者的附带条件、横置且攻击与武具附着均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 4,
+      "cardId": "f9b46a1a-474f-4fac-8d71-131c1720e4c0",
+      "name": "Borg Queen, Perfection Manifest",
+      "zhName": "化身完美的博格女王",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "06ca3fde-5871-59ee-800a-bac3f98bcce2",
+          "name": "Borg Queen, Perfection Manifest",
+          "zhName": "化身完美的博格女王",
+          "typeLine": "Legendary Artifact Creature — Borg Noble",
+          "zhTypeLine": "传奇神器生物～博格人／贵族",
+          "manaCost": "{4}{B}{B}",
+          "oracleText": "Artifact creatures you control get +2/+0.\nWhen Borg Queen enters, assimilate target creature card from an opponent's graveyard. (Put it onto the battlefield under your control with a +1/+1 counter. It's a Borg artifact creature and loses all other creature types.)",
+          "zhText": "由你操控的神器生物得+2/+0。\n当博格女王进场时，同化目标生物牌，且须出自对手的坟墓场。（将它在你的操控下放进战场，且上面有一个+1/+1指示物。它是博格神器生物且失去所有其他生物类别。）",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "1546a982f7e0f75c222cd834d7d4c8e94beeaffd3f987543cf1dff6fd74e12df"
+          },
+          "reviewedZhSha256": "5c12e04a074c1ab9aa93b37c5dbdb7cbe955a8f65f5ed9ac9be3c8dc667a76cb"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "己方神器生物+2/+0、目标来自对手坟墓场、一个+1/+1指示物、博格神器生物及失去其他生物类别均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 5,
+      "cardId": "14ddc8a6-479e-46db-804b-9849b309eb65",
+      "name": "CGI Fight Sequence",
+      "zhName": "特效武打场景",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "7d315a1f-b0c3-54d3-b8c4-a5652fac3e87",
+          "name": "CGI Fight Sequence",
+          "zhName": "特效武打场景",
+          "typeLine": "Enchantment",
+          "zhTypeLine": "结界",
+          "manaCost": "{R}",
+          "oracleText": "At the beginning of your upkeep, sacrifice this enchantment unless you sacrifice a Treasure token.\nWhenever you attack, target attacking creature you control fights target creature defending player controls.",
+          "zhText": "在你的维持开始时，除非你牺牲一个珍宝衍生物，否则牺牲此结界。\n每当你攻击时，目标由你操控且进行攻击的生物与目标由防御牌手操控的生物互斗。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "0b851e79e01318e5ecf96543341f377da98e3a70f2c85c2a995298df684d3982"
+          },
+          "reviewedZhSha256": "81febc578dc243bfa46e2463934c4df922cb1d1236637d51b6b355d84bbfd2f4"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "维持牺牲珍宝或牺牲结界的条件保留；互斗双方分别限己方攻击生物及防御牌手生物。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 6,
+      "cardId": "554ac5df-b49c-4041-963d-408160f59fc1",
+      "name": "Doctor Strange, Master of Magic",
+      "zhName": "魔法大师奇异博士",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "5ad3718a-30fa-57c1-8a6a-2282f378142b",
+          "name": "Doctor Strange, Master of Magic",
+          "zhName": "魔法大师奇异博士",
+          "typeLine": "Legendary Creature — Human Sorcerer Hero",
+          "zhTypeLine": "传奇生物～人类／术士／英雄",
+          "manaCost": "{2}{W}{U}",
+          "oracleText": "Flying, vigilance, prowess\n{T}: Draw a card. Activate only if you've cast a noncreature spell this turn.",
+          "zhText": "飞行，警戒，灵技\n{T}：抓一张牌。只能于你施放过非生物咒语的回合中起动。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "a81504b44903223e54f11328585359e6b215ccce6128cb08a74dd35f1c4f616e"
+          },
+          "reviewedZhSha256": "ac4851c4489952d6d088a1f554c202ec169ee8b768586a3cd83bdb6d7ff1df02"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "飞行、警戒、灵技对应；{T}费用、抓一张及本回合已施放非生物咒语的起动条件保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 7,
+      "cardId": "626b0f06-60bb-4683-97c2-4732cf5d9c28",
+      "name": "Emerin, Shivan Angel",
+      "zhName": "西瓦天使伊莫林",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "82f097c6-c40d-5f27-87e3-ce526e3d42b5",
+          "name": "Emerin, Shivan Angel",
+          "zhName": "西瓦天使伊莫林",
+          "typeLine": "Legendary Creature — Angel Dragon",
+          "zhTypeLine": "传奇生物～天使／龙",
+          "manaCost": "{4}{R}{W}",
+          "oracleText": "Angels and Dragons you control have flying, lifelink, ward 2, and \"{R}: This creature gets +1/+0 until end of turn.\"\nWhenever you sacrifice a Treasure, you gain 2 life.\nWhenever Emerin deals combat damage to a player while saddled, create two Treasure tokens.\nSaddle 4",
+          "zhText": "由你操控的天使和龙具有飞行，系命，守护2与「{R}：此生物得+1/+0直到回合结束。」\n每当你牺牲一个珍宝时，你获得2点生命。\n每当艾美琳于已乘驾时对任一牌手造成战斗伤害，派出两个珍宝衍生物。\n乘驾4",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "fade8b46d756ea1502f0a5cf409bdb95bebe795b5fab42150f299e8c194b80cc"
+          },
+          "reviewedZhSha256": "2f3a0147db57e934726f6107f479bd3b7dbfddb41bbb4f1f4ce090587092cd75"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "己方天使与龙的异能、{R}加攻、牺牲珍宝获得2生命、已乘驾时战斗伤害派出两个珍宝、乘驾4均保留。正文自称“艾美琳”与中文牌名“伊莫林”不统一，属于命名一致性提示，未据此判为规则语义冲突。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 8,
+      "cardId": "9e02cefb-43f2-4c2a-8a26-c56b6cc99ea3",
+      "name": "Fear (split card) // Loathing",
+      "zhName": "恐惧 // 厌恶",
+      "layout": "split",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "810fe2ae-fb14-53c2-a6f0-4f3453ae86c1",
+          "name": "Fear (split card)",
+          "zhName": "恐惧",
+          "typeLine": "Sorcery",
+          "zhTypeLine": "法术",
+          "manaCost": "{B}",
+          "oracleText": "Target creature gains fear until end of turn. Draw a card. (It can't be blocked except by black and/or artifact creatures. Yes, this is the same as an existing Magic card name. Deal with it.)\nFuse (You may cast one or both halves of this card from your hand.)",
+          "zhText": "目标生物获得恐惧异能直到回合结束。抓一张牌。(It can't be blocked except by black and/or artifact creatures.Yes,this is the same as an existing Magic card name.Deal with it.)\n融咒(你可以从你手上单独施放此牌任一边或一同施放两边。)",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "85d428e14e87fccda99c7010b9d5dd63e8bcd0c4548b4fd56b8f47823a7280d0"
+          },
+          "reviewedZhSha256": "79cc06139ed7bdc860b623d331747ac8f81c2d00c9b86bac5d9ed7b7e972ca33"
+        },
+        {
+          "id": "a5a67feb-8057-536f-bc89-52afc867bf18",
+          "name": "Loathing",
+          "zhName": "厌恶",
+          "typeLine": "Sorcery",
+          "zhTypeLine": "法术",
+          "manaCost": "{1}{B}",
+          "oracleText": "Each player loses 2 life. Draw a card.\nFuse (You may cast one or both halves of this card from your hand.)",
+          "zhText": "每位牌手各失去2点生命。抓一张牌。\n融咒(你可以从你手上单独施放此牌任一边或一同施放两边。)",
+          "translation": {
+            "source": "MTGZH",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "421739ac3f295dbb6044e9b9fba6b82d13f755f999efca047fca1b82dccddabd"
+          },
+          "reviewedZhSha256": "b68cd19244d0745c6ec3d1b9494d037164f9b5eda4c92a9a096ba9a932890d3e"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "incomplete_translation",
+        "conclusion": "两面目标/每位牌手、回合期限、抓一张、失去2生命及从手上融咒的限制均保留；Fear的完整提醒段仍为英文，需补齐中文。",
+        "findings": [
+          {
+            "kind": "untranslated_reminder",
+            "faceId": "810fe2ae-fb14-53c2-a6f0-4f3453ae86c1",
+            "englishEvidence": "It can't be blocked except by black and/or artifact creatures. Yes, this is the same as an existing Magic card name. Deal with it.",
+            "chineseEvidence": "(It can't be blocked except by black and/or artifact creatures.Yes,this is the same as an existing Magic card name.Deal with it.)",
+            "explanation": "英文提醒段仍完整留在中文字段，属于中文完整性缺口；本项不宣称现有中文语义相反。",
+            "proposedZhText": "目标生物获得恐惧异能直到回合结束。抓一张牌。（它只能被黑色和／或神器生物阻挡。没错，这与现有某张万智牌的牌名相同。接受吧。）\n融咒（你可以从你手上单独施放此牌任一边或一同施放两边。）",
+            "resolution": "suggested_to_parent_agent; data_not_modified_by_this_review"
+          }
+        ],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 9,
+      "cardId": "d00b7954-0efe-4f90-8268-556a02131b34",
+      "name": "I'm Going On An Adventure!",
+      "zhName": "我也要去冒险！",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "0d32f0b7-67eb-5e15-8159-f40c1834fc55",
+          "name": "I'm Going On An Adventure!",
+          "zhName": "我也要去冒险！",
+          "typeLine": "Sorcery",
+          "zhTypeLine": "法术",
+          "manaCost": "{W}",
+          "oracleText": "Exile target creature. It's on an adventure. When it enters from being on an adventure, it explores. (Its owner may cast it from exile. To have a creature you control explore, reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on the creature, then put the card back or put it into your graveyard.)\nFlashback {4}{W}",
+          "zhText": "放逐目标生物。它正在历险。当它从历险中进场时，令它勘察。（其拥有者可以从放逐区施放之。令一个由你操控的生物勘察的流程是，展示你的牌库顶牌。如果该牌是地，则置于你手上。若否，则在该生物上放置一个+1/+1指示物，然后将所展示的牌放回原位或置入你的坟墓场。）\n返照{4}{W}",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "076463800e34b335c567d36cf95467679c70e6166d9fa7364cd94938b384f0ec"
+          },
+          "reviewedZhSha256": "8e0b8d27eae21489ebe6cd6ad3119f29719dda0c6a78534bd339be61bcedaea5"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "放逐目标生物、拥有者从放逐区施放、进场时勘察、地牌入手与非地放指示物后放回或入墓的分支，以及返照{4}{W}均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 10,
+      "cardId": "6a70e571-6932-45d8-9f14-ede4a561cc49",
+      "name": "Kirk, Enterprising Captain",
+      "zhName": "进取号舰长柯克",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "0fa63007-805f-5578-851f-bd3b6b04704d",
+          "name": "Kirk, Enterprising Captain",
+          "zhName": "进取号舰长柯克",
+          "typeLine": "Legendary Creature — Human Officer",
+          "zhTypeLine": "传奇生物～人类／官员",
+          "manaCost": "{3}{R}",
+          "oracleText": "Menace (This creature can't be blocked except by two or more creatures.)\nWhenever Kirk attacks while creatures you control have total power 8 or greater, exile the top card of your library. You may play that card this turn.",
+          "zhText": "威慑(此生物只能被两个或更多生物阻挡。)\n每当柯克攻击且由你操控的生物力量总和等于或大于8时，放逐你的牌库顶牌。本回合中，你可以使用该牌。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "c82001605d76418ab09659709d57fbcfa447ac60aa12c707cb292c3c0ab2fea5"
+          },
+          "reviewedZhSha256": "377291bf26f1cf56a21be25ec065c274dffe0b9c8c9f15232daf330be1f017fb"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "威慑、攻击且己方生物总力量至少8、放逐顶牌及仅本回合使用的许可均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 11,
+      "cardId": "94ca324e-fa68-490b-8dbe-543e3584f1b4",
+      "name": "Mysterious Hero",
+      "zhName": "神秘英雄",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "1eb2387e-ce05-5c70-9794-7f36d3e76692",
+          "name": "Mysterious Hero",
+          "zhName": "神秘英雄",
+          "typeLine": "Creature — Hero",
+          "zhTypeLine": "生物～英雄",
+          "manaCost": "{2}{U}",
+          "oracleText": "Super Secret Identity {2}{U} (Before the game begins, if your deck is sleeved, you may put another creature card on top of this one in the sleeve. Don't tell anyone! If this permanent is on the battlefield, you may pay {2}{U} to remove the card above it in the sleeve.)\nHexproof\nWhenever this creature deals combat damage to a player, draw a card.",
+          "zhText": "超级秘密身分{2}{U}（于游戏开始前，如果你的套牌使用了牌套，则你可以在牌套中将另一张生物牌置于此牌之上。不要告诉任何人！如果此永久物在战场上，则你可以支付{2}{U}来移去牌套中在其上的牌。）\n辟邪\n每当此生物对任一牌手造成战斗伤害时，你抓一张牌。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "8a254bff04c1e969cbc953a90ab467f7f830eefd7780206900c9cb97bbb7644b"
+          },
+          "reviewedZhSha256": "25c545550d46370e17e8f0e8f644fc214f60fcaf81af221ddeb791e22ac93f37"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "游戏前、有牌套的条件、可选操作、生物牌类别、战场上支付{2}{U}揭露、辟邪及对牌手战斗伤害抓一张均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 12,
+      "cardId": "25b8f23b-9bea-4912-bd0a-88a1f8390bf4",
+      "name": "Niv-Mizzet's Diary",
+      "zhName": "尼米捷的日记",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "d3659491-2108-5ded-8660-63d3553a1748",
+          "name": "Niv-Mizzet's Diary",
+          "zhName": "尼米捷的日记",
+          "typeLine": "Artifact — Book",
+          "zhTypeLine": "神器～书籍",
+          "manaCost": "{3}{U}{R}",
+          "oracleText": "Imprint - Whenever a player cards an instant or sorcery spell, exile it as it resolves.\nAt the beginning of your upkeep, you may copy an imprinted card and cast the copy without paying its mana cost. It can't cause you to take extra turns. Then, if there are three or more cards imprinted on this artifact, sacrifice it and create a token that's a copy of Niv-Mizzet, Firemind.",
+          "zhText": "压印～每当任一牌手施放瞬间或法术咒语时，于其结算时将之放逐。\n在你的维持开始时，你可以复制一张所压印的牌，并施放该复制品，且不需支付其法术力费用。它不能让你进行额外回合。然后，如果此神器上压印有三张或更多牌，则牺牲之并派出一个衍生物，此衍生物为炎灵尼米捷的复制品。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "d919f31ec2edfe62e655417782d8ebf482f0b0331a4191492aef913641bbe96f"
+          },
+          "reviewedZhSha256": "8582a03e485eb8873b98e67833090da0098d0a7f4f223f4e69d2da853da0c96e"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "维持时可选复制、免付法术力、不能带来额外回合及至少三张时牺牲并派出复制品的条件均保留。英文第一句为“Whenever a player cards an instant or sorcery spell”，其中cards用词异常，中文将其解释为“施放”；本次保留源文异常并交用户复核，不把猜测作为已证实误译。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 13,
+      "cardId": "cda786aa-1259-45e8-a834-21c7ad0259a6",
+      "name": "Picard, Steadfast Captain",
+      "zhName": "坚定舰长皮卡德",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "8011e592-d8b8-5e96-900f-1d3fe5f297f3",
+          "name": "Picard, Steadfast Captain",
+          "zhName": "坚定舰长皮卡德",
+          "typeLine": "Legendary Creature — Human Officer",
+          "zhTypeLine": "传奇生物～人类／官员",
+          "manaCost": "{4}{W}{W}",
+          "oracleText": "Whenever Picard enters or attacks, put two +1/+1 counters on another target creature you control.",
+          "zhText": "每当毕卡进场或攻击时，在另一个目标由你操控的生物上放置两个+1/+1指示物。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "411f17b54840013f63dd5f68061038021b4ffac7e143c9452320614bfeb69914"
+          },
+          "reviewedZhSha256": "6c0a156b542f5866d66a5d3d46be60fc43b3278b8dd9a56ec084509c86a62a3d"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "进场或攻击、另一个目标己方生物及两个+1/+1指示物均保留。正文自称“毕卡”与中文牌名“皮卡德”不统一，列为命名一致性提示。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 14,
+      "cardId": "91e01193-5f3e-40e0-b502-17c2df137321",
+      "name": "Robby, Another Dwarf",
+      "zhName": "另一个矮人若碧",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "45884c22-2d4d-557f-b8e4-5af9b2406b54",
+          "name": "Robby, Another Dwarf",
+          "zhName": "另一个矮人若碧",
+          "typeLine": "Legendary Creature — Dwarf Warrior",
+          "zhTypeLine": "传奇生物～矮人／战士",
+          "manaCost": "{2}{W}",
+          "oracleText": "Dwarf creature spells, legendary creature spells, and Equipment spells you cast have squad 2. Tokens created this way aren't legendary. (As an additional cost to cast one of those spells, you may pay {2} any number of times. When that permanent enters, create that many tokens that are copies of it.)",
+          "zhText": "你施放的矮人生物咒语、传奇生物咒语和武具咒语具有小队2。以此法派出的衍生物不是传奇。（你施放这类咒语时可以额外支付{2}任意次数。当该永久物进场时，派出等量为其复制品的衍生物。）",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "bb5addbf9c96bfc1b10fb9bbe2d19632a36b44cf075735e7866bf1c7691400a0"
+          },
+          "reviewedZhSha256": "e6654e72dda4f089a9724c1b4142ab3aa4dfe0ee258084726bc69018d627e69f"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "己方施放的三类咒语、小队2、任意次数额外{2}、进场派出等量复制品及衍生物不具传奇的内容均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 15,
+      "cardId": "abe92306-e5a9-46c5-8af1-f1ecdced4428",
+      "name": "Split into Three Parts",
+      "zhName": "三分之术",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "f5b42691-828d-5c8c-8938-6b595b3369e4",
+          "name": "Split into Three Parts",
+          "zhName": "三分之术",
+          "typeLine": "Instant",
+          "zhTypeLine": "瞬间",
+          "manaCost": "{1}{U}",
+          "oracleText": "Choose target spell or permanent. Exile it with two time counters on it. Create two tokens that are copies of it in exile, with three and four time counters on them, respectively. They all gain suspend.",
+          "zhText": "选择目标咒语或永久物。将它放逐，且上面有两个计时指示物。派出两个衍生物，其为所放逐之牌的复制品，且上面分别有三个和四个计时指示物。它们均获得延缓异能。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "4c01b8e05abe29cc8121ebcde3ba8aaff19b52243054165425e61cafe622d86c"
+          },
+          "reviewedZhSha256": "8fb18943e06881569c2c6e8e72b92a6565b2f1d2ad5d557dfe24691fc060f169"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "confirmed_mismatch",
+        "conclusion": "目标可为咒语或永久物；原物两个计时指示物、两个复制品分别三个/四个指示物及全部获得延缓均保留；中文遗漏复制品衍生物位于放逐区这一明确限定。",
+        "findings": [
+          {
+            "kind": "omitted_zone_restriction",
+            "faceId": "f5b42691-828d-5c8c-8938-6b595b3369e4",
+            "englishEvidence": "Create two tokens that are copies of it in exile",
+            "chineseEvidence": "派出两个衍生物，其为所放逐之牌的复制品",
+            "explanation": "in exile限定复制品衍生物所在区域；现中文只说明被复制对象为所放逐之牌，未说明衍生物位于放逐区。",
+            "proposedZhText": "选择目标咒语或永久物。将它放逐，且上面有两个计时指示物。在放逐区派出两个为其复制品的衍生物，且上面分别有三个和四个计时指示物。它们均获得延缓异能。",
+            "resolution": "suggested_to_parent_agent; data_not_modified_by_this_review"
+          }
+        ],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 16,
+      "cardId": "a877820f-8999-4dfe-a50d-09f63c885ce3",
+      "name": "Spock, Logical Choice",
+      "zhName": "合乎逻辑的选择史波克",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "7c12b775-7736-58d0-9759-0027ef96ca1f",
+          "name": "Spock, Logical Choice",
+          "zhName": "合乎逻辑的选择史波克",
+          "typeLine": "Legendary Creature — Vulcan Human Scientist",
+          "zhTypeLine": "传奇生物～瓦肯人／人类／科学家",
+          "manaCost": "{3}{U}{U}",
+          "oracleText": "Vigilance (Attacking doesn't cause this creature to tap.)\n{T}: Draw a card.",
+          "zhText": "警戒(此生物攻击时不需横置。)\n{T}：抓一张牌。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "8a33d1976c447d7273b32178771a598906896b740a8fd1465f13a396754b54cc"
+          },
+          "reviewedZhSha256": "1e1551834a0a3f6a069b36981f0a84bfa91ee1350ffe41aff644ed5f16a04040"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "警戒提醒与{T}抓一张均对应，未增加或遗漏起动限制。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 17,
+      "cardId": "9f4cad96-079d-4791-9971-d7ebe43f5e04",
+      "name": "Tarelily, Lovestruck Archer",
+      "zhName": "痴心弓手塔蕾莉",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "e8d4db8b-4f4b-5fbf-b7bf-9578c33182e4",
+          "name": "Tarelily, Lovestruck Archer",
+          "zhName": "痴心弓手塔蕾莉",
+          "typeLine": "Legendary Creature — Elf Archer",
+          "zhTypeLine": "传奇生物～妖精／弓箭手",
+          "manaCost": "{1}{G}{W}",
+          "oracleText": "Elves and/or Dwarf spells you cast cost {1} less to cast.\nSoulbond (You may pair this creature with another unpaired creature when either enters. They remain paired for as long as you control both of them.)\nAs long as this creature is paired with another creature, both creatures have reach. If that creature is a Dwarf, both creatures have lifelink.",
+          "zhText": "你施放的妖精和／或矮人咒语减少{1}来施放。\n魂系（你可以将此生物与另一未搭档的生物在它们任一进场时组搭档。于你同时操控这两者的时段内，它们持续搭档。）\n只要此生物与另一生物搭档，此两者便具有延势异能。如果该生物是矮人，则此两者具有系命异能。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "5f09322ed3a8e43de1978d6b27286df806127bc76d8fb175cec32f1d730bfd32"
+          },
+          "reviewedZhSha256": "ada3e4d25bfa737c96d4e5b283ef1d760768a4daa4a5a763e57bbb1336b70b65"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "妖精和/或矮人咒语减{1}、进场时与另一未搭档生物可选魂系、持续控制条件、搭档时延势及搭档为矮人时系命均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 18,
+      "cardId": "37d842ff-e0ec-400c-a8c8-3f238d9c02f1",
+      "name": "The Flavormancer",
+      "zhName": "风味术士",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "68d93c2e-d0da-5dd2-a85d-7c9df203dbe2",
+          "name": "The Flavormancer",
+          "zhName": "风味术士",
+          "typeLine": "Legendary Creature — Hero Villain",
+          "zhTypeLine": "传奇生物～英雄／反派",
+          "manaCost": "{W}{U}{B}{R}{G}",
+          "oracleText": "Before the game begins, if The Flavormancer is your commander, legendary creature and planeswalker cards in your deck that are flavorfully Heroes or Villains gain that creature type. (For example, Gideon becomes a Hero and Yawgmoth becomes a Villain. Yes, planeswalkers get creature types this way. Don't worry about it.)\nOnce during each of your turns, you may cast a Hero or Villain spell from your hand without paying its mana cost.",
+          "zhText": "在游戏开始之前，如果风味术士是你的指挥官，则你套牌中风味上是英雄或反派的传奇生物和鹏洛客牌获得该生物类别。（举例来说，基定成为英雄，约格莫夫成为反派。是的，鹏洛客会以此法获得生物类别。别担心这个。）\n仅于你的每个回合中且限一次，你可以从你手上施放一个英雄或反派咒语，且不需支付其法术力费用。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "f88c8589a25376945109d8914c0f473b814257ae587fae3f87ead534999b8e9d"
+          },
+          "reviewedZhSha256": "e3daf159c33634edf5d79312cb8cff4662053029cdfab642a37e401c91993645"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "游戏前、作为统帅、传奇生物和鹏洛客牌的类别变化、每个自己回合限一次、从手上施放英雄或反派及免付法术力均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 19,
+      "cardId": "409fc553-a5e2-44fa-87eb-cd88eded5a75",
+      "name": "The Generational Historian",
+      "zhName": "跨代史家",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "207a0c54-9d04-5333-aba4-7d84a4fe7d63",
+          "name": "The Generational Historian",
+          "zhName": "跨代史家",
+          "typeLine": "Legendary Creature — Human Druid",
+          "zhTypeLine": "传奇生物～人类／德鲁伊",
+          "manaCost": "{1}{G}",
+          "oracleText": "Before the game begins, if The Generational Historian is your commander, choose a year. Your deck can contain only cards released in that year. (Legal text, for once, is a great place to check. Specific versions matter.)\nSpells released in the chosen year cost {1} less to cast. If the chosen year is in the 1990s, they also cost {W}{U}{B}{R}{G} less to cast, reducing only the amount of colored mana you pay.",
+          "zhText": "在游戏开始之前，如果跨代史家是你的指挥官，则选择一个年份。你的套牌中只能包含于该年份发行的牌。（这次，规则叙述文字是很好的检查之处。特定版本很重要。）\n于所选年份发行的咒语减少{1}来施放。如果所选年份在1990年代，则它们还减少{W}{U}{B}{R}{G}来施放，此效应仅减少你支付的有色法术力数量。",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "13fe54b5c2b7273de6b13c334b19238beff85ec12c0d62910e0a680141d45934"
+          },
+          "reviewedZhSha256": "fa93917a92171a719f59af65a9a58d7072a697a8a12679badb4c207320e9067f"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "游戏前选年份、卡组发行年份限制、所有对应年份咒语减{1}及1990年代额外有色减费均保留。提醒段“Legal text”译为“规则叙述文字”有术语歧义，需结合原始印刷语境确认；本次仅列待核实，不记为已证实误译。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 20,
+      "cardId": "1c9af8a9-40be-4925-bf52-12e991a1be71",
+      "name": "The Local Guides",
+      "zhName": "当地向导",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "b1766a81-590e-5121-9620-a60bd3c99609",
+          "name": "The Local Guides",
+          "zhName": "当地向导",
+          "typeLine": "Legendary Creature — Human Advisor",
+          "zhTypeLine": "传奇生物～人类／参谋",
+          "manaCost": "{2}{G}",
+          "oracleText": "You may look at the top card of your library any time.\nWhenever another creature you control enters, if the first letter of its name is found in the name of the city you're in, it explores. (Reveal the top card of your library. Put that card into your hand if it's a land. Otherwise, put a +1/+1 counter on the creature, then put the card back or put it into your graveyard.)",
+          "zhText": "你可以随时检视你的牌库顶牌。\n每当另一个由你操控的生物进场时，若其名称的首字母存在于你当前所在城市的名称中，则令它勘察。（展示你的牌库顶牌。如果该牌是地，则置于你手上。若否，则在该生物上放置一个+1/+1指示物，然后将所展示的牌放回原位或置入你的坟墓场。）",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "c096f21f421994c0aa791901d9653187b1e8c0c2efb9756565065d981b2c7889"
+          },
+          "reviewedZhSha256": "7f2343262e4deddda5be315341566392ddfdaf6fb77e72e3172b4766fbe19529"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "随时检视顶牌、另一个己方生物、名字首字母与所在城市的条件及勘察各分支均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 21,
+      "cardId": "4ebbb36e-a6d9-4f6b-aeb6-6a7d0de9fa4e",
+      "name": "The Meld Hound",
+      "zhName": "拼接猎犬",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "329d9026-771d-5327-8da0-8a739cbce6a4",
+          "name": "The Meld Hound",
+          "zhName": "拼接猎犬",
+          "typeLine": "Legendary Creature — Dog",
+          "zhTypeLine": "传奇生物～狗",
+          "manaCost": "{3}{U}{B}{R}",
+          "oracleText": "Whenever you cast a creature spell, exile cards from the top of your library until you exile a creature card. It melds with that spell. You may give the combined creature spell a new name. (The combined creature spell has the abilities and creature types of both creatures, their combined powers and toughnesses, and so on.)",
+          "zhText": "每当你施放生物咒语时，从你的牌库顶开始放逐牌，直到放逐一张生物牌为止。它与该咒语融合。你可以为该组合生物咒语起一个新名称。（该组合生物咒语具有两张生物的异能和生物类别，其力量和防御力为两者之和，依此类推。）",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "e13fbb28966e36d385b3730139bd018f019880963fa9176870acbcf380f476b6"
+          },
+          "reviewedZhSha256": "ebaf7b6b2162d79d78509ae22b4defba91d561e4b7401a41e1007edeec7dc83a"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "每次施放生物咒语触发、从顶放逐至生物牌、与原咒语融合、可选新名字以及异能/类别/力量防御力合并提醒均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 22,
+      "cardId": "eba38613-bb48-4d96-b1c8-c87f1a1f9446",
+      "name": "The Swamp Kitten",
+      "zhName": "沼泽幼猫",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "849c8054-ca83-56d4-98fa-231749b05426",
+          "name": "The Swamp Kitten",
+          "zhName": "沼泽幼猫",
+          "typeLine": "Legendary Creature — Cat",
+          "zhTypeLine": "传奇生物～猫",
+          "manaCost": "{3}{B}",
+          "oracleText": "Land creatures and/or creatures you control with menace get +1/+1.\nAt the beginning of combat on your turn, target Swamp you control becomes a 0/0 black land creature and gains menace. It's still a land. Put a +1/+1 counter on it. (It can't be blocked except by two or more creatures. It's dark and scary.)",
+          "zhText": "由你操控的地生物和／或具威慑异能的生物得+1/+1。\n在你回合的战斗开始时，目标由你操控的沼泽成为0/0黑色地生物且获得威慑异能。它仍然是地。在其上放置一个+1/+1指示物。（它只能被两个或更多生物阻挡。它黑暗又可怕。）",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "27a59f870ee902b2fc83e66423fa3d9d972bab318488bd6024ca0e44017b5cf8"
+          },
+          "reviewedZhSha256": "199624e3ea306fe5cb970ddd2292cf5ccc76245886a89b10b227e1038d7e6a51"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "+1/+1、自己回合战斗开始、目标己方沼泽、0/0黑色地生物、仍是地、一个+1/+1指示物及威慑均保留。本次不扩展解读英文and/or修饰范围。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 23,
+      "cardId": "fe65db84-4a19-42e0-8ef8-993c240ae504",
+      "name": "Wheel of Not Ideal",
+      "zhName": "差强人意轮",
+      "layout": "normal",
+      "commanderLegality": "not_legal",
+      "selectionReason": "all_upstream_ai_cards",
+      "faces": [
+        {
+          "id": "d71f68b3-d57d-5154-ba76-1a680aa4e446",
+          "name": "Wheel of Not Ideal",
+          "zhName": "差强人意轮",
+          "typeLine": "Sorcery",
+          "zhTypeLine": "法术",
+          "manaCost": "{4}{B}{R}",
+          "oracleText": "Each player discards their hand, passes their library to the player to their left, then draws seven cards. (You draw from your new library, the one passed to you. Please be careful with their cards.)\nFlashback {8}{R}{B}",
+          "zhText": "每位牌手弃掉其手牌，将其牌库传给其左手边的牌手，然后各抓七张牌。（你从你的新牌库，即传给你的那个牌库抓牌。请小心对待他人的牌。）\n返照{8}{R}{B}",
+          "translation": {
+            "source": "gpt",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unreviewed",
+            "upstreamAI": true,
+            "sourceStage": 0,
+            "englishSha256": "977409298582c95edbd701b745df3e165e9a73a4cfce9d9c2d0217a005c4c65a"
+          },
+          "reviewedZhSha256": "5f78f3d0bcc070fde888954b09ba9442fe8c288671ea5c88dbe8a4e8d1ef33fd"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "每位牌手弃手、牌库交给左手牌手、从新牌库抓七张的顺序，以及返照{8}{R}{B}均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 24,
+      "cardId": "c0957e5e-c71b-439c-931c-9f55d2f76ace",
+      "name": "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki",
+      "zhName": "破镜奇谭 // 奇奇几奇映影",
+      "layout": "transform",
+      "commanderLegality": "legal",
+      "selectionReason": "complex_layout_or_constraints",
+      "faces": [
+        {
+          "id": "017bb262-10ec-51d7-b892-394aa7fffd6e",
+          "name": "Fable of the Mirror-Breaker",
+          "zhName": "破镜奇谭",
+          "typeLine": "Enchantment — Saga",
+          "zhTypeLine": "结界～传纪",
+          "manaCost": "{2}{R}",
+          "oracleText": "(As this Saga enters and after your draw step, add a lore counter.)\nI — Create a 2/2 red Goblin Shaman creature token with \"Whenever this token attacks, create a Treasure token.\"\nII — You may discard up to two cards. If you do, draw that many cards.\nIII — Exile this Saga, then return it to the battlefield transformed under your control.",
+          "zhText": "（于此传纪进场时及于你抓牌步骤后，加一个学问指示物。）\nI — 派出一个2/2红色鬼怪／祭师衍生生物，且具有「每当此衍生物攻击时，派出一个珍宝衍生物。」\nII — 你可以弃至多两张牌。若你如此作，则抓等量的牌。\nIII — 放逐此传纪，然后将它在你的操控下移回战场且已转化。",
+          "translation": {
+            "source": "MTGZH",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "3f7bb0279fbd06fa2123024154d55dec88d95ed0ed7bcdce5d0b20e6531845b3"
+          },
+          "reviewedZhSha256": "ebe6ad4ee72eab400cde99d5330121ba34eaf6fbd53db2831c69d9836704ba4b"
+        },
+        {
+          "id": "f5de4e39-a244-59b0-ab9d-83c2331643f1",
+          "name": "Reflection of Kiki-Jiki",
+          "zhName": "奇奇几奇映影",
+          "typeLine": "Enchantment Creature — Goblin Shaman",
+          "zhTypeLine": "结界生物～鬼怪／祭师",
+          "manaCost": "",
+          "oracleText": "{1}, {T}: Create a token that's a copy of another target nonlegendary creature you control, except it has haste. Sacrifice it at the beginning of the next end step.",
+          "zhText": "{1}，{T}：派出一个衍生物，此衍生物为另一个目标由你操控之非传奇生物的复制品，但它具有敏捷异能。在下一个结束步骤开始时，将它牺牲。",
+          "translation": {
+            "source": "MTGZH",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "bf2a32d3f64b1dc9229d111304dcf5878f5f6f8a521fb355e2bf18f2d807deb3"
+          },
+          "reviewedZhSha256": "19d5494dd2255a3cc7895b0f64e108cf58e79d75e15280a191178a090fb7aa86"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "逐面对照：2/2红色鬼怪祭师及攻击产珍宝；可弃至多两张再抓等量；放逐并在己方操控下转化回场。背面{1},{T}、另一个目标己方非传奇生物、敏捷及下个结束步骤牺牲均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 25,
+      "cardId": "92023a5d-a143-4950-a71b-d736e6b8e959",
+      "name": "Esika, God of the Tree // The Prismatic Bridge",
+      "zhName": "世界树神埃西卡 // 虹彩桥",
+      "layout": "modal_dfc",
+      "commanderLegality": "legal",
+      "selectionReason": "complex_layout_or_constraints",
+      "faces": [
+        {
+          "id": "125de1a5-6eb1-505b-b1d0-2d5c4f153828",
+          "name": "Esika, God of the Tree",
+          "zhName": "世界树神埃西卡",
+          "typeLine": "Legendary Creature — God",
+          "zhTypeLine": "传奇生物～神",
+          "manaCost": "{1}{G}{G}",
+          "oracleText": "Vigilance\n{T}: Add one mana of any color.\nOther legendary creatures you control have vigilance and \"{T}: Add one mana of any color.\"",
+          "zhText": "警戒\n{T}：加一点任意颜色的法术力。\n由你操控的其他传奇生物具有警戒异能与「{T}：加一点任意颜色的法术力。」",
+          "translation": {
+            "source": "Forge Data",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "7b50253adefa0dc0905fe76ecc522d10dd89e9c45b431e5ebfb4cfacfdd73ece"
+          },
+          "reviewedZhSha256": "462c3703d9f8cde51697a14cf3536d9e8862a29a7a8742770118a3bfe66b70bf"
+        },
+        {
+          "id": "7c1aea41-58ec-524e-848f-eb6828adff04",
+          "name": "The Prismatic Bridge",
+          "zhName": "虹彩桥",
+          "typeLine": "Legendary Enchantment",
+          "zhTypeLine": "传奇结界",
+          "manaCost": "{W}{U}{B}{R}{G}",
+          "oracleText": "At the beginning of your upkeep, reveal cards from the top of your library until you reveal a creature or planeswalker card. Put that card onto the battlefield and the rest on the bottom of your library in a random order.",
+          "zhText": "在你的维持开始时，从你的牌库顶开始展示牌，直到展示出一张生物或鹏洛客牌为止。将该牌放进战场，其余则以随机顺序置于你的牌库底。",
+          "translation": {
+            "source": "Forge Data",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "077b7379791fd1c4f14596f47f52f49e8d2aed9568553962750dae3948c5119f"
+          },
+          "reviewedZhSha256": "b75c0b7109c509cf1109cfaa48594f365f8b39c4d2b89ca7f06fb6957d73b7c6"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "逐面对照：警戒、横置产一点任意色、其他己方传奇生物的授予内容；背面维持触发、展示至生物或鹏洛客、该牌进场及其余随机置底均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 26,
+      "cardId": "9842734c-1eac-4509-a731-4c22017ae586",
+      "name": "Wear // Tear",
+      "zhName": "损耗 // 穿破",
+      "layout": "split",
+      "commanderLegality": "legal",
+      "selectionReason": "complex_layout_or_constraints",
+      "faces": [
+        {
+          "id": "b9fe10da-0bd0-56c0-be32-7aa7b88f150b",
+          "name": "Wear",
+          "zhName": "损耗",
+          "typeLine": "Instant",
+          "zhTypeLine": "瞬间",
+          "manaCost": "{1}{R}",
+          "oracleText": "Destroy target artifact.\nFuse (You may cast one or both halves of this card from your hand.)",
+          "zhText": "消灭目标神器。\n融咒（你可以从你手上单独施放此牌任一边或一同施放两边。）",
+          "translation": {
+            "source": "Forge Data",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "9bff5bf903ae316039af230b1a7a19633569c224219eaa9c7bf4ad43d28bd011"
+          },
+          "reviewedZhSha256": "26a66910321a8ca121f40dae0089367841e70c0fbb7e70d9e57c11ad53e03455"
+        },
+        {
+          "id": "07934931-2c11-5008-b603-88742f766c07",
+          "name": "Tear",
+          "zhName": "穿破",
+          "typeLine": "Instant",
+          "zhTypeLine": "瞬间",
+          "manaCost": "{W}",
+          "oracleText": "Destroy target enchantment.\nFuse (You may cast one or both halves of this card from your hand.)",
+          "zhText": "消灭目标结界。\n融咒（你可以从你手上单独施放此牌任一边或一同施放两边。）",
+          "translation": {
+            "source": "Forge Data",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "ee91fff1399b88c25872bd9a994f56a615c55e18451493e4337561d2e761a560"
+          },
+          "reviewedZhSha256": "6ff4a1e27e65ad56d75fb63645fad854243f54e09f7e9ef7a4dd743b1e79b05d"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "逐面对照：一面仅目标神器，另一面仅目标结界；两面融咒提醒均保留从手上施放任一边或两边的限制。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 27,
+      "cardId": "c7b044c3-3cfa-407e-bf20-2875e8e04b7b",
+      "name": "Brazen Borrower // Petty Theft",
+      "zhName": "厚颜借物灵 // 小偷小摸",
+      "layout": "adventure",
+      "commanderLegality": "legal",
+      "selectionReason": "complex_layout_or_constraints",
+      "faces": [
+        {
+          "id": "88da6ebb-6060-5508-923f-4abf6028fd7a",
+          "name": "Brazen Borrower",
+          "zhName": "厚颜借物灵",
+          "typeLine": "Creature — Faerie Rogue",
+          "zhTypeLine": "生物～仙灵／浪客",
+          "manaCost": "{1}{U}{U}",
+          "oracleText": "Flash\nFlying\nThis creature can block only creatures with flying.",
+          "zhText": "闪现\n飞行\n此生物只能阻挡具飞行异能的生物。",
+          "translation": {
+            "source": "MTGZH",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "21bef2c12d7eab77c00be8877e1992e40e6aa8024957eddfd93415d4ac7aec06"
+          },
+          "reviewedZhSha256": "2b437c981c3263ab747d9224c35f91a3d424241c251c7207926b72234a6f7893"
+        },
+        {
+          "id": "b9a6ceef-66d0-5101-ade1-3305e1c05b8c",
+          "name": "Petty Theft",
+          "zhName": "小偷小摸",
+          "typeLine": "Instant — Adventure",
+          "zhTypeLine": "瞬间～历险",
+          "manaCost": "{1}{U}",
+          "oracleText": "Return target nonland permanent an opponent controls to its owner's hand.",
+          "zhText": "将目标由对手操控的非地永久物移回其拥有者手上。",
+          "translation": {
+            "source": "MTGZH",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "a5b4e812359fb4553931eb3bb4c23d202e2e006b6bdbbe0daf542fcdf3dddb03"
+          },
+          "reviewedZhSha256": "f954e3d5751260a85e37eebc1d45ce44b41dcfa08ed73f88c0c2e3c7ef11bde8"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "逐面对照：闪现、飞行及只能阻挡飞行生物；历险面目标限定对手操控的非地永久物，回到拥有者手上。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 28,
+      "cardId": "09cc8709-fe10-472a-b05c-e89f3523018d",
+      "name": "Austere Command",
+      "zhName": "严峻指命",
+      "layout": "normal",
+      "commanderLegality": "legal",
+      "selectionReason": "complex_layout_or_constraints",
+      "faces": [
+        {
+          "id": "13f1f0f0-0d7d-5df1-8e06-6295a049987a",
+          "name": "Austere Command",
+          "zhName": "严峻指命",
+          "typeLine": "Sorcery",
+          "zhTypeLine": "法术",
+          "manaCost": "{4}{W}{W}",
+          "oracleText": "Choose two —\n• Destroy all artifacts.\n• Destroy all enchantments.\n• Destroy all creatures with mana value 3 or less.\n• Destroy all creatures with mana value 4 or greater.",
+          "zhText": "选择两项～\n•消灭所有神器。\n•消灭所有结界。\n•消灭所有法术力值等于或小于3的生物。\n•消灭所有法术力值等于或大于4的生物。",
+          "translation": {
+            "source": "MTGZH",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "5f6205efe94b6886ff8a437b47d32c37d883caf4e722a270a7d753bcd1a58411"
+          },
+          "reviewedZhSha256": "f4eebac5c0d40851c49b0793001897c51a45ea61e837c910c3c95d841f236fa0"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "四个模式选两项；消灭神器/结界以及法术力值不大于3和至少4的两组生物，数字边界及操作均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 29,
+      "cardId": "d75b9c82-1b49-4c3e-a1b5-aeef57d6644b",
+      "name": "Cyclonic Rift",
+      "zhName": "龙卷裂空",
+      "layout": "normal",
+      "commanderLegality": "legal",
+      "selectionReason": "complex_layout_or_constraints",
+      "faces": [
+        {
+          "id": "2f824199-0697-5e5c-b8fa-9ee3d731e556",
+          "name": "Cyclonic Rift",
+          "zhName": "龙卷裂空",
+          "typeLine": "Instant",
+          "zhTypeLine": "瞬间",
+          "manaCost": "{1}{U}",
+          "oracleText": "Return target nonland permanent you don't control to its owner's hand.\nOverload {6}{U} (You may cast this spell for its overload cost. If you do, change \"target\" in its text to \"each.\")",
+          "zhText": "将目标不由你操控的非地永久物移回其拥有者手上。\n超载{6}{U}（你可以支付此咒语的超载费用来施放它。若你如此作，则将其叙述中的「目标」更改为「每个」。）",
+          "translation": {
+            "source": "MTGZH",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "c6622e2c086f9a84b9efddd4fb5cd1116d7a32a76c4df62ee460dedfb6ae4c4a"
+          },
+          "reviewedZhSha256": "4664cc20066bb15183c83251ee70a43e52186228d1a5983f209848bd6afc61b4"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "目标限不由你操控的非地永久物，回到拥有者手上；超载{6}{U}为可选施放费用并把目标改为每个，条件保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    },
+    {
+      "sample": 30,
+      "cardId": "bf1341dd-41a3-49f6-87ec-63170dde4324",
+      "name": "Boseiju, Who Endures",
+      "zhName": "历祚母圣树",
+      "layout": "normal",
+      "commanderLegality": "legal",
+      "selectionReason": "complex_layout_or_constraints",
+      "faces": [
+        {
+          "id": "d677b3e3-15bb-5567-bba1-9e9cc9e78a6e",
+          "name": "Boseiju, Who Endures",
+          "zhName": "历祚母圣树",
+          "typeLine": "Legendary Land",
+          "zhTypeLine": "传奇地",
+          "manaCost": "",
+          "oracleText": "{T}: Add {G}.\nChannel — {1}{G}, Discard this card: Destroy target artifact, enchantment, or nonbasic land an opponent controls. That player may search their library for a land card with a basic land type, put it onto the battlefield, then shuffle. This ability costs {1} less to activate for each legendary creature you control.",
+          "zhText": "{T}：加{G}。\n魂力～{1}{G}，弃掉此牌：消灭目标由对手操控的神器，结界或非基本地。该牌手可以从其牌库中搜寻一张具基本地类别的地牌，将之放进战场，然后洗牌。你每操控一个传奇生物，此异能便减少{1}来起动。",
+          "translation": {
+            "source": "MTGZH",
+            "status": "community",
+            "stale": false,
+            "freshness": "matched",
+            "reviewStatus": "unknown",
+            "upstreamAI": false,
+            "sourceStage": 5,
+            "englishSha256": "80e3f8726a6fcfee87b81d0ed8685deac80263a199a25c05ee3505e70e94196c"
+          },
+          "reviewedZhSha256": "7c3706ed336e9a5ea80ae1336d87594e2829c1bda43c57df4f05a0905a4f9748"
+        }
+      ],
+      "review": {
+        "method": "AI-assisted English/Chinese text comparison",
+        "status": "no_proven_mismatch",
+        "conclusion": "横置产{G}；魂力{1}{G}加弃掉此牌；目标限对手的神器/结界/非基本地；该牌手可找具有基本地类别的地并进场洗牌；每个己方传奇生物减{1}的起动减费均保留。",
+        "findings": [],
+        "humanAcceptance": "pending"
+      }
+    }
+  ]
+}
