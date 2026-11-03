@@ -1,12 +1,12 @@
 import { loadCatalog } from './lib/catalog.js';
-import { searchCards } from './lib/search.js';
+import { parseQuery, searchCards } from './lib/search.js';
 import { initDeckUI } from './lib/deck-ui.js';
+import { initSearchFilters } from './lib/filter-ui.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const PAGE_SIZE = 48;
 const COLOR_NAMES = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿', C: '无色' };
-const TYPE_NAMES = { Creature: '生物', Instant: '瞬间', Sorcery: '法术', Artifact: '神器', Enchantment: '结界', Planeswalker: '鹏洛客', Land: '地', Battle: '战役' };
 const MANA_GLYPHS = { W: '☀', U: '◆', B: '●', R: '◆', G: '♣', C: '◇', T: '↷', Q: '↶', E: 'ϟ', S: '❄' };
 let allCards = [];
 let manifest = null;
@@ -22,7 +22,7 @@ let previousFocus = null;
 let searchTimer = null;
 let loading = true;
 let mobileFilterFocus = null;
-const filters = { colors: [], colorMode: 'identity', types: [], maxManaValue: null, commanderOnly: true, translation: 'all' };
+let filterUI = null;
 
 function node(tag, attrs = {}, children = []) {
   const item = document.createElement(tag);
@@ -164,42 +164,35 @@ function appendResults() {
 }
 
 function renderActiveFilters() {
-  const wrap = $('#active-filters');
-  wrap.replaceChildren();
-  const items = [];
-  for (const color of filters.colors) items.push({ label: COLOR_NAMES[color], remove: () => { filters.colors = filters.colors.filter((value) => value !== color); } });
-  for (const type of filters.types) items.push({ label: TYPE_NAMES[type] || type, remove: () => { filters.types = filters.types.filter((value) => value !== type); } });
-  if (filters.maxManaValue !== null) items.push({ label: '法术力值 ≤ ' + filters.maxManaValue, remove: () => { filters.maxManaValue = null; } });
-  if (filters.commanderOnly) items.push({ label: 'EDH 合法', remove: () => { filters.commanderOnly = false; } });
-  if (filters.translation !== 'all') items.push({ label: filters.translation === 'translated' ? '已有中文' : '中文待补', remove: () => { filters.translation = 'all'; } });
-  for (const item of items) wrap.append(node('button', { class: 'filter-pill', type: 'button', 'aria-label': '移除筛选：' + item.label, onClick: () => { item.remove(); syncFilterInputs(); runSearch(); } }, [item.label, icon('close')]));
-  wrap.hidden = !items.length;
-  $('#filter-count').hidden = !items.length;
-  $('#filter-count').textContent = items.length;
+  filterUI.renderActiveFilters();
 }
 
 function runSearch() {
   if (loading) return;
   clearTimeout(searchTimer);
   const query = $('#search-input').value.trim();
+  const visual = filterUI.getSearch();
+  const combinedQuery = [query ? '(' + query + ')' : '', visual.query].filter(Boolean).join(' AND ');
   const errorBox = $('#search-error');
   let result;
   try {
-    result = searchCards(allCards, query, { ...filters, colors: [...filters.colors], types: [...filters.types] }, $('#sort-select').value);
+    if (query) parseQuery(query);
+    result = visual.error ? { cards: [], total: 0, error: { message: visual.error } } : searchCards(allCards, combinedQuery, visual.filters, $('#sort-select').value);
   } catch (error) {
-    result = { cards: [], total: 0, error: { message: error.message || '检索出现问题，请修改条件后重试。' } };
+    result = { cards: [], total: 0, error: { message: error.message || '检索出现问题，请修改条件后重试。', rawPosition: error.position } };
   }
   renderActiveFilters();
+  filterUI.showError(result.error?.message);
   $('#results').replaceChildren();
   $('#result-state').hidden = true;
   $('#load-more').hidden = true;
   $('#result-end').hidden = true;
   errorBox.hidden = !result.error;
   if (result.error) {
-    const position = Number.isInteger(result.error.position) ? '（第 ' + (result.error.position + 1) + ' 个字符附近）' : '';
+    const position = Number.isInteger(result.error.rawPosition) ? '（搜索框第 ' + (result.error.rawPosition + 1) + ' 个字符附近）' : '';
     errorBox.textContent = result.error.message + position;
-    $('#results-count').textContent = '检索语法需要调整';
-    setResultState({ title: '检查一下搜索条件', message: '可以打开「检索语法」查看支持的字段和组合方式。', kind: 'help', action: { label: '查看检索语法', run: () => $('#help-dialog').showModal() } });
+    $('#results-count').textContent = '搜索条件需要调整';
+    setResultState({ title: '检查一下搜索条件', message: '请调整上面的搜索内容或筛选条件，也可以在高级搜索中逐项选择。', kind: 'help', action: { label: '打开高级搜索', run: showAdvancedFilters } });
     matchedCards = [];
     return;
   }
@@ -214,25 +207,8 @@ function runSearch() {
   appendResults();
 }
 
-function syncFilterInputs() {
-  $$('#color-filters button').forEach((button) => button.setAttribute('aria-pressed', String(filters.colors.includes(button.dataset.color))));
-  $$('#type-filters input').forEach((input) => { input.checked = filters.types.includes(input.value); });
-  $('#color-mode').value = filters.colorMode;
-  $('#mana-range').value = filters.maxManaValue === null ? 11 : filters.maxManaValue;
-  $('#mana-label').textContent = filters.maxManaValue === null ? '不限' : '≤ ' + filters.maxManaValue;
-  $('#translation-filter').value = filters.translation;
-  $('#commander-filter').checked = filters.commanderOnly;
-}
-
 function resetFilters() {
-  filters.colors = [];
-  filters.colorMode = 'identity';
-  filters.types = [];
-  filters.maxManaValue = null;
-  filters.commanderOnly = true;
-  filters.translation = 'all';
-  syncFilterInputs();
-  runSearch();
+  filterUI.reset();
 }
 
 function clearSearch() { $('#search-input').value = ''; resetFilters(); }
@@ -270,6 +246,16 @@ function closeFilters() {
   if (window.matchMedia('(max-width: 700px)').matches) $('#filter-toggle').setAttribute('aria-expanded', 'false');
   mobileFilterFocus?.focus();
   mobileFilterFocus = null;
+}
+
+function showAdvancedFilters() {
+  filterUI.setMode('advanced');
+  if (window.matchMedia('(max-width: 700px)').matches) {
+    if (!$('#catalog-view').classList.contains('filters-mobile-open')) openFilters();
+  } else {
+    $('#catalog-view').classList.remove('filters-collapsed');
+    $('#filter-toggle').setAttribute('aria-expanded', 'true');
+  }
 }
 
 function switchView(view) {
@@ -457,6 +443,7 @@ function trapFocus(event, container) {
 }
 
 function wireEvents() {
+  filterUI = initSearchFilters({ onChange: () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); } });
   $('#search-form').addEventListener('submit', (event) => { event.preventDefault(); runSearch(); });
   $('#search-input').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); });
   $('#sort-select').addEventListener('change', runSearch);
@@ -465,14 +452,8 @@ function wireEvents() {
   $('#filter-toggle').addEventListener('click', openFilters);
   $('#filter-close').addEventListener('click', closeFilters);
   $('#filter-scrim').addEventListener('click', closeFilters);
-  $$('#color-filters button').forEach((button) => button.addEventListener('click', () => { const color = button.dataset.color; filters.colors = filters.colors.includes(color) ? filters.colors.filter((value) => value !== color) : [...filters.colors, color]; syncFilterInputs(); runSearch(); }));
-  $$('#type-filters input').forEach((input) => input.addEventListener('change', () => { filters.types = $$('#type-filters input:checked').map((item) => item.value); runSearch(); }));
-  $('#color-mode').addEventListener('change', (event) => { filters.colorMode = event.target.value; runSearch(); });
-  $('#mana-range').addEventListener('input', (event) => { filters.maxManaValue = Number(event.target.value) === 11 ? null : Number(event.target.value); $('#mana-label').textContent = filters.maxManaValue === null ? '不限' : '≤ ' + filters.maxManaValue; clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 100); });
-  $('#translation-filter').addEventListener('change', (event) => { filters.translation = event.target.value; runSearch(); });
-  $('#commander-filter').addEventListener('change', (event) => { filters.commanderOnly = event.target.checked; runSearch(); });
+  $('#advanced-open').addEventListener('click', showAdvancedFilters);
   $$('[data-query]').forEach((button) => button.addEventListener('click', () => setQuery(button.dataset.query)));
-  $$('[data-tag]').forEach((button) => button.addEventListener('click', () => { const current = $('#search-input').value.trim(); setQuery((current ? current + ' ' : '') + 'tag:' + button.dataset.tag); closeFilters(); }));
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => switchView(button.dataset.view)));
   $('.brand').addEventListener('click', (event) => { event.preventDefault(); switchView('catalog'); });
   $('#view-grid').addEventListener('click', () => setResultView('grid'));
@@ -514,6 +495,7 @@ async function boot() {
     } });
     allCards = catalog.cards;
     manifest = catalog.manifest;
+    filterUI.setCatalog(allCards);
     loading = false;
     $('#results').setAttribute('aria-busy', 'false');
     renderDataStatus();

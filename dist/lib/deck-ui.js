@@ -1,4 +1,4 @@
-import { DeckStore, defaultVersion, getVersion, findCardCandidates, validateDeck, parseDeckText, rowToEntry, exportDeckText, exportDeckBackup, parseDeckBackup } from './decks.js';
+import { DeckStore, defaultVersion, getVersion, findCardCandidates, getCommanderIdentity, validateDeck, parseDeckText, rowToEntry, exportDeckText, exportDeckBackup, parseDeckBackup } from './decks.js';
 
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
@@ -40,6 +40,7 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
   const index = new Map(cards.map(card => [card.id, card]));
   let selectedId = null;
   let groupBy = 'type';
+  const identitySearchPreferences = new Map();
   const openModals = new Set();
   const store = new DeckStore({ onChange: updateStatus });
   function updateStatus() {
@@ -173,10 +174,20 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
     const section = el('section', 'deck-add-section'); section.append(el('h2', '', '添加卡牌'));
     const form = el('form', 'deck-add-form'); const query = input(''); query.placeholder = '中文 / 英文牌名，或系列＋编号（如 cmm 396）'; query.setAttribute('aria-label', '搜索要加入的卡牌');
     const search = button('查找卡牌', () => {}, 'button button-primary'); search.type = 'submit'; form.append(query, search); section.append(form);
+    const commanderIdentity = getCommanderIdentity(deck, cards);
+    const restrictIdentity = input('', 'checkbox'); restrictIdentity.checked = commanderIdentity !== null && identitySearchPreferences.get(deck.id) !== false; restrictIdentity.disabled = commanderIdentity === null;
+    const identityLabel = el('label', 'deck-check-label'); identityLabel.append(restrictIdentity, el('span', '', '仅显示主将标识色内的牌'));
+    const identityHint = el('p', 'deck-muted');
+    if (commanderIdentity === null) identityHint.textContent = deck.entries.some(entry => entry.zone === 'commander') ? '主将标识色数据暂不可用，当前搜索不限标识色。' : '设置主将后，可以自动按主将标识色限制搜索。当前搜索不限标识色。';
+    else {
+      const colorNames = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿' };
+      identityHint.textContent = `主将标识色：${commanderIdentity.map(color => colorNames[color]).join('、') || '无色'}。筛选范围包含${[...commanderIdentity.map(color => colorNames[color]), '无色'].join('、')}标识的牌。`;
+    }
+    section.append(identityHint, identityLabel);
     const results = el('div', 'deck-add-results'); section.append(results);
-    form.addEventListener('submit', event => {
-      event.preventDefault(); results.replaceChildren(); const candidates = findCardCandidates(query.value, cards);
-      if (!candidates.length) { results.append(el('p', 'deck-muted', '没有找到对应卡牌。可以输入完整牌名，或使用“系列代码 编号”。')); return; }
+    function showCandidates() {
+      results.replaceChildren(); const candidates = findCardCandidates(query.value, cards, { colorIdentity: restrictIdentity.checked ? commanderIdentity : null });
+      if (!candidates.length) { results.append(el('p', 'deck-muted', restrictIdentity.checked ? '主将标识色范围内没有找到对应卡牌。可调整牌名，或取消标识色限制继续查找。' : '没有找到对应卡牌。可以输入完整牌名，或使用“系列代码 编号”。')); return; }
       if (candidates.length >= 50) results.append(el('p', 'deck-muted', '显示前 50 张，请补充牌名缩小范围。'));
       const printingQuery = query.value.trim().toLowerCase().match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
       for (const card of candidates) {
@@ -184,7 +195,10 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
         const version = printingQuery ? card.versions?.find(item => item.set.toLowerCase() === printingQuery[1] && String(item.collectorNumber).toLowerCase() === printingQuery[2]) : null;
         row.append(name, button('＋ 加入', () => addCard(card, version, deck.id), 'button button-quiet')); results.append(row);
       }
-    }); container.append(section);
+    }
+    form.addEventListener('submit', event => { event.preventDefault(); showCandidates(); });
+    restrictIdentity.addEventListener('change', () => { identitySearchPreferences.set(deck.id, restrictIdentity.checked); if (query.value.trim()) showCandidates(); });
+    container.append(section);
   }
   async function addCard(card, version, preferredId = selectedId) {
     return new Promise(resolve => {

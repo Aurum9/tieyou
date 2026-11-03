@@ -8,6 +8,7 @@
     <title>牌库 · EDH ATELIER</title>
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./deck.css" />
+    <link rel="stylesheet" href="./filter.css" />
   </head>
   <body>
     <svg xmlns="http://www.w3.org/2000/svg" class="icon-defs" aria-hidden="true">
@@ -46,7 +47,9 @@
       <button id="filter-scrim" class="filter-scrim" aria-label="关闭筛选" hidden></button>
       <aside id="filters" class="filters-panel" aria-label="筛选条件">
         <div class="filter-heading"><h2><svg class="icon"><use href="#i-filter"/></svg>筛选条件</h2><button id="filter-reset" class="text-button">重置</button><button id="filter-close" class="icon-button mobile-only" aria-label="关闭筛选"><svg class="icon"><use href="#i-close"/></svg></button></div>
+        <div class="filter-mode" role="group" aria-label="搜索模式"><button id="filter-simple" type="button" aria-pressed="true">简略搜索</button><button id="filter-advanced" type="button" aria-pressed="false" aria-controls="advanced-filters">高级搜索<span id="advanced-count" hidden></span></button></div>
         <div class="filter-scroll">
+          <button id="advanced-retained" class="advanced-retained" type="button" hidden></button>
           <fieldset class="filter-section">
             <legend>颜色</legend>
             <div id="color-filters" class="color-filters">
@@ -57,7 +60,7 @@
               <button class="color-filter" data-color="G" aria-pressed="false" aria-label="绿色"><span class="mana-symbol mana-g">♣</span><span>绿</span></button>
               <button class="color-filter" data-color="C" aria-pressed="false" aria-label="无色"><span class="mana-symbol mana-c">◇</span><span>无</span></button>
             </div>
-            <label class="small-select-label" for="color-mode">筛选依据<select id="color-mode"><option value="identity">标识色</option><option value="colors">牌面颜色</option></select></label>
+            <label class="small-select-label" for="color-relation">匹配方式<select id="color-relation"><option value="any">包含任一所选色</option><option value="all">包含全部所选色</option><option value="exact">恰好为所选色</option><option value="within">仅在所选色内</option></select></label>
           </fieldset>
           <fieldset class="filter-section">
             <legend>卡牌类别</legend>
@@ -74,32 +77,46 @@
           </fieldset>
           <fieldset class="filter-section">
             <legend>法术力值<span id="mana-label" class="legend-value">不限</span></legend>
-            <input id="mana-range" class="mana-range" type="range" min="0" max="11" value="11" step="1" aria-label="最大法术力值"/>
-            <div class="range-labels"><span>0</span><span>≤ 5</span><span>不限</span></div>
-          </fieldset>
-          <fieldset class="filter-section">
-            <legend>中文内容</legend>
-            <select id="translation-filter" class="field-select"><option value="all">全部卡牌</option><option value="translated">已有中文规则</option><option value="missing">待补中文规则</option></select>
+            <div class="mana-bounds"><label for="mana-min">最低<input id="mana-min" type="number" min="0" step="any" inputmode="decimal" placeholder="不限" aria-label="最低法术力值"/></label><span aria-hidden="true">—</span><label for="mana-max">最高<input id="mana-max" type="number" min="0" step="any" inputmode="decimal" placeholder="不限" aria-label="最高法术力值"/></label></div>
           </fieldset>
           <div class="filter-section legal-filter"><label class="checkbox-label"><input id="commander-filter" type="checkbox" checked/><span>仅看 EDH 合法牌</span></label><p>取消勾选即可浏览完整卡池。</p></div>
+          <div id="advanced-filters" hidden>
+          <p class="advanced-intro">点选条件即可组合搜索，无需输入语法。</p>
+          <fieldset class="filter-section">
+            <legend>标识色</legend>
+            <div id="identity-filters" class="color-filters" aria-label="标识色选择"></div>
+            <label class="small-select-label" for="identity-relation">匹配方式<select id="identity-relation"><option value="within">仅在所选色内（含无色）</option><option value="any">包含任一所选色</option><option value="all">包含全部所选色</option><option value="exact">恰好为所选色</option></select></label>
+            <p class="filter-note">标识色还包含规则文字与其他牌面的颜色，用于判断 EDH 组牌范围。</p>
+          </fieldset>
           <div class="filter-section tag-section">
-            <h3>功能标签<span class="tiny-badge">预览</span></h3>
-            <div class="tag-filters"><button data-tag="抓牌">抓牌</button><button data-tag="加速">加速</button><button data-tag="找地">找地</button><button data-tag="单体去除">单体去除</button><button data-tag="清场">清场</button><button data-tag="反击">反击</button><button data-tag="坟场互动">坟场互动</button></div>
-            <p id="tag-coverage">功能标签正在接入，覆盖情况以实际数据为准。</p>
+            <h3>功能标签</h3>
+            <div class="tag-filters"><button type="button" data-tag="抓牌" aria-pressed="false">抓牌</button><button type="button" data-tag="加速" aria-pressed="false">加速</button><button type="button" data-tag="找地" aria-pressed="false">找地</button><button type="button" data-tag="单体去除" aria-pressed="false">单体去除</button><button type="button" data-tag="清场" aria-pressed="false">清场</button><button type="button" data-tag="反击" aria-pressed="false">反击</button><button type="button" data-tag="坟场互动" aria-pressed="false">坟场互动</button></div>
+            <label class="small-select-label" for="tag-match">标签关系<select id="tag-match"><option value="any">具有任一标签</option><option value="all">具有全部标签</option></select></label>
+            <p id="tag-coverage">正在读取功能标签覆盖情况。</p>
+            <button id="add-tag-condition" type="button" class="text-button">＋ 查找更多标签</button>
           </div>
+          <fieldset class="filter-section">
+            <legend>中文内容</legend>
+            <select id="translation-filter" class="field-select" aria-label="中文内容"><option value="all">全部卡牌</option><option value="translated">已有中文规则</option><option value="missing">待补中文规则</option></select>
+          </fieldset>
+          <section class="filter-section condition-section" aria-labelledby="conditions-heading"><h3 id="conditions-heading">更多搜索条件</h3><p class="filter-note">牌名、规则文字、子类别、系列、编号、稀有度、语言等均可在这里选择。</p><div id="condition-builder"></div><p class="filter-note">系列、编号、稀有度与语言会匹配同一个印刷版本；当前版本语言主要为英文及简体中文。</p></section>
+          <details class="generated-query"><summary>查看自动生成的语法</summary><code id="generated-query">尚未添加高级条件</code></details>
+          <button id="help-open" type="button" class="text-button syntax-reference">查看完整语法参考</button>
+          </div>
+          <p id="filter-error" class="filter-error" role="alert" hidden></p>
         </div>
         <div class="filter-footer"><svg class="icon"><use href="#i-book"/></svg><span>每一次构筑，从一张牌开始。</span></div>
       </aside>
 
       <section class="catalog-content" aria-label="卡牌检索">
-        <div class="page-heading"><div><p class="eyebrow">THE CARD CATALOG</p><h1>找到你的下一张牌<span class="heading-dot">。</span></h1></div><button id="help-open" class="button button-quiet syntax-help"><svg class="icon"><use href="#i-help"/></svg>检索语法</button></div>
+        <div class="page-heading"><div><p class="eyebrow">THE CARD CATALOG</p><h1>找到你的下一张牌<span class="heading-dot">。</span></h1></div><button id="advanced-open" class="button button-quiet advanced-open"><svg class="icon"><use href="#i-filter"/></svg>高级搜索</button></div>
         <form id="search-form" class="search-form" role="search">
           <svg class="icon search-icon"><use href="#i-search"/></svg>
           <label class="sr-only" for="search-input">搜索卡名、规则文字或高级语法</label>
           <input id="search-input" type="search" placeholder="输入中文 / 英文卡名、规则文字或高级语法…" autocomplete="off" spellcheck="false"/>
           <kbd class="search-shortcut">/</kbd><button type="submit" class="search-submit">搜索<svg class="icon"><use href="#i-arrow"/></svg></button>
         </form>
-        <div class="search-hints"><span>试试</span><button data-query="t:生物 ci<=ug mv<=3">蓝绿低费生物</button><span class="hint-dot">·</span><button data-query="o:抓一张牌">抓一张牌</button><span class="hint-dot">·</span><button data-query="set:neo">神河：霓朝纪</button></div>
+        <div class="search-hints"><span>试试</span><button data-query="t:生物 c<=ug mv<=3">蓝绿低费生物</button><span class="hint-dot">·</span><button data-query="o:抓一张牌">抓一张牌</button><span class="hint-dot">·</span><button data-query="set:neo">神河：霓朝纪</button></div>
         <div id="data-status" class="data-status" role="status"><span class="status-dot"></span><span id="data-status-text">正在连接卡牌数据库…</span><button id="data-info-open" class="status-info" aria-label="查看数据来源与覆盖情况"><svg class="icon"><use href="#i-info"/></svg></button></div>
         <div class="results-toolbar">
           <div class="results-count-wrap"><button id="filter-toggle" class="button filter-toggle" aria-expanded="true" aria-controls="filters"><svg class="icon"><use href="#i-filter"/></svg><span>筛选</span><span id="filter-count" class="filter-count" hidden>0</span></button><p id="results-count" aria-live="polite">正在加载卡库…</p></div>

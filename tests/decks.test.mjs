@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { DeckStore, STORAGE_KEY, createDeck, newId, defaultVersion, parseDeckText, exportDeckText, exportDeckBackup, parseDeckBackup, validateDeck, findCardCandidates } from '../dist/lib/decks.js';
+import { DeckStore, STORAGE_KEY, createDeck, newId, defaultVersion, parseDeckText, exportDeckText, exportDeckBackup, parseDeckBackup, validateDeck, findCardCandidates, getCommanderIdentity } from '../dist/lib/decks.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -21,6 +21,40 @@ const nine = card('nine', 'Nine Things', { oracleText: 'A deck can have up to ni
 const cards = [commander, ring, forest, blue, banned, multi, rats, nine];
 function entry(card, { quantity = 1, zone = 'main', versionId = card.versions[0].id, ...rest } = {}) { return { id: newId(), cardId: card.id, versionId, quantity, zone, categories: [], notes: '', ...rest }; }
 function deck(entries) { return { ...createDeck('测试卡组'), entries }; }
+
+test('commander search distinguishes unset, colorless and combined commander identities', () => {
+  assert.equal(getCommanderIdentity(deck([entry(commander)]), cards), null);
+  assert.deepEqual(getCommanderIdentity(deck([entry(ring, { zone: 'commander' })]), cards), []);
+  const pair = deck([entry(commander, { zone: 'commander' }), entry(blue, { zone: 'commander' }), entry(banned, { zone: 'considering' })]);
+  assert.deepEqual(getCommanderIdentity(pair, cards), ['U', 'G']);
+  assert.equal(getCommanderIdentity(deck([entry(commander, { zone: 'commander', cardId: 'unknown' })]), cards), null);
+});
+
+test('commander search allows colorless identities and can be disabled without changing the deck', () => {
+  const original = deck([entry(commander, { zone: 'commander' })]);
+  const before = JSON.stringify(original);
+  const identity = getCommanderIdentity(original, cards);
+  const coloredIdentity = card('devoid', 'Devoid Match', { colorIdentity: ['U'], colors: [] });
+  const pool = [ring, blue, forest, coloredIdentity];
+  assert.deepEqual(findCardCandidates('Sol Ring', pool, { colorIdentity: identity }).map(row => row.id), ['ring']);
+  assert.deepEqual(findCardCandidates('Blue Spell', pool, { colorIdentity: identity }), []);
+  assert.deepEqual(findCardCandidates('Devoid Match', pool, { colorIdentity: identity }), []);
+  assert.deepEqual(findCardCandidates('Blue Spell', pool, { colorIdentity: null }).map(row => row.id), ['blue']);
+  assert.deepEqual(findCardCandidates('Forest', pool, { colorIdentity: [] }), []);
+  assert.deepEqual(findCardCandidates('Sol Ring', pool, { colorIdentity: [] }).map(row => row.id), ['ring']);
+  assert.equal(JSON.stringify(original), before);
+});
+
+test('commander search filters before the fifty-candidate limit and preserves printing lookup', () => {
+  const forbidden = Array.from({ length: 60 }, (_, n) => card(`blue-${n}`, `Shared Name ${n}`, { colorIdentity: ['U'] }));
+  const allowed = card('allowed', 'Shared Name Eligible', { colorIdentity: ['G'] });
+  const pool = [...forbidden, allowed];
+  assert.equal(findCardCandidates('Shared Name', pool).length, 50);
+  assert.deepEqual(findCardCandidates('Shared Name', pool, { colorIdentity: ['G'] }).map(row => row.id), ['allowed']);
+  assert.deepEqual(findCardCandidates('xyz allowed', pool, { colorIdentity: ['G'] }).map(row => row.id), ['allowed']);
+  assert.deepEqual(findCardCandidates('xyz allowed', pool, { colorIdentity: [] }), []);
+  assert.deepEqual(findCardCandidates('Shared Name 0', pool, { exact: true }).map(row => row.id), ['blue-0']);
+});
 
 test('successful writes survive a new store and never persist full card records', () => {
   const storage = memoryStorage(); const first = new DeckStore({ storage }); const created = first.create('精灵');

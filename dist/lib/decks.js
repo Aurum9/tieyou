@@ -188,9 +188,23 @@ export function parseDeckBackup(text, cards) {
 function names(card) {
   return [card.name, card.zhName, ...(card.aliases || []), ...(card.faces || []).flatMap(face => [face.name, face.zhName])].filter(Boolean).map(normalize);
 }
-export function findCardCandidates(query, cards, { exact = false } = {}) {
+/** null leaves search unrestricted; [] explicitly represents a colorless commander. */
+export function getCommanderIdentity(deck, cards) {
+  const commanders = (deck.entries || []).filter(entry => entry.zone === 'commander');
+  if (!commanders.length) return null;
+  const index = cardIndex(cards);
+  const identities = commanders.map(entry => index.get(entry.cardId)?.colorIdentity);
+  if (identities.some(identity => !Array.isArray(identity))) return null;
+  const colors = new Set(identities.flat().map(color => String(color).toUpperCase()));
+  return ['W', 'U', 'B', 'R', 'G'].filter(color => colors.has(color));
+}
+export function findCardCandidates(query, cards, { exact = false, colorIdentity = null } = {}) {
   const q = normalize(query);
   if (!q) return [];
+  if (colorIdentity !== null) {
+    const allowed = new Set(colorIdentity.map(color => String(color).toUpperCase()));
+    cards = cards.filter(card => Array.isArray(card.colorIdentity) && card.colorIdentity.every(color => allowed.has(String(color).toUpperCase())));
+  }
   const printingQuery = q.match(/^([a-z0-9]+)\s*[:/#\s]\s*([a-z0-9★*\-]+)$/i);
   if (printingQuery) {
     const byPrinting = cards.filter(card => (card.versions || []).some(version => normalize(version.set) === printingQuery[1] && normalize(version.collectorNumber) === printingQuery[2]));

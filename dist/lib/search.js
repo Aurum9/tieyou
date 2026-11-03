@@ -145,6 +145,7 @@ function compile(node, hasTags) {
   if (field === 'mv') {
     if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) throw new QueryError('法术力值需要非负数字，例如 mv<=3', position);
     const number = Number(value);
+    if (!Number.isFinite(number)) throw new QueryError('法术力值需要非负有限数字，例如 mv<=3', position);
     return card => compare(Number(card.manaValue ?? 0), number, op);
   }
   if (field === 'c' || field === 'ci') {
@@ -178,19 +179,52 @@ function compile(node, hasTags) {
   return () => false;
 }
 
+function compileColorFilter(selected = [], relation, label) {
+  if (!Array.isArray(selected)) throw new QueryError(`${label}筛选需要颜色列表`);
+  if (!['any', 'all', 'exact', 'within'].includes(relation)) throw new QueryError(`${label}匹配方式无效，请选择包含任一、包含全部、恰好或限定范围`);
+  if (!selected.length) return () => true;
+  const colors = new Set();
+  let colorless = false;
+  for (const selection of selected) {
+    const value = normalizeText(selection);
+    if (['c', 'colorless', '无色'].includes(value)) colorless = true;
+    else {
+      if (!value) throw new QueryError(`${label}筛选包含空颜色`);
+      for (const color of parseColors(value, 0)) colors.add(color);
+    }
+  }
+  if (colorless && colors.size && ['all', 'exact'].includes(relation)) throw new QueryError(`${label}选择无色时，“包含全部”和“恰好”不能同时选择其他颜色`);
+  const expected = [...colors];
+  // “限定范围” includes colorless cards; “包含任一” includes them only when C is selected.
+  if (relation === 'within') return actual => colorMatches(actual, expected, '<=');
+  if (relation === 'any') return (actual = []) => actual.length ? actual.some(color => colors.has(normalizeText(color))) : colorless;
+  if (colorless) return (actual = []) => actual.length === 0;
+  return actual => colorMatches(actual, expected, relation === 'all' ? '>=' : '=');
+}
+function manaBound(value, label) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  if (!['string', 'number'].includes(typeof value) || !Number.isFinite(Number(value)) || Number(value) < 0) throw new QueryError(`法术力值${label}需要非负有限数字`);
+  return Number(value);
+}
+function prepareFilters(filters) {
+  const legacyIdentity = filters.colorMode === 'identity';
+  const colorTest = compileColorFilter(filters.colors, filters.colorRelation ?? (legacyIdentity ? 'within' : 'any'), '颜色');
+  const identityTest = compileColorFilter(filters.identities, filters.identityRelation ?? 'within', '标识色');
+  const minManaValue = manaBound(filters.minManaValue, '下限');
+  const maxManaValue = manaBound(filters.maxManaValue, '上限');
+  if (minManaValue !== null && maxManaValue !== null && minManaValue > maxManaValue) throw new QueryError('法术力值下限不能大于上限');
+  return { ...filters, colorTest, identityTest, legacyIdentity, minManaValue, maxManaValue };
+}
 function filterCard(card, filters) {
   if (filters.commanderOnly && card.legalities?.commander !== 'legal') return false;
-  if (filters.colors?.length) {
-    const selected = filters.colors.map(color => normalizeText(color));
-    const actual = ['color', 'colors'].includes(filters.colorMode) ? card.colors : card.colorIdentity;
-    const colored = selected.filter(color => color !== 'c');
-    if (!colored.length) { if (actual?.length) return false; }
-    else if (!colorMatches(actual, parseColors(colored.join(''), 0), '<=')) return false;
-  }
+  if (!filters.colorTest(filters.legacyIdentity ? card.colorIdentity : card.colors)) return false;
+  if (!filters.identityTest(card.colorIdentity)) return false;
   if (filters.types?.length && !filters.types.some(type => {
     const value = normalizeText(type); return fields(card).t.includes(typeAliases[value] || value);
   })) return false;
-  if (filters.maxManaValue !== null && filters.maxManaValue !== undefined && filters.maxManaValue !== '' && Number(card.manaValue ?? 0) > Number(filters.maxManaValue)) return false;
+  if (filters.minManaValue !== null && Number(card.manaValue ?? 0) < filters.minManaValue) return false;
+  if (filters.maxManaValue !== null && Number(card.manaValue ?? 0) > filters.maxManaValue) return false;
   if (filters.translation && filters.translation !== 'all') {
     const required = (card.faces?.length ? card.faces : [card]).filter(face => String(face.oracleText || '').trim());
     const complete = required.every(face => String(face.zhText || '').trim());
@@ -201,11 +235,12 @@ function filterCard(card, filters) {
 
 export function searchCards(cards, query = '', filters = {}, sort = 'name') {
   try {
+    const preparedFilters = prepareFilters(filters);
     const tree = parseQuery(query);
     const test = compile(tree, cards.some(card => card.tags?.length));
     const matches = [];
     for (const card of cards) {
-      if (!filterCard(card, filters)) continue;
+      if (!filterCard(card, preparedFilters)) continue;
       if (!tree.hasPrinting) { if (test(card, null)) matches.push(card); continue; }
       const versions = card.versions?.length ? card.versions : [card];
       const matchingVersions = versions.filter(version => test(card, version));

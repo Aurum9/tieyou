@@ -61,11 +61,15 @@ test('缺失译文筛选逐牌面检查', () => {
   const partial = card('partial', 'Partial', '未完整', { faces: [{ oracleText: 'One', zhText: '一' }, { oracleText: 'Two', zhText: '' }] });
   assert.equal(searchCards([partial], '', { translation: 'missing' }).total, 1);
 });
-test('颜色筛选使用标识色子集并包含无色', () => assert.deepEqual(ids('', { colors: ['G'] }), ['scholar', 'stone']));
+test('颜色筛选默认匹配牌面颜色，包含任一所选色', () => assert.deepEqual(ids('', { colors: ['G'] }), ['scholar']));
 test('无色按钮可单选及与其他色组合', () => {
   assert.deepEqual(ids('', { colors: ['C'] }), ['stone']);
   assert.deepEqual(ids('', { colors: ['C', 'G'] }), ['scholar', 'stone']);
-  assert.deepEqual(ids('', { colors: ['U'], colorMode: 'colors' }), ['counter', 'modal', 'stone']);
+  assert.deepEqual(ids('', { colors: ['U'], colorMode: 'colors' }), ['counter', 'modal']);
+});
+test('显式旧标识色模式保留子集语义', () => {
+  assert.deepEqual(ids('', { colors: ['G'], colorMode: 'identity' }), ['scholar', 'stone']);
+  assert.deepEqual(ids('', { colors: ['U'], colorMode: 'identity' }), ['counter', 'stone']);
 });
 test('视图筛选与查询共同生效', () => assert.deepEqual(ids('mv>=1', { commanderOnly: true, maxManaValue: 2, types: ['神器'] }), ['stone']));
 test('排序法术力值与发布日期', () => {
@@ -73,3 +77,77 @@ test('排序法术力值与发布日期', () => {
   assert.equal(searchCards(cards, '', {}, 'released').cards[0].id, 'stone');
 });
 test('没有标签数据时明确报错', () => assert.match(searchCards([card('empty', 'Empty', '空')], 'tag:抓牌').error.message, /尚未载入/));
+
+// Independent real-card facts exercise color versus identity and unrestricted numeric ranges.
+const filterCards = [
+  card('infiltrator', 'Benthic Infiltrator', '海底潜行客', { colors: [], colorIdentity: ['U'], manaValue: 3 }),
+  card('oracle', 'Coiling Oracle', '盘绕先知', { colors: ['U', 'G'], colorIdentity: ['U', 'G'], manaValue: 2 }),
+  card('elves', 'Llanowar Elves', '罗堰妖精', { colors: ['G'], colorIdentity: ['G'], manaValue: 1 }),
+  card('ponder', 'Ponder', '沉思', { colors: ['U'], colorIdentity: ['U'], manaValue: 1 }),
+  card('ring', 'Sol Ring', '阳光戒', { manaValue: 1 }),
+  card('memnite', 'Memnite', '膜生兽', { manaValue: 0 }),
+  card('girl', 'Little Girl', '', { colors: ['W'], colorIdentity: ['W'], manaValue: 0.5 }),
+  card('draco', 'Draco', '德拉库', { manaValue: 16 }),
+];
+const filteredIds = filters => {
+  const result = searchCards(filterCards, '', filters);
+  assert.equal(result.error, null, JSON.stringify(result.error));
+  return result.cards.map(row => row.id).sort();
+};
+test('空颜色与空标识色不施加限制', () => {
+  assert.equal(filteredIds({ colors: [], identities: [] }).length, filterCards.length);
+});
+test('无色有蓝色标识的牌只匹配无色牌面及蓝色标识', () => {
+  assert.deepEqual(filteredIds({ colors: ['C'], identities: ['U'], identityRelation: 'exact' }), ['infiltrator']);
+  assert.deepEqual(filteredIds({ colors: ['U'], colorRelation: 'exact' }), ['ponder']);
+});
+test('颜色关系支持任一、全部、恰好及限定范围', () => {
+  assert.deepEqual(filteredIds({ colors: ['U', 'G'] }), ['elves', 'oracle', 'ponder']);
+  assert.deepEqual(filteredIds({ colors: ['U', 'G'], colorRelation: 'all' }), ['oracle']);
+  assert.deepEqual(filteredIds({ colors: ['G'], colorRelation: 'all' }), ['elves', 'oracle']);
+  assert.deepEqual(filteredIds({ colors: ['G'], colorRelation: 'exact' }), ['elves']);
+  assert.deepEqual(filteredIds({ colors: ['G'], colorRelation: 'within' }), ['draco', 'elves', 'infiltrator', 'memnite', 'ring']);
+});
+test('标识色独立筛选且默认限定范围包含无色标识', () => {
+  assert.deepEqual(filteredIds({ identities: ['U'] }), ['draco', 'infiltrator', 'memnite', 'ponder', 'ring']);
+  assert.deepEqual(filteredIds({ identities: ['U'], identityRelation: 'any' }), ['infiltrator', 'oracle', 'ponder']);
+  assert.deepEqual(filteredIds({ identities: ['U', 'G'], identityRelation: 'all' }), ['oracle']);
+  assert.deepEqual(filteredIds({ identities: ['G'], identityRelation: 'exact' }), ['elves']);
+  assert.deepEqual(filteredIds({ colors: ['G'], identities: ['G'] }), ['elves']);
+});
+test('无色在任一关系可并集选择，限定范围自然包含无色', () => {
+  assert.deepEqual(filteredIds({ colors: ['C', 'G'] }), ['draco', 'elves', 'infiltrator', 'memnite', 'oracle', 'ring']);
+  assert.deepEqual(filteredIds({ identities: ['C'], identityRelation: 'all' }), ['draco', 'memnite', 'ring']);
+  assert.deepEqual(filteredIds({ colors: ['C'], colorRelation: 'exact' }), ['draco', 'infiltrator', 'memnite', 'ring']);
+  assert.deepEqual(filteredIds({ identities: ['C', 'G'], identityRelation: 'within' }), ['draco', 'elves', 'memnite', 'ring']);
+});
+test('无色混合彩色的全部或恰好关系给出可读错误', () => {
+  for (const relation of ['all', 'exact']) {
+    assert.match(searchCards(filterCards, '', { colors: ['C', 'G'], colorRelation: relation }).error.message, /无色/);
+    assert.match(searchCards(filterCards, '', { identities: ['C', 'G'], identityRelation: relation }).error.message, /无色/);
+  }
+});
+test('法术力上下限含边界、零及小数', () => {
+  assert.deepEqual(filteredIds({ minManaValue: 0, maxManaValue: 0 }), ['memnite']);
+  assert.deepEqual(filteredIds({ minManaValue: 0.5, maxManaValue: 1 }), ['elves', 'girl', 'ponder', 'ring']);
+  assert.deepEqual(filteredIds({ minManaValue: '0.5', maxManaValue: '0.5' }), ['girl']);
+});
+test('法术力上限可以留空且不限制为十一以下', () => {
+  assert.deepEqual(filteredIds({ minManaValue: 12, maxManaValue: null }), ['draco']);
+  assert.deepEqual(filteredIds({ maxManaValue: 16 }), filteredIds({}));
+  assert.deepEqual(filteredIds({ minManaValue: '', maxManaValue: '' }), filteredIds({}));
+});
+test('无效法术力上下限给出可读错误，空卡库仍校验', () => {
+  for (const bound of ['minManaValue', 'maxManaValue']) {
+    for (const invalid of [-1, NaN, Infinity, -Infinity, 'bad', true, {}]) {
+      const result = searchCards([], '', { [bound]: invalid });
+      assert.match(result.error?.message || '', /法术力值.*非负有限数字/, `${bound}: ${String(invalid)}`);
+      assert.deepEqual(result.cards, []);
+    }
+  }
+  assert.match(searchCards(filterCards, '', { minManaValue: 3, maxManaValue: 2 }).error.message, /下限不能大于上限/);
+});
+test('无效颜色筛选参数给出查询错误', () => {
+  assert.match(searchCards([], '', { colors: ['purple'] }).error.message, /颜色使用/);
+  assert.match(searchCards([], '', { identities: ['U'], identityRelation: 'unknown' }).error.message, /匹配方式无效/);
+});
