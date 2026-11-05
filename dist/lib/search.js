@@ -233,6 +233,19 @@ function filterCard(card, filters) {
   return true;
 }
 
+// Validate user input before requesting card data; tag availability is checked
+// separately by searchCards after the catalog has loaded.
+export function validateSearch(query = '', filters = {}) {
+  try {
+    prepareFilters(filters);
+    compile(parseQuery(query), true);
+    return null;
+  } catch (error) {
+    if (!(error instanceof QueryError)) throw error;
+    return { message: error.message, position: error.position };
+  }
+}
+
 export function searchCards(cards, query = '', filters = {}, sort = 'name') {
   try {
     const preparedFilters = prepareFilters(filters);

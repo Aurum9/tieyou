@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchCards, parseQuery } from '../dist/lib/search.js';
+import { searchCards, parseQuery, validateSearch } from '../dist/lib/search.js';
 
 // Small independent catalogue: these fictional names avoid tying parser behavior to live Oracle changes.
 function card(id, name, zhName, extra = {}) {
@@ -150,4 +150,59 @@ test('无效法术力上下限给出可读错误，空卡库仍校验', () => {
 test('无效颜色筛选参数给出查询错误', () => {
   assert.match(searchCards([], '', { colors: ['purple'] }).error.message, /颜色使用/);
   assert.match(searchCards([], '', { identities: ['U'], identityRelation: 'unknown' }).error.message, /匹配方式无效/);
+});
+
+test('预检无需卡库，接受空查询及有效功能标签语法', () => {
+  assert.equal(validateSearch(), null);
+  assert.equal(validateSearch('tag:抓牌'), null);
+  assert.equal(validateSearch('(tag:draw OR tag:ramp) mv<=3', { colors: ['U', 'G'], maxManaValue: 3 }), null);
+  // Data-dependent tag availability remains a separate check after loading.
+  assert.match(searchCards([], 'tag:抓牌').error.message, /尚未载入/);
+});
+
+test('预检拒绝语法、字段、运算符、赛制及查询值错误并保留位置', () => {
+  for (const query of ['(', 'name:', 'name:"foo', 'price<2', 'name>foo', 'f:potato', 'mv:two', 'ci<=purple', 'r:unknown']) {
+    const error = validateSearch(query);
+    assert.ok(error?.message, query);
+    assert.equal(typeof error.position, 'number', query);
+    assert.deepEqual(error, searchCards([], query).error, query);
+  }
+});
+
+test('预检拒绝倒置范围及无效筛选而无需加载数据', () => {
+  const cases = [
+    [{ minManaValue: 3, maxManaValue: 2 }, /下限不能大于上限/],
+    [{ minManaValue: -1 }, /非负有限数字/],
+    [{ maxManaValue: Infinity }, /非负有限数字/],
+    [{ colors: ['purple'] }, /颜色使用/],
+    [{ identities: ['U'], identityRelation: 'unknown' }, /匹配方式无效/],
+    [{ colors: ['C', 'G'], colorRelation: 'exact' }, /无色/],
+  ];
+  for (const [filters, message] of cases) {
+    const error = validateSearch('', filters);
+    assert.match(error.message, message);
+    assert.equal(typeof error.position, 'number');
+  }
+});
+
+test('预检接受零边界、无上限以及小数', () => {
+  assert.equal(validateSearch('', { minManaValue: 0, maxManaValue: '0' }), null);
+  assert.equal(validateSearch('', { minManaValue: 0.5, maxManaValue: '' }), null);
+  assert.equal(validateSearch('mv>=0.5', { maxManaValue: 16 }), null);
+});
+
+test('预检不修改调用者的筛选条件', () => {
+  const filters = Object.freeze({
+    colors: Object.freeze(['U']), identities: Object.freeze(['U', 'G']),
+    types: Object.freeze(['生物']), minManaValue: '0', maxManaValue: '3', commanderOnly: true,
+  });
+  const original = structuredClone(filters);
+  assert.equal(validateSearch('tag:draw', filters), null);
+  assert.deepEqual(filters, original);
+});
+
+test('预检继续抛出非查询错误', () => {
+  const failure = new Error('unexpected input failure');
+  const filters = { get colorMode() { throw failure; } };
+  assert.throws(() => validateSearch('', filters), error => error === failure);
 });

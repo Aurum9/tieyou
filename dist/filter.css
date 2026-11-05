@@ -1,4 +1,11 @@
 /* Simple and advanced search share a state; switching only changes visibility. */
+.catalog-layout.is-idle:not(.idle-filters-open) .filters-panel{display:none}
+.is-idle .catalog-content{display:flex;flex-direction:column;width:100%;max-width:850px;flex:1;padding-top:clamp(90px,20vh,220px)}
+.is-idle .page-heading{order:2;justify-content:flex-end;margin:10px 0 0}
+.is-idle .page-heading>div{display:none}
+.is-idle .search-form{flex-shrink:0;width:100%;height:60px;box-shadow:0 8px 35px #294d3310}
+.is-idle .search-hints,.is-idle #data-status,.is-idle .results-toolbar,.is-idle #active-filters,.is-idle #search-error,.is-idle #results,.is-idle #result-state,.is-idle .load-more-wrap,.is-idle .catalog-footer{display:none!important}
+@media(max-width:700px){.is-idle .catalog-content{padding-top:clamp(80px,22vh,170px)}.is-idle .search-form{height:54px}.is-idle .search-form input{font-size:13px}.is-idle .search-form input::placeholder{font-size:12px}}
 .filter-heading{flex-shrink:0}
 .filter-mode{display:flex;flex-shrink:0;margin:0 18px 20px;padding:3px;border:1px solid #dce3d4;background:#edf0e7;border-radius:8px;gap:3px}
 .filter-mode button{flex:1;min-width:0;border:0;background:transparent;border-radius:5px;padding:8px 4px;font-size:12px;color:#7c8972;display:flex;justify-content:center;gap:5px;align-items:center}

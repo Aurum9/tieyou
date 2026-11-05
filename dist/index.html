@@ -43,7 +43,7 @@
       <span class="edition-badge"><span class="status-dot"></span>本地工作台<span class="edition-version">V0.1</span></span>
     </header>
 
-    <main id="catalog-view" class="catalog-layout">
+    <main id="catalog-view" class="catalog-layout is-idle filters-collapsed">
       <button id="filter-scrim" class="filter-scrim" aria-label="关闭筛选" hidden></button>
       <aside id="filters" class="filters-panel" aria-label="筛选条件">
         <div class="filter-heading"><h2><svg class="icon"><use href="#i-filter"/></svg>筛选条件</h2><button id="filter-reset" class="text-button">重置</button><button id="filter-close" class="icon-button mobile-only" aria-label="关闭筛选"><svg class="icon"><use href="#i-close"/></svg></button></div>
@@ -113,7 +113,7 @@
         <form id="search-form" class="search-form" role="search">
           <svg class="icon search-icon"><use href="#i-search"/></svg>
           <label class="sr-only" for="search-input">搜索卡名、规则文字或高级语法</label>
-          <input id="search-input" type="search" placeholder="输入中文 / 英文卡名、规则文字或高级语法…" autocomplete="off" spellcheck="false"/>
+          <input id="search-input" type="search" placeholder="输入中文 / 英文卡名或规则文字…" autocomplete="off" spellcheck="false"/>
           <kbd class="search-shortcut">/</kbd><button type="submit" class="search-submit">搜索<svg class="icon"><use href="#i-arrow"/></svg></button>
         </form>
         <div class="search-hints"><span>试试</span><button data-query="t:生物 c<=ug mv<=3">蓝绿低费生物</button><span class="hint-dot">·</span><button data-query="o:抓一张牌">抓一张牌</button><span class="hint-dot">·</span><button data-query="set:neo">神河：霓朝纪</button></div>
@@ -124,8 +124,8 @@
         </div>
         <div id="active-filters" class="active-filters" hidden></div>
         <div id="search-error" class="inline-error" role="alert" hidden></div>
-        <div id="results" class="card-grid" aria-label="检索结果" aria-busy="true"></div>
-        <div id="result-state" class="result-state"><div class="loading-spinner"></div><h2>正在整理牌库</h2><p id="loading-message">载入卡牌身份、中文内容与印刷版本。</p></div>
+        <div id="results" class="card-grid" aria-label="检索结果" aria-busy="false"></div>
+        <div id="result-state" class="result-state" hidden></div>
         <div class="load-more-wrap"><button id="load-more" class="button load-more" hidden>继续载入</button><p id="result-end" hidden>已显示全部结果</p></div>
         <footer class="catalog-footer"><span>牌库 · 为中文 EDH 玩家构筑</span><span>卡牌版权归 Wizards of the Coast 所有</span></footer>
       </section>
