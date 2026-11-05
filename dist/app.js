@@ -3,6 +3,8 @@ import { parseQuery, searchCards, validateSearch } from './lib/search.js';
 import { hasSearchIntent } from './lib/search-intent.js';
 import { initDeckUI } from './lib/deck-ui.js';
 import { initSearchFilters } from './lib/filter-ui.js';
+import { getCommanderIdentity } from './lib/decks.js';
+import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from './lib/deck-target.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -14,7 +16,10 @@ let manifest = null;
 let deckUI = null;
 let matchedCards = [];
 let renderedCount = 0;
-let currentView = 'catalog';
+let currentView = 'decks';
+let catalogTargetId = null;
+let catalogScopeEnabled = true;
+let knownSetCodes = new Set();
 let resultView = 'grid';
 let detailCard = null;
 let detailVersion = null;
@@ -197,7 +202,7 @@ async function runSearch() {
     $('#catalog-view').classList.remove('filters-collapsed');
     $('#filter-toggle').setAttribute('aria-expanded', 'true');
   }
-  const combinedQuery = [query ? '(' + query + ')' : '', visual.query].filter(Boolean).join(' AND ');
+  const combinedQuery = [query ? '(' + query + ')' : '', visual.query, currentCommanderScope()].filter(Boolean).join(' AND ');
   const errorBox = $('#search-error');
   let result;
   try {
@@ -302,6 +307,7 @@ function showAdvancedFilters() {
 }
 
 function switchView(view) {
+  closeFilters();
   currentView = view;
   $('#catalog-view').hidden = view !== 'catalog';
   $('#deck-view').hidden = view !== 'decks';
@@ -312,12 +318,8 @@ function switchView(view) {
     else button.removeAttribute('aria-current');
   });
   if (view === 'decks') {
-    if (deckUI) deckUI.showLibrary();
-    else if (manifest) initializeDeckWorkspace();
-    else {
-      $('#deck-view').replaceChildren(node('div', { class: 'result-state' }, [node('div', { class: 'loading-spinner' }), node('h2', { text: '正在准备卡组工作台' }), node('p', { text: '载入卡牌数据后即可读取卡组与查找卡牌。' })]));
-      ensureCatalog();
-    }
+    if (deckUI) deckUI.render();
+    else initializeDeckWorkspace();
   } else {
     runSearch();
   }
@@ -325,8 +327,11 @@ function switchView(view) {
 
 function initializeDeckWorkspace() {
   try {
-    deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify });
-    if (currentView === 'decks') deckUI.showLibrary();
+    if (deckUI) deckUI.setCards(allCards);
+    else deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify,
+      loadCards: async () => { if (!await ensureCatalog()) throw new Error('卡库载入失败，请重试。'); return allCards; },
+      onOpenCatalog: openCatalogFromDeck, onLibraryChange: refreshCatalogTarget });
+    refreshCatalogTarget();
   } catch (error) {
     $('#deck-view').replaceChildren(node('div', { class: 'result-state' }, [icon('info'), node('h2', { text: '卡组工作台暂时无法载入' }), node('p', { text: error.message || '请重试。' }), node('button', { class: 'button', text: '重试', onClick: initializeDeckWorkspace })]));
     console.error('Deck workspace initialization failed', error);
@@ -336,10 +341,56 @@ function initializeDeckWorkspace() {
 async function addCard(card, version) {
   if (!deckUI) { notify(loading ? '卡库仍在加载，请稍候。' : '卡组工作台暂时不可用，请刷新后重试。', 'error'); return; }
   try {
-    await deckUI.addCard(card, version);
+    const targetId = currentView === 'decks' ? deckUI.getSelectedDeckId() : catalogTargetId;
+    const target = resolveDeckTarget(deckUI.listDecks(), targetId);
+    if (targetId && !target) { if (currentView === 'catalog') catalogTargetId = null; refreshCatalogTarget(); notify('目标卡组已不存在，请重新选择。', 'error'); return; }
+    if (target) deckUI.quickAddCard(card, version, target.id);
+    else await deckUI.addCard(card, version);
   } catch (error) {
     notify(error.message || '卡牌暂时无法加入卡组，请重试。', 'error');
   }
+}
+
+function currentAddTarget() {
+  const id = currentView === 'decks' ? deckUI?.getSelectedDeckId() : catalogTargetId;
+  return deckUI && resolveDeckTarget(deckUI.listDecks(), id);
+}
+
+function currentCommanderScope() {
+  const target = deckUI && resolveDeckTarget(deckUI.listDecks(), catalogTargetId);
+  return target && catalogScopeEnabled ? commanderScopeQuery(getCommanderIdentity(target, allCards)) : '';
+}
+
+function refreshCatalogTarget() {
+  const decks = deckUI?.listDecks() || [];
+  const target = resolveDeckTarget(decks, catalogTargetId);
+  if (catalogTargetId && !target) catalogTargetId = null;
+  const picker = $('#catalog-target-select');
+  picker.replaceChildren(node('option', { value: '', text: '未选择（添加时询问）' }));
+  for (const deck of decks) picker.append(node('option', { value: deck.id, text: deck.name }));
+  picker.value = catalogTargetId || '';
+  $('#catalog-target-label').textContent = target ? '添加到「' + target.name + '」· 主牌区' : '未选择添加目标 · 添加时选择卡组';
+  $('#catalog-target-toggle').textContent = target ? '切换目标卡组' : '选择目标卡组';
+  $('#catalog-return-deck').hidden = !target;
+  const identity = target ? getCommanderIdentity(target, allCards) : null;
+  $('#catalog-scope-label').hidden = identity === null;
+  $('#catalog-scope-filter').checked = catalogScopeEnabled;
+  $('#catalog-scope-text').textContent = '按主将标识色限制搜索：' + (identity?.map(color => COLOR_NAMES[color]).join(' / ') || '无色');
+  $$('.add-card-button').forEach(button => { button.title = target ? '加入「' + target.name + '」主牌区' : '选择卡组并加入'; });
+  const detailTarget = currentAddTarget();
+  $$('.detail-add').forEach(button => { button.textContent = detailTarget ? '加入「' + detailTarget.name + '」主牌区' : '选择卡组并加入'; });
+}
+
+function openCatalogFromDeck({ deckId, query = '', restrictIdentity = true }) {
+  catalogTargetId = deckId;
+  catalogScopeEnabled = restrictIdentity;
+  filterUI.reset();
+  filterUI.setMode('advanced');
+  $('#search-input').value = catalogQueryFromDeckSearch(query, knownSetCodes);
+  refreshCatalogTarget();
+  switchView('catalog');
+  showAdvancedFilters();
+  if (!window.matchMedia('(max-width: 700px)').matches) $('#search-input').focus();
 }
 
 function openDetail(card) {
@@ -459,7 +510,8 @@ function renderDetail() {
   versionSelect.value = String(Math.max(0, versionIndex));
   versionSelect.addEventListener('change', () => { detailVersion = versions[Number(versionSelect.value)]; renderDetail(); });
   root.append(node('section', { class: 'version-section' }, [node('label', { class: 'version-heading', for: 'detail-version' }, ['印刷版本', node('span', { text: fmt(versions.length) + ' 个已收录版本' })]), versionSelect, node('p', { class: 'version-caption', text: (card.matchingVersions?.length ? '已优先选择符合当前检索条件的版本。' : '') + '加入卡组时使用此版本。当前收录默认语言印刷和已映射中文印刷，全部语言版本仍待补充。' })]));
-  root.append(node('button', { class: 'button button-primary detail-add', type: 'button', onClick: () => addCard(card, detailVersion || versions[0]) }, [icon('plus'), '选择卡组并加入']));
+  const addTarget = currentAddTarget();
+  root.append(node('button', { class: 'button button-primary detail-add', type: 'button', onClick: () => addCard(card, detailVersion || versions[0]) }, [icon('plus'), addTarget ? '加入「' + addTarget.name + '」主牌区' : '选择卡组并加入']));
   root.append(node('p', { class: 'detail-footer-note', text: '中文内容保留译文来源，牌面与规则以英文 Oracle 为核对依据。卡图通过 Scryfall 载入。' }));
   root.scrollTop = oldScroll;
 }
@@ -514,7 +566,12 @@ function wireEvents() {
   $('#advanced-open').addEventListener('click', showAdvancedFilters);
   $$('[data-query]').forEach((button) => button.addEventListener('click', () => setQuery(button.dataset.query)));
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => switchView(button.dataset.view)));
-  $('.brand').addEventListener('click', (event) => { event.preventDefault(); switchView('catalog'); });
+  $('.brand').addEventListener('click', (event) => { event.preventDefault(); deckUI?.showLibrary(); switchView('decks'); });
+  $('.skip-link').addEventListener('click', (event) => { event.preventDefault(); switchView('catalog'); $('#search-input').focus(); });
+  $('#catalog-target-toggle').addEventListener('click', () => { const picker = $('#catalog-target-picker'); picker.hidden = !picker.hidden; $('#catalog-target-toggle').setAttribute('aria-expanded', String(!picker.hidden)); if (!picker.hidden) $('#catalog-target-select').focus(); });
+  $('#catalog-target-select').addEventListener('change', event => { catalogTargetId = event.target.value || null; catalogScopeEnabled = true; refreshCatalogTarget(); runSearch(); });
+  $('#catalog-scope-filter').addEventListener('change', event => { catalogScopeEnabled = event.target.checked; runSearch(); });
+  $('#catalog-return-deck').addEventListener('click', async () => { const id = catalogTargetId; switchView('decks'); if (id) await deckUI.openDeck(id); });
   $('#view-grid').addEventListener('click', () => setResultView('grid'));
   $('#view-list').addEventListener('click', () => setResultView('list'));
   $('#detail-close').addEventListener('click', closeDetail);
@@ -557,6 +614,7 @@ function ensureCatalog() {
     } });
     allCards = catalog.cards;
     manifest = catalog.manifest;
+    knownSetCodes = new Set(allCards.flatMap(card => (card.versions || []).map(version => version.set)).filter(Boolean));
     filterUI.setCatalog(allCards);
     loading = false;
     $('#results').setAttribute('aria-busy', 'false');
@@ -574,7 +632,7 @@ function ensureCatalog() {
       $('#data-status-text').textContent = '卡库载入失败 · 已保存的卡组数据仍保留在当前浏览器';
       setResultState({ title: '卡库还没有准备好', message: error.message || '请检查网络后重试。', kind: 'info', action: { label: '重试搜索', run: runSearch } });
     } else if (!hasSearchIntent(latestQuery, latestVisual)) showIdleCatalog();
-    $('#deck-view').replaceChildren(node('div', { class: 'result-state' }, [icon('info'), node('h2', { text: '需要先完成卡库加载' }), node('p', { text: '卡库不可用时无法匹配卡牌。已有的本地卡组数据不会被修改。' }), node('button', { class: 'button', text: '重试加载', onClick: () => switchView('decks') })]));
+    if (!deckUI) $('#deck-view').replaceChildren(node('div', { class: 'result-state' }, [icon('info'), node('h2', { text: '需要先完成卡库加载' }), node('p', { text: '卡库不可用时无法匹配卡牌。已有的本地卡组数据不会被修改。' }), node('button', { class: 'button', text: '重试加载', onClick: () => switchView('decks') })]));
     console.error('Catalog initialization failed', error);
     return false;
   }
@@ -584,3 +642,5 @@ function ensureCatalog() {
 
 wireEvents();
 showIdleCatalog();
+initializeDeckWorkspace();
+switchView('decks');

@@ -1,5 +1,17 @@
 /* Simple and advanced search share a state; switching only changes visibility. */
 .catalog-layout.is-idle:not(.idle-filters-open) .filters-panel{display:none}
+.catalog-target{background:#eef3e8;border:1px solid #d6e0cd;border-radius:8px;padding:11px 13px;margin:0 0 22px;font-size:12px;color:#537047}
+.catalog-target-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+#catalog-target-label{min-width:0;overflow-wrap:anywhere;font-weight:500}
+.catalog-target-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.catalog-target-actions .button{font-size:11px;min-height:31px;padding:5px 7px}
+.catalog-target-picker{border-top:1px solid #d7e2cc;padding-top:12px;margin-top:9px}
+.catalog-target-picker label{display:grid;gap:6px;font-size:11px}
+.catalog-target-picker select{max-width:100%;font-size:12px}
+.catalog-target-picker p{font-size:11px;color:#7e8e70;margin:7px 0 0}
+.catalog-scope{display:flex;gap:7px;align-items:center;font-size:11px;margin-top:8px;color:#6e825d}
+.is-idle .catalog-target{order:-1;margin-bottom:15px}
+@media(max-width:700px){.catalog-target{padding:10px 11px;font-size:11px}.catalog-target-heading{align-items:flex-start}.catalog-target-actions{gap:4px}.catalog-scope{font-size:10px;line-height:1.8}}
 .is-idle .catalog-content{display:flex;flex-direction:column;width:100%;max-width:850px;flex:1;padding-top:clamp(90px,20vh,220px)}
 .is-idle .page-heading{order:2;justify-content:flex-end;margin:10px 0 0}
 .is-idle .page-heading>div{display:none}

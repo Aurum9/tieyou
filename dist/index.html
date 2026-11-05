@@ -32,18 +32,18 @@
 
     <a class="skip-link" href="#search-input">跳到卡牌搜索</a>
     <header class="app-header">
-      <a class="brand" href="#catalog" aria-label="牌库首页">
+      <a class="brand" href="#decks" aria-label="牌库首页">
         <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
         <span class="brand-name">牌库<span class="brand-en">EDH ATELIER</span></span>
       </a>
       <nav class="main-nav" aria-label="主导航">
-        <button class="nav-item active" data-view="catalog" aria-current="page"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
-        <button class="nav-item" data-view="decks"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
+        <button class="nav-item active" data-view="decks" aria-current="page"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
+        <button class="nav-item" data-view="catalog"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
       </nav>
       <span class="edition-badge"><span class="status-dot"></span>本地工作台<span class="edition-version">V0.1</span></span>
     </header>
 
-    <main id="catalog-view" class="catalog-layout is-idle filters-collapsed">
+    <main id="catalog-view" class="catalog-layout is-idle filters-collapsed" hidden>
       <button id="filter-scrim" class="filter-scrim" aria-label="关闭筛选" hidden></button>
       <aside id="filters" class="filters-panel" aria-label="筛选条件">
         <div class="filter-heading"><h2><svg class="icon"><use href="#i-filter"/></svg>筛选条件</h2><button id="filter-reset" class="text-button">重置</button><button id="filter-close" class="icon-button mobile-only" aria-label="关闭筛选"><svg class="icon"><use href="#i-close"/></svg></button></div>
@@ -109,6 +109,11 @@
       </aside>
 
       <section class="catalog-content" aria-label="卡牌检索">
+        <section class="catalog-target" aria-label="卡牌添加目标">
+          <div class="catalog-target-heading"><span id="catalog-target-label">未选择添加目标</span><div class="catalog-target-actions"><button id="catalog-target-toggle" type="button" class="button button-quiet" aria-expanded="false" aria-controls="catalog-target-picker">选择目标卡组</button><button id="catalog-return-deck" type="button" class="button button-quiet" hidden>返回卡组编辑</button></div></div>
+          <div id="catalog-target-picker" class="catalog-target-picker" hidden><label for="catalog-target-select">添加到卡组<select id="catalog-target-select" class="field-select" aria-label="添加到卡组"><option value="">未选择（添加时询问）</option></select></label><p>选定后，卡牌加号会直接加入该卡组主牌区。</p></div>
+          <label id="catalog-scope-label" class="catalog-scope" hidden><input id="catalog-scope-filter" type="checkbox" checked/><span id="catalog-scope-text">按主将标识色限制搜索</span></label>
+        </section>
         <div class="page-heading"><div><p class="eyebrow">THE CARD CATALOG</p><h1>找到你的下一张牌<span class="heading-dot">。</span></h1></div><button id="advanced-open" class="button button-quiet advanced-open"><svg class="icon"><use href="#i-filter"/></svg>高级搜索</button></div>
         <form id="search-form" class="search-form" role="search">
           <svg class="icon search-icon"><use href="#i-search"/></svg>
@@ -131,7 +136,7 @@
       </section>
     </main>
 
-    <main id="deck-view" hidden></main>
+    <main id="deck-view"></main>
 
     <div id="detail-layer" class="detail-layer" hidden>
       <button id="detail-scrim" class="detail-scrim" aria-label="关闭卡牌详情" tabindex="-1"></button>

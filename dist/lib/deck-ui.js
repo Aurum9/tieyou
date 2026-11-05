@@ -36,11 +36,16 @@ function modal(title, { wide = false, onClose } = {}) {
   return { panel, close, overlay };
 }
 
-export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = () => {} }) {
-  const index = new Map(cards.map(card => [card.id, card]));
+export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, onOpenCatalog = () => {}, onLibraryChange = () => {} }) {
+  let index = new Map(cards.map(card => [card.id, card]));
+  let loadingCards = null;
+  let openingId = null;
+  let openingError = null;
+  let openRequest = 0;
   let selectedId = null;
   let groupBy = 'type';
   const identitySearchPreferences = new Map();
+  const searchDrafts = new Map();
   const openModals = new Set();
   const store = new DeckStore({ onChange: updateStatus });
   function updateStatus() {
@@ -48,8 +53,32 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
   }
   function notifyError(error, target) { if (target) { target.textContent = error.message; target.hidden = false; } store.status = { state: 'error', message: `操作未完成：${error.message}` }; updateStatus(); onNotify(error.message, 'error'); }
   function run(action, { success, refresh = true, errorTarget } = {}) {
-    try { const result = action(); if (refresh) render(); if (success) onNotify(success, 'success'); return result; }
+    try { const result = action(); if (refresh) render(); onLibraryChange(); if (success) onNotify(success, 'success'); return result; }
     catch (error) { notifyError(error, errorTarget); return null; }
+  }
+  function setCards(nextCards) { cards = nextCards; index = new Map(cards.map(card => [card.id, card])); }
+  async function ensureCards() {
+    if (cards.length) return cards;
+    if (!loadingCards) loadingCards = (async () => {
+      const loaded = await loadCards();
+      if (!Array.isArray(loaded) || !loaded.length) throw new Error('卡牌数据尚未载入，请重试');
+      setCards(loaded); return cards;
+    })().finally(() => { loadingCards = null; });
+    return loadingCards;
+  }
+  async function openDeck(id) {
+    if (!store.get(id)) { onNotify('卡组已不存在，请重新选择', 'error'); return false; }
+    const request = ++openRequest;
+    openingId = id; openingError = null; render();
+    try {
+      await ensureCards();
+      if (request !== openRequest) return false;
+      if (!store.get(id)) throw new Error('卡组已不存在，请返回卡组库重新选择');
+      openingId = null; selectedId = id; render(); return true;
+    } catch (error) {
+      if (request !== openRequest) return false;
+      openingError = error; render(); onNotify(error.message, 'error'); return false;
+    }
   }
   function dialog(title, options = {}) {
     const originalClose = options.onClose;
@@ -63,7 +92,7 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
     const submit = button('创建卡组', () => {}, 'button button-primary'); submit.type = 'submit';
     form.append(submit); form.addEventListener('submit', event => {
       event.preventDefault(); const deck = run(() => store.importEntries(name.value.trim() || '未命名卡组', []), { refresh: false, errorTarget: error });
-      if (deck) { selectedId = deck.id; current.close(); render(); onNotify('卡组已创建', 'success'); }
+      if (deck) { current.close(); onNotify('卡组已创建', 'success'); void openDeck(deck.id); }
     }); current.panel.append(form); queueMicrotask(() => name.focus());
   }
   function renderLibrary() {
@@ -84,16 +113,19 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
     } else {
       const grid = el('div', 'deck-library-grid');
       for (const deck of decks) {
-        const stats = validateDeck(deck, cards); const tile = el('article', 'deck-tile');
+        const count = deck.entries.filter(entry => entry.zone !== 'considering').reduce((sum, entry) => sum + entry.quantity, 0);
+        const consideringCount = deck.entries.filter(entry => entry.zone === 'considering').reduce((sum, entry) => sum + entry.quantity, 0);
+        const tile = el('article', 'deck-tile');
         const commander = deck.entries.find(entry => entry.zone === 'commander'); const card = index.get(commander?.cardId);
         const art = card ? getVersion(card, commander.versionId)?.image || card.image : '';
         const banner = el('div', 'deck-tile-art');
         if (art && /^https?:\/\//.test(art)) { const img = el('img'); img.src = art; img.loading = 'lazy'; img.alt = ''; banner.append(img); }
         else banner.append(el('span', '', '♧'));
-        const open = button(deck.name, () => { selectedId = deck.id; render(); }, 'deck-title-button');
-        const body = el('div', 'deck-tile-body'); body.append(open, el('p', 'deck-muted deck-clamp', card?.zhName || card?.name || '尚未设置统帅'), el('p', 'deck-tile-count', `${stats.count} / 100 张 · ${stats.consideringCount} 张候选`));
+        const open = button(deck.name, () => { void openDeck(deck.id); }, 'deck-title-button');
+        const commanderLabel = card?.zhName || card?.name || (commander ? (cards.length ? '当前卡库缺少统帅信息' : '统帅信息将在编辑时加载') : '尚未设置统帅');
+        const body = el('div', 'deck-tile-body'); body.append(open, el('p', 'deck-muted deck-clamp', commanderLabel), el('p', 'deck-tile-count', `${count} / 100 张 · ${consideringCount} 张候选`));
         if (deck.description) body.append(el('p', 'deck-muted deck-clamp', deck.description));
-        const footer = el('div', 'deck-tile-footer'); footer.append(el('span', 'deck-muted', new Date(deck.updatedAt).toLocaleDateString('zh-CN')), button('编辑 →', () => { selectedId = deck.id; render(); }));
+        const footer = el('div', 'deck-tile-footer'); footer.append(el('span', 'deck-muted', new Date(deck.updatedAt).toLocaleDateString('zh-CN')), button('编辑 →', () => { void openDeck(deck.id); }));
         body.append(footer); tile.append(banner, body); grid.append(tile);
       }
       container.append(grid);
@@ -110,7 +142,7 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
     return run(() => { const deck = store.get(selectedId); const entry = deck.entries.find(item => item.id === entryId); Object.assign(entry, changes); return store.save(deck); }, { errorTarget });
   }
   function renderEditor(deck) {
-    const back = button('← 卡组库', () => { selectedId = null; render(); }); container.append(back);
+    const back = button('← 卡组库', showLibrary); container.append(back);
     const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('p', 'deck-eyebrow', 'DECK WORKSHOP'), el('h1', '', deck.name));
     const actions = el('div', 'deck-actions'); actions.append(button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
     header.append(title, actions); container.append(header, status());
@@ -172,8 +204,12 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
   }
   function renderAddSearch(deck) {
     const section = el('section', 'deck-add-section'); section.append(el('h2', '', '添加卡牌'));
-    const form = el('form', 'deck-add-form'); const query = input(''); query.placeholder = '中文 / 英文牌名，或系列＋编号（如 cmm 396）'; query.setAttribute('aria-label', '搜索要加入的卡牌');
-    const search = button('查找卡牌', () => {}, 'button button-primary'); search.type = 'submit'; form.append(query, search); section.append(form);
+    const draft = searchDrafts.get(deck.id) || { query: '', expanded: false }; searchDrafts.set(deck.id, draft);
+    const form = el('form', 'deck-add-form'); const query = input(draft.query); query.placeholder = '中文 / 英文牌名，或系列＋编号（如 cmm 396）'; query.setAttribute('aria-label', '搜索要加入的卡牌'); query.autocomplete = 'off';
+    const suggestions = el('datalist'); suggestions.id = `deck-name-suggestions-${deck.id}`; query.setAttribute('list', suggestions.id);
+    const search = button('查找卡牌', () => {}, 'button button-primary'); search.type = 'submit';
+    const advanced = button('高级搜索 ↗', () => onOpenCatalog({ deckId: deck.id, query: query.value.trim(), restrictIdentity: restrictIdentity.checked }));
+    form.append(query, search, advanced); section.append(form, suggestions);
     const commanderIdentity = getCommanderIdentity(deck, cards);
     const restrictIdentity = input('', 'checkbox'); restrictIdentity.checked = commanderIdentity !== null && identitySearchPreferences.get(deck.id) !== false; restrictIdentity.disabled = commanderIdentity === null;
     const identityLabel = el('label', 'deck-check-label'); identityLabel.append(restrictIdentity, el('span', '', '仅显示主将标识色内的牌'));
@@ -186,19 +222,42 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
     section.append(identityHint, identityLabel);
     const results = el('div', 'deck-add-results'); section.append(results);
     function showCandidates() {
-      results.replaceChildren(); const candidates = findCardCandidates(query.value, cards, { colorIdentity: restrictIdentity.checked ? commanderIdentity : null });
+      results.replaceChildren(); suggestions.replaceChildren();
+      if (!query.value.trim()) return;
+      const allCandidates = findCardCandidates(query.value, cards, { colorIdentity: restrictIdentity.checked ? commanderIdentity : null });
+      const candidates = draft.expanded ? allCandidates.slice(0, 50) : allCandidates.slice(0, 8);
       if (!candidates.length) { results.append(el('p', 'deck-muted', restrictIdentity.checked ? '主将标识色范围内没有找到对应卡牌。可调整牌名，或取消标识色限制继续查找。' : '没有找到对应卡牌。可以输入完整牌名，或使用“系列代码 编号”。')); return; }
-      if (candidates.length >= 50) results.append(el('p', 'deck-muted', '显示前 50 张，请补充牌名缩小范围。'));
+      if (draft.expanded && allCandidates.length >= 50) results.append(el('p', 'deck-muted', '显示前 50 张，请补充牌名缩小范围。'));
+      else if (!draft.expanded && allCandidates.length > 8) results.append(el('p', 'deck-muted', '以下为前 8 个匹配，点击“查找卡牌”查看更多。'));
       const printingQuery = query.value.trim().toLowerCase().match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
+      const completionNames = new Set();
       for (const card of candidates) {
+        for (const name of [card.zhName, card.name, ...(card.faces || []).flatMap(face => [face.zhName, face.name])].filter(Boolean)) {
+          if (completionNames.has(name)) continue;
+          completionNames.add(name); const option = el('option'); option.value = name; suggestions.append(option);
+        }
         const row = el('div', 'deck-search-result'); const name = el('div'); name.append(button(card.zhName || card.name, () => onInspect(card), 'deck-card-link'), el('small', 'deck-muted', card.name));
         const version = printingQuery ? card.versions?.find(item => item.set.toLowerCase() === printingQuery[1] && String(item.collectorNumber).toLowerCase() === printingQuery[2]) : null;
-        row.append(name, button('＋ 加入', () => addCard(card, version, deck.id), 'button button-quiet')); results.append(row);
+        row.append(name, button('＋ 加入', () => quickAddCard(card, version, deck.id), 'button button-quiet')); results.append(row);
       }
     }
-    form.addEventListener('submit', event => { event.preventDefault(); showCandidates(); });
+    let suggestionTimer;
+    query.addEventListener('input', () => {
+      draft.query = query.value; draft.expanded = false; clearTimeout(suggestionTimer);
+      suggestionTimer = setTimeout(() => { if (query.isConnected) showCandidates(); }, 140);
+    });
+    query.addEventListener('change', () => { draft.query = query.value; draft.expanded = false; clearTimeout(suggestionTimer); showCandidates(); });
+    form.addEventListener('submit', event => { event.preventDefault(); draft.query = query.value; draft.expanded = true; clearTimeout(suggestionTimer); showCandidates(); });
     restrictIdentity.addEventListener('change', () => { identitySearchPreferences.set(deck.id, restrictIdentity.checked); if (query.value.trim()) showCandidates(); });
+    showCandidates();
     container.append(section);
+  }
+  function quickAddCard(card, version, deckId = selectedId) {
+    if (!deckId || !store.get(deckId)) { onNotify('目标卡组已不存在，请重新选择卡组', 'error'); return false; }
+    const versionId = typeof version === 'string' ? version : version?.id || defaultVersion(card);
+    const updated = run(() => store.addCard(deckId, card, versionId, 'main', 1));
+    if (!updated) return false;
+    onNotify(`已加入「${updated.name}」主牌区`, 'success'); return true;
   }
   async function addCard(card, version, preferredId = selectedId) {
     return new Promise(resolve => {
@@ -240,8 +299,16 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
     const actions = el('div', 'deck-actions'); actions.append(button('下载文件', () => { if (!output.value) return; download(output.value, `${safeFilename(deck?.name || '全部卡组备份')}.${format.value === 'json' ? 'json' : 'txt'}`, format.value === 'json' ? 'application/json' : 'text/plain'); }, 'button button-primary'), button('复制内容', async () => { try { await navigator.clipboard.writeText(output.value); onNotify('导出内容已复制', 'success'); } catch { output.focus(); output.select(); onNotify('请使用系统复制操作复制已选中的内容', 'info'); } }));
     current.panel.append(el('p', 'deck-muted', `共 ${decks.length} 套卡组。JSON 保留版本、分区、分类和备注。文本保留数量、牌名、分区与版本。`), field('格式', format), output, error, actions);
   }
-  function importDialog() {
+  async function importDialog() {
     const current = dialog('导入牌表与备份', { wide: true });
+    const loading = el('p', 'deck-muted', '正在加载卡牌数据，以检查牌名和版本…'); current.panel.append(loading);
+    try { await ensureCards(); }
+    catch (error) {
+      loading.textContent = `卡牌数据加载失败：${error.message}`;
+      current.panel.append(button('重新加载', () => { current.close(); void importDialog(); }, 'button button-primary')); onNotify(error.message, 'error'); return;
+    }
+    if (!openModals.has(current)) return;
+    loading.remove();
     const format = select([['text', '文本牌表'], ['json', '完整 JSON 备份']], 'text');
     const name = input('导入的卡组'); name.maxLength = 200; const nameField = field('新卡组名称', name);
     const file = input('', 'file'); file.accept = '.json,.txt,.dec,.dek,text/plain,application/json';
@@ -303,8 +370,19 @@ export function initDeckUI({ container, cards, onInspect = () => {}, onNotify = 
     const actions = el('div', 'deck-actions'); actions.append(previewButton, commitButton);
     current.panel.append(field('输入格式', format), nameField, field('选择本地文件（可选）', file), hint, source, error, actions, preview);
   }
-  function render() { container.replaceChildren(); const deck = selectedId ? store.get(selectedId) : null; if (deck) renderEditor(deck); else { selectedId = null; renderLibrary(); } }
-  function showLibrary() { selectedId = null; render(); }
+  function render() {
+    container.replaceChildren();
+    if (openingId) {
+      const pendingId = openingId;
+      container.append(button('← 卡组库', showLibrary), el('h1', '', store.get(pendingId)?.name || '卡组编辑'));
+      const message = el('p', openingError ? 'deck-form-error' : 'deck-muted', openingError ? `卡牌数据加载失败：${openingError.message}` : '正在加载卡牌数据…'); message.setAttribute('role', 'status'); container.append(message);
+      if (openingError) container.append(button('重新加载', () => { void openDeck(pendingId); }, 'button button-primary'));
+      return;
+    }
+    const deck = selectedId ? store.get(selectedId) : null;
+    if (deck) renderEditor(deck); else { selectedId = null; renderLibrary(); }
+  }
+  function showLibrary() { ++openRequest; openingId = null; openingError = null; selectedId = null; render(); }
   render();
-  return { render, addCard, showLibrary, destroy: () => { for (const current of [...openModals]) current.close(); container.replaceChildren(); } };
+  return { render, addCard, quickAddCard, showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, destroy: () => { ++openRequest; for (const current of [...openModals]) current.close(); container.replaceChildren(); } };
 }
