@@ -86,7 +86,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   }
   function status() { const node = el('p', `deck-save-status${store.status.state === 'error' ? ' has-error' : ''}`, store.status.message); node.setAttribute('role', 'status'); return node; }
   function createDialog() {
-    const current = dialog('新建卡组'); const name = input(''); name.placeholder = '例如：森林里的小小计划'; name.maxLength = 200;
+    const current = dialog('新建卡组'); const name = input(''); name.placeholder = '卡组名称'; name.maxLength = 200;
     const error = el('p', 'deck-form-error'); error.hidden = true;
     const form = el('form', 'deck-stack'); form.append(field('卡组名称', name), error);
     const submit = button('创建卡组', () => {}, 'button button-primary'); submit.type = 'submit';
@@ -96,7 +96,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }); current.panel.append(form); queueMicrotask(() => name.focus());
   }
   function renderLibrary() {
-    const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('p', 'deck-eyebrow', 'YOUR COLLECTION'), el('h1', '', '卡组库'), el('p', 'deck-muted', '从一个想法，到你的下一套指挥官卡组。'));
+    const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('h1', '', '卡组库'));
     const actions = el('div', 'deck-actions'); actions.append(button('导入牌表', importDialog), button('备份全部', () => exportDialog()), button('＋ 新建卡组', createDialog, 'button button-primary'));
     header.append(title, actions); container.append(header, status());
     if (store.loadBlocked) {
@@ -109,7 +109,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }
     const decks = store.list().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     if (!decks.length) {
-      const empty = el('div', 'deck-empty'); empty.append(el('div', 'deck-empty-mark', '♧'), el('h2', '', '第一套卡组，从这里开始'), el('p', 'deck-muted', '新建空白卡组，或导入一份已有牌表。你的卡组会保存在当前浏览器。'), button('新建我的卡组', createDialog, 'button button-primary')); container.append(empty);
+      const empty = el('div', 'deck-empty'); empty.append(el('div', 'deck-empty-mark', '♧'), el('h2', '', '暂无卡组'), button('新建卡组', createDialog, 'button button-primary')); container.append(empty);
     } else {
       const grid = el('div', 'deck-library-grid');
       for (const deck of decks) {
@@ -122,7 +122,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         if (art && /^https?:\/\//.test(art)) { const img = el('img'); img.src = art; img.loading = 'lazy'; img.alt = ''; banner.append(img); }
         else banner.append(el('span', '', '♧'));
         const open = button(deck.name, () => { void openDeck(deck.id); }, 'deck-title-button');
-        const commanderLabel = card?.zhName || card?.name || (commander ? (cards.length ? '当前卡库缺少统帅信息' : '统帅信息将在编辑时加载') : '尚未设置统帅');
+        const commanderLabel = card?.zhName || card?.name || (commander ? (cards.length ? '统帅信息不可用' : '已设置统帅') : '尚未设置统帅');
         const body = el('div', 'deck-tile-body'); body.append(open, el('p', 'deck-muted deck-clamp', commanderLabel), el('p', 'deck-tile-count', `${count} / 100 张 · ${consideringCount} 张候选`));
         if (deck.description) body.append(el('p', 'deck-muted deck-clamp', deck.description));
         const footer = el('div', 'deck-tile-footer'); footer.append(el('span', 'deck-muted', new Date(deck.updatedAt).toLocaleDateString('zh-CN')), button('编辑 →', () => { void openDeck(deck.id); }));
@@ -136,14 +136,13 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       for (const item of deleted.slice().reverse()) { const row = el('div', 'deck-trash-row'); row.append(el('span', '', item.deck.name), button('恢复', () => run(() => store.restore(item.deck.id), { success: '卡组已恢复' }))); section.append(row); }
       container.append(section);
     }
-    container.append(el('p', 'deck-storage-note', '本地存储随浏览器与设备分别保存。清理网站数据前，请下载完整 JSON 备份。'));
   }
   function saveEntry(entryId, changes, errorTarget) {
     return run(() => { const deck = store.get(selectedId); const entry = deck.entries.find(item => item.id === entryId); Object.assign(entry, changes); return store.save(deck); }, { errorTarget });
   }
   function renderEditor(deck) {
     const back = button('← 卡组库', showLibrary); container.append(back);
-    const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('p', 'deck-eyebrow', 'DECK WORKSHOP'), el('h1', '', deck.name));
+    const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('h1', '', deck.name));
     const actions = el('div', 'deck-actions'); actions.append(button('手动测试 ↗', () => { const fresh = store.get(deck.id); if (fresh) onPlaytest(fresh); else onNotify('卡组已不存在，请重新选择', 'error'); }, 'button button-primary'), button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
     header.append(title, actions); container.append(header, status());
     const metadata = el('details', 'deck-metadata'); metadata.append(el('summary', '', '编辑名称与说明'));
@@ -153,14 +152,17 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const stats = validateDeck(deck, cards); const statsGrid = el('div', 'deck-stats');
     for (const [value, label] of [[`${stats.count} / 100`, '正式卡组'], [stats.commanderCount, '统帅'], [stats.consideringCount, '候选牌'], [stats.colorIdentity.join(' · ') || '—', '统帅标识色']]) { const box = el('div'); box.append(el('strong', '', value), el('span', '', label)); statsGrid.append(box); }
     container.append(statsGrid);
-    const checks = el('details', `deck-checks${stats.issues.some(issue => issue.severity === 'error') ? ' has-issues' : ''}`);
-    checks.append(el('summary', '', stats.issues.length ? `基础组牌检查 · ${stats.issues.length} 项待处理` : '基础检查未发现问题 · 特殊规则请人工核对'));
-    const list = el('ul'); for (const issue of stats.issues) list.append(el('li', issue.severity === 'error' ? 'deck-check-error' : 'deck-check-warning', issue.message));
-    checks.append(list, el('p', 'deck-muted', '此处仅检查数量、重复、标识色、禁牌和可识别的统帅资格。特殊组合及牌面限制仍需人工核对。问题不影响草稿保存。')); container.append(checks);
+    const issues = stats.issues.filter(issue => !['commander-combination', 'commander-eligibility'].includes(issue.code));
+    if (issues.length) {
+      const checks = el('details', `deck-checks${issues.some(issue => issue.severity === 'error') ? ' has-issues' : ''}`);
+      checks.append(el('summary', '', `组牌检查 · ${issues.length} 项问题`));
+      const list = el('ul'); for (const issue of issues) list.append(el('li', issue.severity === 'error' ? 'deck-check-error' : 'deck-check-warning', issue.message));
+      checks.append(list); container.append(checks);
+    }
     renderAddSearch(deck);
     const listHeader = el('div', 'deck-list-heading'); listHeader.append(el('h2', '', '卡组牌表'));
     const grouping = select([['type', '按卡牌类型'], ['mana', '按法术力值'], ['category', '按个人分类']], groupBy); grouping.setAttribute('aria-label', '牌表整理方式'); grouping.addEventListener('change', () => { groupBy = grouping.value; render(); }); listHeader.append(grouping); container.append(listHeader);
-    if (!deck.entries.length) { const empty = el('div', 'deck-empty deck-empty-small'); empty.append(el('h3', '', '先加入一位统帅'), el('p', 'deck-muted', '使用上方名称或系列＋编号搜索，也可从卡查结果直接加入。')); container.append(empty); }
+    if (!deck.entries.length) { const empty = el('div', 'deck-empty deck-empty-small'); empty.append(el('h3', '', '暂无卡牌')); container.append(empty); }
     for (const zone of ['commander', 'main', 'considering']) {
       const entries = deck.entries.filter(entry => entry.zone === zone); if (!entries.length) continue;
       const section = el('section', 'deck-zone'); const total = entries.reduce((sum, entry) => sum + entry.quantity, 0); section.append(el('h2', 'deck-zone-title', `${zoneNames[zone]} · ${total}`));
@@ -210,22 +212,19 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     form.append(query, advanced); section.append(form);
     const commanderIdentity = getCommanderIdentity(deck, cards);
     const restrictIdentity = input('', 'checkbox'); restrictIdentity.checked = commanderIdentity !== null && identitySearchPreferences.get(deck.id) !== false; restrictIdentity.disabled = commanderIdentity === null;
-    const identityLabel = el('label', 'deck-check-label'); identityLabel.append(restrictIdentity, el('span', '', '仅显示主将标识色内的牌'));
-    const identityHint = el('p', 'deck-muted');
-    if (commanderIdentity === null) identityHint.textContent = deck.entries.some(entry => entry.zone === 'commander') ? '主将标识色数据暂不可用，当前搜索不限标识色。' : '设置主将后，可以自动按主将标识色限制搜索。当前搜索不限标识色。';
-    else {
+    if (commanderIdentity !== null) {
       const colorNames = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿' };
-      identityHint.textContent = `主将标识色：${commanderIdentity.map(color => colorNames[color]).join('、') || '无色'}。筛选范围包含${[...commanderIdentity.map(color => colorNames[color]), '无色'].join('、')}标识的牌。`;
+      const identityLabel = el('label', 'deck-check-label'); identityLabel.append(restrictIdentity, el('span', '', `仅显示主将标识色内的牌（${commanderIdentity.map(color => colorNames[color]).join('、') || '无色'}）`));
+      section.append(identityLabel);
     }
-    section.append(identityHint, identityLabel);
     const results = el('div', 'deck-add-results'); section.append(results);
     function showCandidates() {
       results.replaceChildren();
       if (!query.value.trim()) return;
       const allCandidates = findCardCandidates(query.value, cards, { colorIdentity: restrictIdentity.checked ? commanderIdentity : null });
       const candidates = allCandidates.slice(0, 8);
-      if (!candidates.length) { results.append(el('p', 'deck-muted', restrictIdentity.checked ? '主将标识色范围内没有找到对应卡牌。可调整牌名，或取消标识色限制继续查找。' : '没有找到对应卡牌。可以输入完整牌名，或使用“系列代码 编号”。')); return; }
-      if (allCandidates.length > 8) results.append(el('p', 'deck-muted', '以下为前 8 个匹配，请补充关键词，或进入高级搜索查看更多。'));
+      if (!candidates.length) { results.append(el('p', 'deck-muted', restrictIdentity.checked ? '主将标识色范围内无匹配卡牌' : '无匹配卡牌')); return; }
+      if (allCandidates.length > 8) results.append(el('p', 'deck-muted', `显示前 8 项 · 共 ${allCandidates.length} 项匹配`));
       const printingQuery = query.value.trim().toLowerCase().match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
       for (const card of candidates) {
         const row = el('div', 'deck-search-result'); const name = el('div'); name.append(button(card.zhName || card.name, () => onInspect(card), 'deck-card-link'), el('small', 'deck-muted', card.name));

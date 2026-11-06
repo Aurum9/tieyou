@@ -3,59 +3,200 @@ import assert from 'node:assert/strict';
 import { initPlaytestUI } from '../dist/lib/playtest-ui.js';
 import { DeckStore } from '../dist/lib/decks.js';
 import { PLAYTEST_STORAGE_PREFIX } from '../dist/lib/playtest-storage.js';
+
 class Element {
-  constructor(tag) { this.tagName = tag; this.children = []; this.events = {}; this.attributes = {}; this.className = ''; this.value = ''; this._text = ''; }
+  constructor(tag, ownerDocument) {
+    this.tagName = tag; this.ownerDocument = ownerDocument; this.children = []; this.events = {}; this.attributes = {};
+    this.className = ''; this.value = ''; this._text = ''; this.style = {}; this.scrollLeft = 0; this.scrollTop = 0;
+    this.classList = {
+      add: (...names) => { this.className = [...new Set([...this.className.split(' ').filter(Boolean), ...names])].join(' '); },
+      remove: (...names) => { this.className = this.className.split(' ').filter(name => !names.includes(name)).join(' '); },
+      contains: name => this.className.split(' ').includes(name)
+    };
+  }
   set textContent(value) { this._text = String(value); this.replaceChildren(); }
   get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
-  append(...nodes) { this.children.push(...nodes); }
-  replaceChildren(...nodes) { this.children = nodes; }
-  addEventListener(type, fn) { (this.events[type] ||= []).push(fn); }
-  setAttribute(key, value) { this.attributes[key] = value; }
-  dispatch(type) { for (const fn of this.events[type] || []) fn({ preventDefault() {}, target: this }); }
-  querySelector(selector) { return all(this, n => n.className.split(' ').includes(selector.slice(1)))[0]; }
+  get isConnected() { return this === this.ownerDocument?.body || Boolean(this.parentNode?.isConnected); }
+  append(...nodes) { for (const node of nodes) { node.remove(); node.parentNode = this; this.children.push(node); } }
+  replaceChildren(...nodes) { for (const child of this.children) child.parentNode = null; this.children = []; this.append(...nodes); }
+  remove() { if (this.parentNode) { this.parentNode.children = this.parentNode.children.filter(node => node !== this); this.parentNode = null; } }
+  addEventListener(type, fn, options) { (this.events[type] ||= []).push({ fn, capture: options === true }); }
+  removeEventListener(type, fn) { this.events[type] = (this.events[type] || []).filter(item => item.fn !== fn); }
+  setAttribute(key, value) { this.attributes[key] = String(value); }
+  getAttribute(key) { return this.attributes[key] ?? null; }
+  removeAttribute(key) { delete this.attributes[key]; }
+  dispatch(type, props = {}) {
+    const event = { target: this, detail: 1, pointerId: 1, pointerType: 'mouse', button: 0, clientX: 120, clientY: 120, ...props, prevented: false, stopped: false,
+      preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; }, stopImmediatePropagation() { this.stopped = true; } };
+    for (const { fn } of [...(this.events[type] || [])].sort((a, b) => Number(b.capture) - Number(a.capture))) { fn(event); if (event.stopped) break; }
+    return event;
+  }
+  matches(selector) {
+    return selector.split(',').some(part => {
+      part = part.trim();
+      if (part.startsWith('.')) return this.classList.contains(part.slice(1));
+      const attribute = part.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);
+      if (attribute) return Object.hasOwn(this.attributes, attribute[1]) && (attribute[2] === undefined || this.attributes[attribute[1]] === attribute[2]);
+      return this.tagName === part;
+    });
+  }
+  closest(selector) { return this.matches(selector) ? this : this.parentNode?.closest(selector) || null; }
+  contains(node) { return node === this || this.children.some(child => child.contains(node)); }
+  querySelectorAll(selector) { return all(this, node => node.matches(selector)); }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+  focus() { this.ownerDocument.activeElement = this; }
+  showModal() { this.open = true; this.modal = true; }
+  show() { this.open = true; this.modal = false; }
+  close() { if (this.open) { this.open = false; this.dispatch('close'); } }
+  getBoundingClientRect() { return { left: 100, top: 100, width: 100, height: 140, right: 200, bottom: 240 }; }
 }
 function all(root, predicate) { return root.children.flatMap(node => [...(predicate(node) ? [node] : []), ...all(node, predicate)]); }
 function button(root, text) { return all(root, node => node.tagName === 'button' && node.textContent === text)[0]; }
-function fixture({ mobile = false } = {}) {
-  const layoutListeners = new Set(), media = { matches: mobile, addEventListener: (_, fn) => layoutListeners.add(fn), removeEventListener: (_, fn) => layoutListeners.delete(fn) };
-  globalThis.document = { createElement: tag => new Element(tag) }; globalThis.window = { matchMedia: () => media };
+function byClass(root, cls) { return all(root, node => node.classList.contains(cls)); }
+function labelled(root, label) { return all(root, node => node.getAttribute('aria-label') === label)[0]; }
+function form(root, cls) { return byClass(root, cls).find(node => node.tagName === 'form'); }
+const entry = (cardId, quantity = 1, zone = 'main') => ({ id: `e-${cardId}`, cardId, versionId: `v-${cardId}`, quantity, zone, categories: [], notes: '' });
+const cardDefinitions = [
+  { id: 'forest', name: 'Forest', zhName: '树林', typeLine: 'Basic Land — Forest', versions: [{ id: 'v-forest' }] },
+  { id: 'chief', name: 'Commander', zhName: '统帅', typeLine: 'Legendary Creature', versions: [{ id: 'v-chief' }] },
+  { id: 'transform', name: 'Front // Back', layout: 'transform', typeLine: 'Creature', faces: [{ name: 'Front' }, { name: 'Back' }], versions: [{ id: 'v-transform' }] },
+  { id: 'flip', name: 'Upright // Inverted', layout: 'flip', typeLine: 'Creature', faces: [{ name: 'Upright' }, { name: 'Inverted' }], versions: [{ id: 'v-flip' }] },
+  { id: 'split', name: 'Left // Right', layout: 'split', typeLine: 'Instant', faces: [{ name: 'Left' }, { name: 'Right' }], versions: [{ id: 'v-split' }] }
+];
+function fixture({ entries = [entry('forest', 15), entry('chief', 1, 'commander')] } = {}) {
+  const doc = new Element('document'); doc.ownerDocument = doc; doc.createElement = tag => new Element(tag, doc); doc.body = doc.createElement('body'); doc.activeElement = doc.body;
+  const scrolls = []; doc.defaultView = { innerWidth: 390, innerHeight: 844, scrollTo: value => scrolls.push(value) };
+  globalThis.document = doc; globalThis.window = doc.defaultView;
   const map = new Map(), backend = { fail: false, getItem: key => map.get(key) ?? null, setItem(key, value) { if (this.fail) throw new Error('quota'); map.set(key, value); }, removeItem: key => map.delete(key) }; globalThis.localStorage = backend;
-  const store = new DeckStore({ storage: backend }), draft = store.create('测试草稿');
-  draft.entries = [{ id: 'e', cardId: 'forest', versionId: 'v', quantity: 15, zone: 'main', categories: [], notes: '' }]; const deck = store.save(draft);
-  const cards = [{ id: 'forest', name: 'Forest', zhName: '树林', typeLine: 'Basic Land — Forest', versions: [{ id: 'v' }] }];
-  const container = new Element('main'), notices = [], inspections = [];
-  const newUI = () => initPlaytestUI({ container, cards, onNotify: (...args) => notices.push(args), onInspect: (...args) => inspections.push(args) });
-  const ui = newUI(); ui.open(deck); return { ui, newUI, container, deck, store, map, backend, notices, inspections, resize(matches) { media.matches = matches; for (const fn of layoutListeners) fn(); }, layoutListeners };
+  const store = new DeckStore({ storage: backend }), draft = store.create('测试草稿'); draft.entries = entries; const deck = store.save(draft);
+  const container = doc.createElement('main'); doc.body.append(container); const notices = [], inspections = [];
+  const newUI = () => initPlaytestUI({ container, cards: cardDefinitions, onNotify: (...args) => notices.push(args), onInspect: (...args) => inspections.push(args) });
+  const ui = newUI(); ui.open(deck); return { ui, newUI, container, deck, store, map, backend, notices, inspections, doc, scrolls };
 }
-function start(f) { all(f.container, n => n.tagName === 'form' && n.className === 'pt-setup')[0].dispatch('submit'); }
-test('playtest UI starts a snapshot and all play actions leave original durable deck unchanged', () => {
-  const f = fixture(), before = f.map.get('edh.deck-library.v1'); start(f); assert.match(f.container.textContent, /手牌 · 7/); button(f.container, '保留并开始').dispatch('click'); assert.match(f.container.textContent, /手牌 · 8/);
-  all(f.container, n => n.className.split(' ').includes('pt-card'))[0].dispatch('click'); button(f.container, '下地').dispatch('click'); button(f.container, '横置').dispatch('click'); button(f.container, '应用指示物').dispatch('click'); button(f.container, '下一回合 →').dispatch('click');
-  assert.match(f.container.textContent, /第 2 回合/); assert.match(f.container.textContent, /本回合下地 0\/1/); assert.equal(f.map.get('edh.deck-library.v1'), before); assert.equal(f.store.get(f.deck.id).entries[0].quantity, 15);
-});
-test('paid mulligan UI blocks keep until bottom selection; saved progress resumes with life and turn', () => {
-  const f = fixture(); start(f); button(f.container, '重新调度（免费）').dispatch('click'); button(f.container, '重新调度（需沉底 1 张）').dispatch('click'); assert.equal(button(f.container, '保留并开始').disabled, true);
-  all(f.container, n => n.className.split(' ').includes('pt-card'))[0].dispatch('click'); assert.equal(button(f.container, '保留并开始').disabled, false); button(f.container, '保留并开始').dispatch('click'); button(f.container, '-5').dispatch('click'); button(f.container, '下一回合 →').dispatch('click');
-  const next = f.newUI(); next.open(f.deck); assert.ok(button(f.container, '继续上次测试')); button(f.container, '继续上次测试').dispatch('click'); assert.match(f.container.textContent, /第 2 回合/); assert.equal(JSON.parse(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id)).state.life, 35);
-});
-test('quota failure stays visible, keeps current session and supports retry without a false saved status', () => { const f = fixture(); f.backend.fail = true; start(f); assert.match(f.container.textContent, /保存失败/); assert.equal(f.map.has(PLAYTEST_STORAGE_PREFIX + f.deck.id), false); assert.ok(button(f.container, '重试保存')); f.backend.fail = false; button(f.container, '重试保存').dispatch('click'); assert.match(f.container.textContent, /已保存在此浏览器/); assert.ok(f.map.has(PLAYTEST_STORAGE_PREFIX + f.deck.id)); });
-test('corrupt progress blocks overwrite until explicitly selected and never changes the original deck', () => { const f = fixture(), before = f.map.get('edh.deck-library.v1'); f.map.set(PLAYTEST_STORAGE_PREFIX + f.deck.id, '{bad'); const ui = f.newUI(); ui.open(f.deck); assert.match(f.container.textContent, /旧测试进度暂时无法恢复/); assert.equal(button(f.container, '按当前牌表新建测试').disabled, true); start(f); assert.equal(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id), '{bad'); const overwrite = all(f.container, n => n.className === 'pt-check').at(-1).children[0]; overwrite.checked = true; overwrite.dispatch('change'); start(f); assert.match(f.container.textContent, /手牌 · 7/); assert.equal(f.map.get('edh.deck-library.v1'), before); });
-test('resuming after a deck edit retains the original test snapshot while a new test uses the edited deck', () => { const f = fixture(); start(f); const edited = structuredClone(f.deck); edited.entries[0].quantity = 3; const ui = f.newUI(); ui.open(edited); button(f.container, '继续上次测试').dispatch('click'); assert.match(f.container.textContent, /手牌 · 7/); button(f.container, '重开 \/ 设置').dispatch('click'); start(f); assert.match(f.container.textContent, /手牌 · 3/); });
+function start(f) { form(f.container, 'pt-setup').dispatch('submit'); }
+function keep(f) { button(f.container, '保留并开始').dispatch('click'); }
+function saved(f) { return JSON.parse(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id)).state; }
+function tile(f, id) { return all(f.container, n => n.getAttribute('data-piece-id') === id)[0]; }
+function openCard(f, id) { const card = tile(f, id); assert.ok(card, `visible card ${id}`); byClass(card, 'pt-card-menu')[0].dispatch('click'); return byClass(f.container, 'pt-card-dialog')[0]; }
+function move(f, id, destination) { openCard(f, id); labelled(f.container, '移动卡牌到').value = destination; form(f.container, 'pt-move-form').dispatch('submit'); }
+function assertConcise(root) {
+  assert.doesNotMatch(root.textContent, /准备一场测试|独立快照|支持未完成的草稿|按自己的节奏试牌|这手牌，值得保留吗|当前无需沉底|自动再抓一张牌|撤销|重做|下地上限|本回合下地|请手动处理费用|每次调度重抓起手/);
+}
 
-test('mobile card actions follow the selected row, can collapse, and survive resizing without changing the test', () => {
-  const f = fixture({ mobile: true }); start(f); button(f.container, '保留并开始').dispatch('click');
-  const grid = () => all(f.container, n => n.className === 'pt-card-grid')[0];
-  grid().children[4].dispatch('click');
-  assert.equal(grid().children[6].className, 'pt-panel pt-selection');
-  assert.equal(all(f.container, n => n.className === 'pt-panel pt-selection').length, 1);
-  const before = f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id);
-  f.resize(false);
-  assert.equal(all(grid(), n => n.className === 'pt-panel pt-selection').length, 0);
-  assert.ok(button(f.container, '下地'));
-  f.resize(true);
-  assert.equal(grid().children[6].className, 'pt-panel pt-selection');
-  button(f.container, '收起操作').dispatch('click');
-  assert.equal(all(f.container, n => n.className === 'pt-panel pt-selection').length, 0);
-  assert.equal(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id), before);
-  f.ui.destroy(); assert.equal(f.layoutListeners.size, 0);
+test('setup contains only the first-turn draw toggle and concise settings', () => {
+  const f = fixture(), checks = all(f.container, n => n.tagName === 'input' && n.type === 'checkbox');
+  assert.equal(checks.length, 1); assert.equal(checks[0].parentNode.textContent, '先手抓牌'); assert.equal(checks[0].checked, true);
+  assert.ok(button(f.container, '开始试牌')); assertConcise(f.container);
+  checks[0].checked = false; start(f); keep(f); assert.equal(saved(f).zones.hand.length, 7); assert.equal(saved(f).settings.drawFirstTurn, false);
+});
+
+test('opening shows the hand first and hides all other game zones and controls', () => {
+  const f = fixture(); start(f);
+  assert.match(f.container.textContent, /手牌 · 7/); assert.equal(byClass(f.container, 'pt-opening-hand').length, 1); assert.equal(byClass(f.container, 'pt-hand-row')[0].children.length, 7);
+  assert.equal(byClass(f.container, 'pt-table').length, 0); assert.equal(byClass(f.container, 'pt-controls').length, 0); assert.equal(all(f.container, n => n.getAttribute('data-drop-zone') !== null).length, 0);
+  assert.equal(button(f.container, '保留并开始').disabled, false); assertConcise(f.container);
+});
+
+test('paid mulligans show bottom-selection progress and block keep until the required cards are selected', () => {
+  const f = fixture(); start(f); button(f.container, '重新调度（免费）').dispatch('click'); button(f.container, '重新调度（沉底 1 张）').dispatch('click');
+  assert.equal(button(f.container, '保留并开始').disabled, true); assert.equal(byClass(f.container, 'pt-bottom-progress')[0].textContent, '沉底 0/1');
+  const first = saved(f).zones.hand[0]; byClass(tile(f, first), 'pt-card-hit')[0].dispatch('click');
+  assert.equal(byClass(f.container, 'pt-bottom-progress')[0].textContent, '沉底 1/1'); assert.equal(button(f.container, '保留并开始').disabled, false);
+  byClass(tile(f, first), 'pt-card-hit')[0].dispatch('click'); assert.equal(button(f.container, '保留并开始').disabled, true);
+  byClass(tile(f, first), 'pt-card-hit')[0].dispatch('click'); keep(f);
+  assert.equal(saved(f).zones.library.at(-1), first); assert.equal(saved(f).zones.hand.length, 7); assertConcise(f.container);
+});
+
+test('playing shows battlefield above hand and three side piles; menu movement leaves the source deck unchanged', () => {
+  const f = fixture(), before = f.map.get('edh.deck-library.v1'); start(f); keep(f);
+  const table = byClass(f.container, 'pt-table')[0]; assert.equal(table.children[0].getAttribute('data-drop-zone'), 'battlefield');
+  assert.equal(byClass(f.container, 'pt-hand').length, 1); assert.equal(byClass(f.container, 'pt-zone-pile').length, 3);
+  assert.deepEqual(byClass(f.container, 'pt-zone-pile').map(n => n.getAttribute('data-drop-zone')), ['graveyard', 'exile', 'command']);
+  const id = saved(f).zones.hand[0]; move(f, id, 'battlefield'); assert.ok(saved(f).zones.battlefield.includes(id));
+  move(f, id, 'graveyard'); assert.ok(saved(f).zones.graveyard.includes(id)); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
+  assert.equal(f.map.get('edh.deck-library.v1'), before); assert.equal(f.store.get(f.deck.id).entries[0].quantity, 15); assertConcise(f.container);
+});
+
+test('battlefield click toggles tap directly; the corner menu changes counters and exposes details', () => {
+  const f = fixture(); start(f); keep(f); const id = saved(f).zones.hand[0]; move(f, id, 'battlefield');
+  byClass(tile(f, id), 'pt-card-hit')[0].dispatch('click'); assert.equal(saved(f).pieces[id].tapped, true); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
+  byClass(tile(f, id), 'pt-card-hit')[0].dispatch('click'); assert.equal(saved(f).pieces[id].tapped, false);
+  const dialog = openCard(f, id); assert.equal(dialog.open, true); assert.equal(dialog.modal, true); assert.equal(labelled(dialog, '减少指示物').disabled, true);
+  labelled(dialog, '增加指示物').dispatch('click'); assert.equal(saved(f).pieces[id].counters['+1/+1'], 1); assert.equal(labelled(f.container, '减少指示物').disabled, false);
+  labelled(f.container, '减少指示物').dispatch('click'); assert.deepEqual(saved(f).pieces[id].counters, {});
+  const name = labelled(f.container, '指示物名称'); name.value = '充电'; name.dispatch('input'); labelled(f.container, '增加指示物').dispatch('click'); assert.equal(saved(f).pieces[id].counters['充电'], 1);
+  button(f.container, '查看详情').dispatch('click'); assert.equal(f.inspections[0][0].id, 'forest'); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
+});
+
+test('counter actions keep keyboard focus across redraws and closing returns to the rebuilt card menu', () => {
+  const f = fixture(); start(f); keep(f); const id = saved(f).zones.hand[0]; move(f, id, 'battlefield');
+  const origin = byClass(tile(f, id), 'pt-card-menu')[0]; origin.focus(); openCard(f, id);
+  let plus = labelled(f.container, '增加指示物'); plus.focus(); plus.dispatch('click');
+  assert.equal(saved(f).pieces[id].counters['+1/+1'], 1); assert.equal(plus.isConnected, false); assert.equal(f.doc.activeElement, labelled(f.container, '增加指示物')); assert.equal(f.doc.activeElement.isConnected, true);
+  f.doc.activeElement.dispatch('click'); assert.equal(saved(f).pieces[id].counters['+1/+1'], 2); assert.equal(f.doc.activeElement, labelled(f.container, '增加指示物'));
+  const minus = labelled(f.container, '减少指示物'); minus.focus(); minus.dispatch('click');
+  assert.equal(saved(f).pieces[id].counters['+1/+1'], 1); assert.equal(f.doc.activeElement, labelled(f.container, '减少指示物'));
+  f.doc.activeElement.dispatch('click'); assert.deepEqual(saved(f).pieces[id].counters, {}); assert.equal(labelled(f.container, '减少指示物').disabled, true); assert.equal(f.doc.activeElement, labelled(f.container, '增加指示物'));
+  button(f.container, '关闭').dispatch('click'); const rebuilt = byClass(tile(f, id), 'pt-card-menu')[0];
+  assert.equal(origin.isConnected, false); assert.notEqual(rebuilt, origin); assert.equal(f.doc.activeElement, rebuilt); assert.equal(rebuilt.isConnected, true);
+});
+
+test('transform cards have a transform action, flip cards have inversion, and split cards have neither', () => {
+  const f = fixture({ entries: ['transform', 'flip', 'split'].map(id => entry(id)) }); start(f); keep(f);
+  const state = saved(f), idFor = cardId => Object.values(state.pieces).find(p => p.cardId === cardId).id;
+  openCard(f, idFor('transform')); assert.ok(button(f.container, '转化')); assert.equal(button(f.container, '倒转'), undefined);
+  button(f.container, '转化').dispatch('click'); assert.equal(saved(f).pieces[idFor('transform')].face, 1); button(f.container, '关闭').dispatch('click');
+  openCard(f, idFor('flip')); assert.ok(button(f.container, '倒转')); assert.equal(button(f.container, '转化'), undefined);
+  button(f.container, '倒转').dispatch('click'); assert.equal(saved(f).pieces[idFor('flip')].inverted, true); assert.equal(saved(f).pieces[idFor('flip')].face, 0); button(f.container, '关闭').dispatch('click');
+  openCard(f, idFor('split')); assert.equal(button(f.container, '转化'), undefined); assert.equal(button(f.container, '倒转'), undefined);
+});
+
+test('saved play resumes with life and turn while a new test uses the edited deck', () => {
+  const f = fixture(); start(f); keep(f); button(f.container, '-5').dispatch('click'); button(f.container, '下一回合').dispatch('click');
+  const edited = structuredClone(f.deck); edited.entries[0].quantity = 3; const ui = f.newUI(); ui.open(edited);
+  assert.ok(button(f.container, '继续试牌')); button(f.container, '继续试牌').dispatch('click'); assert.match(f.container.textContent, /第 2 回合/); assert.equal(saved(f).life, 35); assert.equal(saved(f).deck.entries[0].quantity, 15);
+  button(f.container, '设置').dispatch('click'); assert.ok(button(f.container, '重新开始')); start(f); assert.match(f.container.textContent, /手牌 · 3/); assert.equal(saved(f).deck.entries[0].quantity, 3);
+});
+
+test('quota errors remain visible and retry saves the same live session without a redundant success message', () => {
+  const f = fixture(); f.backend.fail = true; start(f); assert.match(f.container.textContent, /保存失败/); assert.equal(f.map.has(PLAYTEST_STORAGE_PREFIX + f.deck.id), false); assert.ok(button(f.container, '重试保存'));
+  f.backend.fail = false; button(f.container, '重试保存').dispatch('click'); assert.equal(byClass(f.container, 'pt-save-error').length, 0); assert.ok(f.map.has(PLAYTEST_STORAGE_PREFIX + f.deck.id)); assert.equal(saved(f).zones.hand.length, 7); assert.doesNotMatch(f.container.textContent, /已保存在此浏览器/);
+});
+
+test('corrupt progress blocks overwrite until explicitly selected and never changes the original deck', () => {
+  const f = fixture(), before = f.map.get('edh.deck-library.v1'); f.map.set(PLAYTEST_STORAGE_PREFIX + f.deck.id, '{bad'); const ui = f.newUI(); ui.open(f.deck);
+  assert.match(f.container.textContent, /旧测试进度无法恢复/); assert.equal(button(f.container, '重新开始').disabled, true); start(f); assert.equal(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id), '{bad');
+  const overwrite = byClass(f.container, 'pt-check').find(n => n.textContent === '覆盖旧测试进度').children[0]; overwrite.checked = true; overwrite.dispatch('change'); assert.equal(button(f.container, '重新开始').disabled, false); start(f);
+  assert.match(f.container.textContent, /手牌 · 7/); assert.equal(f.map.get('edh.deck-library.v1'), before);
+});
+
+test('zone trays use non-modal dialogs and closeOverlays closes them without changing progress', () => {
+  const f = fixture(); start(f); keep(f); const before = f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id);
+  button(f.container, '坟场 0').dispatch('click'); let dialog = byClass(f.container, 'pt-dialog')[0]; assert.equal(dialog.modal, false); assert.match(dialog.textContent, /0 张/);
+  f.ui.closeOverlays(); assert.equal(dialog.isConnected, false); assert.equal(dialog.open, false); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
+  const libraryButton = all(f.container, n => n.tagName === 'button' && /^牌库 \d+$/.test(n.textContent))[0]; libraryButton.dispatch('click');
+  dialog = byClass(f.container, 'pt-dialog')[0]; assert.equal(dialog.modal, false); assert.ok(labelled(dialog, '搜索测试牌库')); labelled(dialog, '搜索测试牌库').value = 'missing'; labelled(dialog, '搜索测试牌库').dispatch('input'); assert.match(dialog.textContent, /无匹配卡牌/);
+  dialog.dispatch('cancel'); assert.equal(byClass(f.container, 'pt-dialog').length, 0); assert.equal(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id), before);
+});
+
+test('zone trays expose every card beyond the hundredth entry and can move the last one', () => {
+  const f = fixture({ entries: [entry('forest', 150)] }); start(f); keep(f); const library = saved(f).zones.library;
+  assert.ok(library.length > 100); button(f.container, `牌库 ${library.length}`).dispatch('click');
+  const tray = byClass(f.container, 'pt-zone-dialog')[0], cards = byClass(tray, 'pt-card');
+  assert.equal(cards.length, library.length); assert.deepEqual(cards.map(n => n.getAttribute('data-piece-id')), library);
+  const last = library.at(-1); move(f, last, 'hand'); assert.ok(saved(f).zones.hand.includes(last)); assert.equal(saved(f).zones.library.includes(last), false);
+});
+
+test('Escape closes a non-modal zone tray while an active drag gets the first chance to cancel', () => {
+  const f = fixture(); start(f); keep(f); button(f.container, '坟场 0').dispatch('click'); const dialog = byClass(f.container, 'pt-dialog')[0];
+  f.doc.body.classList.add('pt-drag-active'); assert.equal(f.doc.dispatch('keydown', { key: 'Escape' }).prevented, false); assert.equal(dialog.open, true);
+  f.doc.body.classList.remove('pt-drag-active'); assert.equal(f.doc.dispatch('keydown', { key: 'Escape' }).prevented, true); assert.equal(dialog.open, false); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
+  f.ui.destroy(); assert.equal(f.doc.events.keydown.length, 0);
+});
+
+test('closeOverlays restores focus and destroy removes dialogs, gestures and pending pointer listeners', () => {
+  const f = fixture(); start(f); keep(f); const id = saved(f).zones.hand[0], menu = byClass(tile(f, id), 'pt-card-menu')[0]; menu.focus(); menu.dispatch('click'); const dialog = byClass(f.container, 'pt-dialog')[0];
+  f.ui.closeOverlays(); assert.equal(f.doc.activeElement, menu); assert.equal(dialog.isConnected, false);
+  const card = tile(f, id); card.dispatch('pointerdown'); assert.equal(f.doc.events.pointermove.length, 1); openCard(f, id); const activeDialog = byClass(f.container, 'pt-dialog')[0]; const before = f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id);
+  f.ui.destroy(); assert.equal(activeDialog.isConnected, false); assert.equal(activeDialog.open, false); assert.equal(f.container.children.length, 0); assert.equal(f.doc.events.pointermove.length, 0); assert.equal(f.doc.events.keydown.length, 0); assert.equal(card.events.pointerdown.length, 0); assert.equal(card.style.touchAction, ''); assert.equal(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id), before);
 });

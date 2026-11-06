@@ -182,7 +182,8 @@ function setResultState({ title, message, kind = 'search', action } = {}) {
   state.replaceChildren();
   if (kind === 'loading') state.append(node('div', { class: 'loading-spinner', 'aria-hidden': 'true' }));
   else state.append(icon(kind));
-  state.append(node('h2', { text: title }), node('p', { text: message, id: kind === 'loading' ? 'loading-message' : undefined }));
+  state.append(node('h2', { text: title }));
+  if (message) state.append(node('p', { text: message, id: kind === 'loading' ? 'loading-message' : undefined }));
   if (action) state.append(node('button', { class: 'button', text: action.label, onClick: action.run }));
   state.hidden = false;
 }
@@ -243,8 +244,7 @@ async function runSearch() {
       $('#load-more').hidden = true;
       $('#result-end').hidden = true;
       $('#results-count').textContent = '正在加载搜索数据…';
-      $('#data-status-text').textContent = '首次搜索正在准备卡库，后续搜索会复用已加载的数据。';
-      setResultState({ title: '正在准备搜索', message: '载入中文卡牌与印刷版本…', kind: 'loading' });
+      setResultState({ title: '正在加载卡库…', message: '载入卡牌数据…', kind: 'loading' });
       const ready = await ensureCatalog();
       if (ready && revision === searchRevision && currentView === 'catalog') runSearch();
       return;
@@ -265,7 +265,7 @@ async function runSearch() {
     const position = Number.isInteger(result.error.rawPosition) ? '（搜索框第 ' + (result.error.rawPosition + 1) + ' 个字符附近）' : '';
     errorBox.textContent = result.error.message + position;
     $('#results-count').textContent = '搜索条件需要调整';
-    setResultState({ title: '检查一下搜索条件', message: '请调整上面的搜索内容或筛选条件，也可以在高级搜索中逐项选择。', kind: 'help', action: { label: '打开高级搜索', run: showAdvancedFilters } });
+    setResultState({ title: '搜索条件有误', kind: 'help', action: { label: '打开高级搜索', run: showAdvancedFilters } });
     matchedCards = [];
     return;
   }
@@ -274,7 +274,7 @@ async function runSearch() {
   const count = result.total ?? matchedCards.length;
   $('#results-count').replaceChildren(node('strong', { text: fmt(count) }), document.createTextNode(query || $('#active-filters').children.length ? '张匹配卡牌' : '张卡牌'));
   if (!matchedCards.length) {
-    setResultState({ title: '还没有找到这张牌', message: '试试其他牌名、规则片段，或减少筛选条件。当前功能标签尚在扩充，详情见数据说明。', kind: 'search', action: { label: '清空搜索与筛选', run: clearSearch } });
+    setResultState({ title: '无匹配卡牌', kind: 'search', action: { label: '清空搜索与筛选', run: clearSearch } });
     return;
   }
   appendResults();
@@ -335,6 +335,7 @@ function showAdvancedFilters() {
 }
 
 function switchView(view) {
+  if (view !== 'playtest') playtestUI?.closeOverlays({ restoreFocus: false });
   closeFilters();
   currentView = view;
   $('#catalog-view').hidden = view !== 'catalog';
@@ -462,21 +463,13 @@ function closeDetail() {
 
 function translationNote(face) {
   const translation = face.translation || detailCard?.translation || {};
-  const required = Boolean(face.oracleText);
-  let message;
-  let good = false;
-  if (!required) { message = '本牌面无 Oracle 规则文字。'; good = true; }
-  else if (!face.zhText) message = '中文规则待补齐 · 暂时保留英文原文，未计为中文已覆盖。';
-  else if (translation.stale) message = sourceLabel(translation.source) + ' · 英文规则已更新，中文待复核。';
-  else if (translation.override) message = sourceLabel(translation.source) + ' · 项目 AI 辅助修订 · 待人工复核。';
-  else {
-    message = sourceLabel(translation.source);
-    if (translation.upstreamAI || translation.status === 'ai' || ['ai', 'gpt'].includes(translation.source)) message += ' · 待人工复核。';
-    else if (['reviewed', 'verified', 'approved'].includes(translation.reviewStatus || translation.status)) message += ' · 已复核';
-    else message += ' · 可对照英文核实';
-    good = true;
-  }
-  return node('div', { class: 'translation-note' + (good ? ' good' : '') }, [icon('info'), node('span', { text: message })]);
+  const details = [face.zhName || face.name || '牌面', sourceLabel(translation.source)];
+  if (face.oracleText && !face.zhText) details.push('中文未收录');
+  if (translation.override) details.push('AI 辅助修订');
+  else if (translation.upstreamAI && !['ai', 'gpt'].includes(translation.source)) details.push('AI 译文');
+  if (translation.stale) details.push('英文规则已更新');
+  if (['reviewed', 'verified', 'approved'].includes(translation.reviewStatus || translation.status)) details.push('已复核');
+  return node('p', { class: 'data-note', text: details.join(' · ') });
 }
 
 function renderFaceRules(face, index, multiple) {
@@ -489,11 +482,10 @@ function renderFaceRules(face, index, multiple) {
     content.append(face.oracleText ? ruleText(face.oracleText) : node('p', { class: 'detail-empty-text', text: 'No Oracle rules text.' }));
   } else {
     if (face.zhText) content.append(ruleText(face.zhText));
-    else if (face.oracleText) content.append(node('p', { class: 'translation-missing', text: '这张牌面的中文规则尚待补齐。以下为英文原文。' }), ruleText(face.oracleText, 'rule-text-en'));
+    else if (face.oracleText) content.append(node('p', { class: 'translation-missing', text: '中文未收录' }), ruleText(face.oracleText, 'rule-text-en'));
     else content.append(node('p', { class: 'detail-empty-text', text: '此牌面没有规则文字。' }));
     if (detailLanguage === 'compare' && face.zhText && face.oracleText) content.append(node('div', { class: 'translation-separator' }), node('p', { class: 'rule-language-label', text: 'ORACLE · ENGLISH' }), ruleText(face.oracleText, 'rule-text-en'));
   }
-  content.append(translationNote(face));
   return content;
 }
 
@@ -555,10 +547,10 @@ function renderDetail() {
   const versionIndex = versions.findIndex((item) => item.id === version?.id);
   versionSelect.value = String(Math.max(0, versionIndex));
   versionSelect.addEventListener('change', () => { detailVersion = versions[Number(versionSelect.value)]; renderDetail(); });
-  root.append(node('section', { class: 'version-section' }, [node('label', { class: 'version-heading', for: 'detail-version' }, ['印刷版本', node('span', { text: fmt(versions.length) + ' 个已收录版本' })]), versionSelect, node('p', { class: 'version-caption', text: (card.matchingVersions?.length ? '已优先选择符合当前检索条件的版本。' : '') + '加入卡组时使用此版本。当前收录默认语言印刷和已映射中文印刷，全部语言版本仍待补充。' })]));
+  root.append(node('section', { class: 'version-section' }, [node('label', { class: 'version-heading', for: 'detail-version' }, ['印刷版本', node('span', { text: fmt(versions.length) + ' 个已收录版本' })]), versionSelect]));
   const addTarget = currentAddTarget();
   if (currentView !== 'playtest') root.append(node('button', { class: 'button button-primary detail-add', type: 'button', onClick: () => addCard(card, detailVersion || versions[0]) }, [icon('plus'), addTarget ? '加入「' + addTarget.name + '」主牌区' : '选择卡组并加入']));
-  root.append(node('p', { class: 'detail-footer-note', text: '中文内容保留译文来源，牌面与规则以英文 Oracle 为核对依据。卡图通过 Scryfall 载入。' }));
+  root.append(node('details', { class: 'detail-data-sources' }, [node('summary', { text: '数据来源' }), ...faces.map(translationNote), node('p', { class: 'data-note' }, ['Oracle 与卡图：', node('a', { href: 'https://scryfall.com', target: '_blank', rel: 'noreferrer', text: 'Scryfall' })])]));
   root.scrollTop = oldScroll;
 }
 
@@ -568,26 +560,23 @@ function renderDataStatus() {
   const translated = coverage?.translatedFaces;
   const hasCoverage = Number.isFinite(required) && required >= 0 && Number.isFinite(translated) && translated >= 0;
   const coveragePercent = hasCoverage ? (required ? Math.min(100, translated / required * 100) : 100).toFixed(1).replace(/\.0$/, '') : null;
-  $('#data-status-text').textContent = hasCoverage ? '数据接入预览 · 中文规则文字覆盖 ' + coveragePercent + '%' + (required > translated ? ' · ' + fmt(required - translated) + ' 个牌面待补齐' : ' · 人工复核待完成') : '数据接入预览 · 中文覆盖统计待生成 · 缺译内容正在核查';
   const tagged = allCards.filter((card) => card.tags?.length).length;
-  $('#tag-coverage').textContent = tagged ? '来自 Scryfall Oracle Tags，覆盖 ' + fmt(tagged) + ' 张牌；未分类卡牌可继续用规则文字检索。' : '当前快照尚无功能标签数据。tag: 语法已提供，标签覆盖仍待接入。';
+  $('#tag-coverage').textContent = tagged ? 'Scryfall Oracle Tags · ' + fmt(tagged) + ' 张牌' : '暂无标签数据';
   const content = $('#data-dialog-content');
   content.replaceChildren();
   content.append(node('div', { class: 'data-facts' }, [node('div', { class: 'data-fact' }, [node('strong', { text: fmt(allCards.length) }), node('span', { text: '独立卡牌身份' })]), node('div', { class: 'data-fact' }, [node('strong', { text: coveragePercent !== null ? coveragePercent + '%' : '待统计' }), node('span', { text: '中文规则覆盖率' })]), node('div', { class: 'data-fact' }, [node('strong', { text: fmt(tagged) }), node('span', { text: '已有功能标签' })])]));
-  content.append(node('p', { class: 'data-note', text: '当前为数据接入预览。中文覆盖、复杂牌面翻译复核与功能标签仍需继续补齐，通过固定验收案例后才会标记为版本完成。' }));
   if (hasCoverage) content.append(node('p', { class: 'data-note', text: '规则文字必需牌面 ' + fmt(required) + ' 个，已有中文 ' + fmt(translated) + ' 个，缺失 ' + fmt(Math.max(0, required - translated)) + ' 个。原文无规则文字的牌面单独统计。' }));
   const date = manifest?.freezeDate || manifest?.snapshotDate || manifest?.generatedAt || manifest?.builtAt || manifest?.updatedAt || manifest?.date;
   if (date) content.append(node('p', { class: 'data-note', text: '卡池冻结日期：' + String(date).slice(0, 10) + (manifest?.snapshot ? ' · 英文 ' + String(manifest.snapshot.oracleDate || '').slice(0, 10) + ' · 中文 ' + String(manifest.snapshot.chineseDate || '').slice(0, 10) : '') }));
-  if (manifest?.translationReview?.upstreamAIFaces) content.append(node('p', { class: 'data-note', text: '社区快照含 ' + fmt(manifest.translationReview.upstreamAIFaces) + ' 个 AI 译文牌面，已保留来源与待复核标记。覆盖率只统计中文规则是否非空，人工语义复核另行验收。' }));
+  if (manifest?.translationReview?.upstreamAIFaces) content.append(node('p', { class: 'data-note', text: '社区资料含 ' + fmt(manifest.translationReview.upstreamAIFaces) + ' 个 AI 译文牌面。中文覆盖率按规则文字是否非空统计。' }));
   const list = node('ul', { class: 'data-source-list' });
   list.append(node('li', {}, ['英文身份、Oracle 与印刷版本：', node('a', { href: 'https://scryfall.com/docs/api', target: '_blank', rel: 'noreferrer', text: 'Scryfall' })]));
   list.append(node('li', {}, ['中文内容：', node('a', { href: 'https://github.com/HeliumOctahelide/magic-cards-zhs', target: '_blank', rel: 'noreferrer', text: 'magic-cards-zhs 社区资料' }), '，详细来源以牌面标注为准。']));
-  list.append(node('li', { text: '中文缺失会保留英文，过期译文会单独标记。当前未将未覆盖牌面视为验收通过。' }));
   content.append(list);
   if (manifest?.versionCoverage?.allLanguagesSnapshotLoaded === false) content.append(node('p', { class: 'data-note', text: '版本范围：当前默认语言纸牌印刷及社区映射的中文印刷。全部语言的印刷版本尚未接入，因此 lang: 筛选只作用于已收录版本。' }));
   if (manifest?.searchMetadata) content.append(node('p', { class: 'data-note', text: 'EDHREC 排名采用 ' + String(manifest.searchMetadata.oracleDate).slice(0, 10) + ' 的 Scryfall 数据快照，' + fmt(manifest.searchMetadata.rankedCards) + ' 张牌有排名；排名较小的牌优先，未排名的牌排在末尾。力量与防御力按每个牌面的原始数值查询，* 等未定值不计入数值范围。' }));
   if (manifest?.reports?.coverage) content.append(node('p', { class: 'data-note' }, node('a', { href: './data/' + manifest.reports.coverage, target: '_blank', rel: 'noreferrer', text: '查看本次中文覆盖报告' })));
-  content.append(node('p', { class: 'data-note', text: '卡组保存在当前浏览器中。清除站点数据或更换浏览器前，请通过「我的卡组」导出完整 JSON 备份。' }));
+  content.append(node('p', { class: 'data-note', text: '卡组存储：当前浏览器。卡牌版权：Wizards of the Coast。' }));
 }
 
 function trapFocus(event, container) {
@@ -679,8 +668,7 @@ function ensureCatalog() {
     const latestVisual = filterUI.getSearch();
     if (currentView === 'catalog' && hasCatalogSearchIntent() && !latestVisual.error && !validateSearch(latestQuery, { commanderOnly: latestVisual.filters.commanderOnly })) {
       $('#results-count').textContent = '卡库暂时不可用';
-      $('#data-status-text').textContent = '卡库载入失败 · 已保存的卡组数据仍保留在当前浏览器';
-      setResultState({ title: '卡库还没有准备好', message: error.message || '请检查网络后重试。', kind: 'info', action: { label: '重试搜索', run: runSearch } });
+      setResultState({ title: '卡库载入失败', message: error.message || '请检查网络后重试。', kind: 'info', action: { label: '重试搜索', run: runSearch } });
     } else if (!hasCatalogSearchIntent()) showIdleCatalog();
     if (!deckUI) $('#deck-view').replaceChildren(node('div', { class: 'result-state' }, [icon('info'), node('h2', { text: '需要先完成卡库加载' }), node('p', { text: '卡库不可用时无法匹配卡牌。已有的本地卡组数据不会被修改。' }), node('button', { class: 'button', text: '重试加载', onClick: () => switchView('decks') })]));
     console.error('Catalog initialization failed', error);
