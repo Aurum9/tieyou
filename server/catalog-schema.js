@@ -19,7 +19,7 @@ export const catalogCards = sqliteTable('catalog_cards', {
   commanderLegal: integer('commander_legal').notNull(), translated: integer('translated').notNull(), edhrecRank: integer('edhrec_rank'), releasedAt: text('released_at').notNull(),
   nameText: text('name_text').notNull(), oracleText: text('oracle_text').notNull(), typeText: text('type_text').notNull(),
   defaultVersionId: text('default_version_id'),
-}, t => [uniqueIndex('catalog_cards_identity_key').on(t.version, t.id), index('catalog_cards_name').on(t.version, t.nameRank), index('catalog_cards_mana').on(t.version, t.manaValue, t.nameRank), index('catalog_cards_edhrec').on(t.version, t.edhrecRank, t.nameRank), index('catalog_cards_identity').on(t.version, t.identityMask)]);
+}, t => [uniqueIndex('catalog_cards_identity_key').on(t.version, t.id), index('catalog_cards_name').on(t.version, t.nameRank, t.id, t.commanderLegal, t.identityMask, t.colorMask), index('catalog_cards_mana').on(t.version, t.manaValue, t.nameRank), index('catalog_cards_edhrec').on(t.version, t.edhrecRank, t.nameRank), index('catalog_cards_identity').on(t.version, t.identityMask)]);
 export const catalogFaces = sqliteTable('catalog_faces', {
   version: text('version').notNull(), cardId: text('card_id').notNull(), faceIndex: integer('face_index').notNull(), power: real('power'), toughness: real('toughness'), typeText: text('type_text').notNull(),
 }, t => [primaryKey({ columns: [t.version, t.cardId, t.faceIndex] })]);

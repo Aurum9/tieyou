@@ -205,7 +205,8 @@ export function createCatalogService(db) {
       const compiled = compileCatalogQuery(q, { sort, commanderOnly });
       const version = await activeVersion(db);
       if (compiled.tagPosition !== null && !await db.prepare('SELECT 1 AS found FROM catalog_tags WHERE version=? LIMIT 1').bind(version).first()) throw new QueryError('当前卡库尚未载入功能标签', compiled.tagPosition);
-      const values = [...compiled.params, version], versionRef = `json_extract(qp.j,'$[${values.length - 1}]')`;
+      // An independent scalar keeps the snapshot boundary indexable before scanning cards.
+      const values = [...compiled.params, version], versionRef = `(SELECT json_extract(j,'$[${values.length - 1}]') FROM qp)`;
       const from = `FROM catalog_cards c CROSS JOIN qp WHERE c.version=${versionRef} AND ${compiled.predicate}`;
       const count = await bindJSON(db, `${compiled.prefix} SELECT COUNT(*) AS total ${from}`, values).first();
       const total = Number(count?.total || 0);

@@ -138,3 +138,24 @@ test('FTS query plans perform one inverted-index candidate lookup rather than on
   assert.ok(plan.results.some(row => /VIRTUAL TABLE INDEX.*M/i.test(row.detail)));
   assert.ok(plan.results.every(row => !/CORRELATED LIST SUBQUERY/i.test(row.detail)));
 });
+
+test('default color searches count and page from a covering index without sorting or reading card JSON', async () => {
+  const observed = [];
+  const monitored = createCatalogService({ ...db, prepare(sql) {
+    const statement = db.prepare(sql);
+    return new Proxy(statement, { get(target, key) {
+      if (key === 'bind') return (...bindings) => {
+        if (/SELECT (?:COUNT\(\*\)|c\.id) .*FROM catalog_cards c CROSS JOIN qp/.test(sql)) observed.push({ sql, bindings });
+        return target.bind(...bindings);
+      };
+      return typeof target[key] === 'function' ? target[key].bind(target) : target[key];
+    } });
+  } });
+  for (const q of ['ci<=ub', 'c:u']) await monitored.search({ q, commanderOnly: true });
+  assert.equal(observed.length, 4);
+  for (const { sql, bindings } of observed) {
+    const plan = (await db.prepare('EXPLAIN QUERY PLAN ' + sql).bind(...bindings).all()).results;
+    assert.ok(plan.some(row => /SEARCH c USING COVERING INDEX catalog_cards_name.*version=/.test(row.detail)), JSON.stringify(plan));
+    assert.ok(plan.every(row => !/SCAN c\b|TEMP B-TREE/.test(row.detail)), JSON.stringify(plan));
+  }
+});
