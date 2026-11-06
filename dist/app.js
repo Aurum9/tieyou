@@ -5,7 +5,8 @@ import { initSearchFilters } from './lib/filter-ui.js';
 import { getCommanderIdentity } from './lib/decks.js';
 import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from './lib/deck-target.js';
 import { buildDeckMembership } from './lib/deck-membership.js';
-import { clauseRange, removeClause, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
+import { clauseRange, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
+import { hasCatalogQueryIntent } from './lib/catalog-query-policy.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -41,23 +42,20 @@ let catalogMembership = new Map();
 function synchronizeQuery() {
   if (!filterUI) return;
   const input = $('#search-input'), visual = filterUI.getSearch();
-  try { const result = syncQueryClauses(input.value, { oldVisual: generatedClause, visual: visual.query, oldScope: scopeClause, scope: currentCommanderScope(), fallbackSort: $('#sort-select').value }); input.value = result.query; generatedClause = result.generatedClause; scopeClause = result.scopeClause; }
+  try { const result = syncQueryClauses(input.value, { oldVisual: generatedClause, visual: visual.displayQuery, oldScope: scopeClause, scope: currentCommanderScope(), fallbackSort: $('#sort-select').value }); input.value = result.query; generatedClause = result.generatedClause; scopeClause = result.scopeClause; }
   catch { /* Keep incomplete handwritten syntax available for correction. */ }
 }
 
 function acceptQueryEdit() {
   const text = $('#search-input').value;
-  if (generatedClause && !clauseRange(text, generatedClause)) { filterUI.clear({ commanderOnly: false, silent: true }); generatedClause = ''; }
+  if (generatedClause && !clauseRange(text, generatedClause)) { filterUI.clear({ commanderOnly: filterUI.getSearch().filters.commanderOnly, silent: true }); generatedClause = ''; }
   if (scopeClause && !clauseRange(text, scopeClause)) { scopeClause = ''; catalogScopeEnabled = false; $('#catalog-scope-filter').checked = false; }
   try { const options = extractSearchOptions(text, 'name'); if (SORT_QUERIES[options.sort]) $('#sort-select').value = options.sort; } catch { /* Search validation shows the exact error. */ }
 }
 
 function hasCatalogSearchIntent() {
   const visual = filterUI.getSearch();
-  if (visual.error || visual.hasUserConditions) return true;
-  let manual = removeClause($('#search-input').value, generatedClause);
-  manual = removeClause(manual, scopeClause);
-  try { return Boolean(extractSearchOptions(manual, 'name').query.trim()); } catch { return Boolean(manual.trim()); }
+  return hasCatalogQueryIntent($('#search-input').value, { generatedClause, scopeClause, hasUserConditions: visual.hasUserConditions, error: visual.error });
 }
 
 function node(tag, attrs = {}, children = []) {
@@ -235,7 +233,7 @@ async function runSearch() {
   const errorBox = $('#search-error');
   let result;
   try {
-    const validationError = visual.error ? { message: visual.error } : validateSearch(combinedQuery);
+    const validationError = visual.error ? { message: visual.error } : validateSearch(combinedQuery, { commanderOnly: visual.filters.commanderOnly });
     if (!validationError && !manifest) {
       renderActiveFilters();
       filterUI.showError(null);
@@ -251,7 +249,7 @@ async function runSearch() {
       if (ready && revision === searchRevision && currentView === 'catalog') runSearch();
       return;
     }
-    result = validationError ? { cards: [], total: 0, error: validationError } : searchCards(allCards, combinedQuery);
+    result = validationError ? { cards: [], total: 0, error: validationError } : searchCards(allCards, combinedQuery, { commanderOnly: visual.filters.commanderOnly }, $('#sort-select').value);
   } catch (error) {
     result = { cards: [], total: 0, error: { message: error.message || '检索出现问题，请修改条件后重试。', rawPosition: error.position } };
   }
@@ -606,7 +604,7 @@ function wireEvents() {
   filterUI = initSearchFilters({ onChange: () => { synchronizeQuery(); clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); } });
   $('#search-form').addEventListener('submit', (event) => { event.preventDefault(); runSearch(); });
   $('#search-input').addEventListener('input', () => { acceptQueryEdit(); clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); });
-  $('#sort-select').addEventListener('change', () => { try { $('#search-input').value = [extractSearchOptions($('#search-input').value).query, SORT_QUERIES[$('#sort-select').value]].filter(Boolean).join(' '); runSearch(); } catch (error) { notify(error.message, 'error'); } });
+  $('#sort-select').addEventListener('change', () => { try { const sort = $('#sort-select').value; $('#search-input').value = [extractSearchOptions($('#search-input').value).query, sort === 'name' ? '' : SORT_QUERIES[sort]].filter(Boolean).join(' '); runSearch(); } catch (error) { notify(error.message, 'error'); } });
   $('#load-more').addEventListener('click', appendResults);
   $('#filter-reset').addEventListener('click', resetFilters);
   $('#filter-toggle').addEventListener('click', openFilters);
@@ -675,7 +673,7 @@ function ensureCatalog() {
     $('#results').setAttribute('aria-busy', 'false');
     const latestQuery = $('#search-input').value.trim();
     const latestVisual = filterUI.getSearch();
-    if (currentView === 'catalog' && hasCatalogSearchIntent() && !latestVisual.error && !validateSearch(latestQuery)) {
+    if (currentView === 'catalog' && hasCatalogSearchIntent() && !latestVisual.error && !validateSearch(latestQuery, { commanderOnly: latestVisual.filters.commanderOnly })) {
       $('#results-count').textContent = '卡库暂时不可用';
       $('#data-status-text').textContent = '卡库载入失败 · 已保存的卡组数据仍保留在当前浏览器';
       setResultState({ title: '卡库还没有准备好', message: error.message || '请检查网络后重试。', kind: 'info', action: { label: '重试搜索', run: runSearch } });

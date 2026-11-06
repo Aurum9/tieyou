@@ -209,12 +209,14 @@ export function initSearchFilters({ onChange }) {
   function getSearch() {
     const result = advancedQuery();
     const basic = buildFilterQuery(filters);
+    const display = buildFilterQuery({ ...filters, commanderOnly: false });
     const badMana = ['#mana-min', '#mana-max'].some(selector => $(selector).validity.badInput);
     const badStats = ['#power-min', '#power-max', '#toughness-min', '#toughness-max'].some(selector => $(selector).validity.badInput);
     const error = badMana ? '法术力值需要填写非负数字，留空表示不限。' : badStats ? '力量与防御力需要填写数字，留空表示不限。' : basic.error || result.error;
     return {
       filters: { ...filters, colors: [...filters.colors], identities: [...filters.identities], types: [...filters.types], supertypes: [...filters.supertypes] },
       query: [basic.query, result.query].filter(Boolean).join(' AND '), advancedQuery: result.query,
+      displayQuery: [display.query, result.query].filter(Boolean).join(' AND '),
       hasUserConditions: !!(basic.explicitCount || tags.length || meaningfulRules(conditionRoot).length || error), error,
     };
   }

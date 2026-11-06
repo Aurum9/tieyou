@@ -19,3 +19,13 @@ test('sort aliases and explicit directions survive repeated filter and commander
   assert.equal(result.query, 'Elf AND (mv<=3) AND (ci<=g) order:edhrec dir:desc');
   assert.equal(extractSearchOptions(result.query).descending, true);
 });
+test('default name ordering stays in the sort control while commander scope remains visible', () => {
+  assert.equal(syncQueryClauses('').query, '');
+  const result = syncQueryClauses('', { scope: 'ci<=ub' });
+  assert.equal(result.query, '(ci<=ub)'); assert.equal(result.scopeClause, '(ci<=ub)'); assert.equal(result.generatedClause, '');
+  assert.equal(syncQueryClauses(result.query, { oldScope: result.scopeClause, scope: 'ci<=g' }).query, '(ci<=g)');
+});
+test('explicit handwritten sort and nondefault ordering continue to work', () => {
+  assert.equal(syncQueryClauses('Elf order:name', { scope: 'ci<=ub' }).query, 'Elf AND (ci<=ub) order:name');
+  assert.equal(syncQueryClauses('Elf', { fallbackSort: 'edhrec' }).query, 'Elf order:edhrec');
+});

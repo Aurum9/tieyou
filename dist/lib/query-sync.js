@@ -45,6 +45,7 @@ export function replaceClause(text, oldClause, nextQuery) {
 }
 export const SORT_QUERIES = Object.freeze({ name: 'order:name', 'mana-asc': 'order:mv dir:asc', 'mana-desc': 'order:mv dir:desc', released: 'order:released', edhrec: 'order:edhrec' });
 export function sortingQuery(options) {
+  if (options.sort === 'name' && !options.hasOrder && !options.hasDirection) return '';
   let query = SORT_QUERIES[options.sort] || SORT_QUERIES.name;
   if (options.hasDirection && !options.sort.startsWith('mana-')) query += ` dir:${options.descending ? 'desc' : 'asc'}`;
   return query;
