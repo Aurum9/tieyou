@@ -44,7 +44,7 @@ def write_search_metadata(cards: list[dict], canonical: dict[str, dict], oracle_
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=HERE.parent / "dist" / "data")
+    parser.add_argument("--output", type=Path, default=HERE.parent / "web" / "data")
     args = parser.parse_args()
     output = args.output.resolve()
     manifest_path = output / "manifest.json"

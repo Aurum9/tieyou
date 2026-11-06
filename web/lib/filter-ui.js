@@ -249,6 +249,19 @@ export function initSearchFilters({ onChange }) {
     $('#filter-count').textContent = items.length;
   }
   function showError(message) { $('#filter-error').hidden = !message; $('#filter-error').textContent = message || ''; }
+  function setMetadata({ sets = [], subtypes = [] } = {}) {
+    const fragment = document.createDocumentFragment();
+    for (const item of sets) {
+      const code = typeof item === 'string' ? item : item.code;
+      if (typeof code !== 'string') continue;
+      const name = typeof item === 'string' ? item : item.name || code;
+      fragment.append(el('option', { value: code, label: name + ' · ' + code.toUpperCase() }));
+    }
+    setlist.replaceChildren(fragment);
+    const subtypeFragment = document.createDocumentFragment();
+    for (const subtype of subtypes) if (typeof subtype === 'string') subtypeFragment.append(el('option', { value: subtype }));
+    subtypelist.replaceChildren(subtypeFragment);
+  }
   function setCatalog(cards) {
     const sets = new Map();
     const subtypes = new Set();
@@ -297,5 +310,5 @@ export function initSearchFilters({ onChange }) {
   $('#filter-advanced').addEventListener('click', () => setMode('advanced'));
   $('#advanced-retained').addEventListener('click', () => setMode('advanced'));
   renderBuilder(); sync(); setMode('simple');
-  return { getSearch, renderActiveFilters, reset, clear, setMode, showError, setCatalog };
+  return { getSearch, renderActiveFilters, reset, clear, setMode, showError, setCatalog, setMetadata };
 }

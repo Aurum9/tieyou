@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasSearchIntent } from '../dist/lib/search-intent.js';
+import { hasSearchIntent } from '../web/lib/search-intent.js';
 
 const defaults = () => ({
   query: '', error: null,

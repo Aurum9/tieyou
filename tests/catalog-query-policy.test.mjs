@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasCatalogQueryIntent } from '../dist/lib/catalog-query-policy.js';
-import { commanderScopeQuery } from '../dist/lib/deck-target.js';
-import { queryClause } from '../dist/lib/query-sync.js';
-import { searchCards, validateSearch } from '../dist/lib/search.js';
+import { hasCatalogQueryIntent } from '../web/lib/catalog-query-policy.js';
+import { commanderScopeQuery } from '../web/lib/deck-target.js';
+import { queryClause } from '../web/lib/query-sync.js';
+import { searchCards, validateSearch } from '../web/lib/search.js';
 
 const defaults = { generatedClause: '(f:commander)' };
 

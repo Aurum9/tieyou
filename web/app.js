@@ -1,5 +1,5 @@
-import { loadCatalog } from './lib/catalog.js';
-import { searchCards, validateSearch, extractSearchOptions } from './lib/search.js';
+import { createRemoteCatalog } from './lib/remote-catalog.js';
+import { validateSearch, extractSearchOptions } from './lib/search.js';
 import { initDeckUI } from './lib/deck-ui.js';
 import { initSearchFilters } from './lib/filter-ui.js';
 import { getCommanderIdentity } from './lib/decks.js';
@@ -7,10 +7,12 @@ import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } fr
 import { buildDeckMembership } from './lib/deck-membership.js';
 import { clauseRange, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
 import { hasCatalogQueryIntent } from './lib/catalog-query-policy.js';
+import { PlaytestStorage } from './lib/playtest-storage.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const PAGE_SIZE = 48;
+const remoteCatalog = createRemoteCatalog();
 const COLOR_NAMES = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿', C: '无色' };
 const MANA_GLYPHS = { W: '☀', U: '◆', B: '●', R: '◆', G: '♣', C: '◇', T: '↷', Q: '↶', E: 'ϟ', S: '❄' };
 let allCards = [];
@@ -30,8 +32,15 @@ let detailVersion = null;
 let detailLanguage = 'zh';
 let previousFocus = null;
 let searchTimer = null;
-let loading = false;
-let catalogPromise = null;
+let metadataPromise = null;
+let searchController = null;
+let searchTotal = 0;
+let pageLoading = false;
+let lastSearch = null;
+let detailRevision = 0;
+let detailLoading = false;
+let targetRevision = 0;
+let playtestRevision = 0;
 let searchRevision = 0;
 let mobileFilterFocus = null;
 let filterUI = null;
@@ -117,6 +126,7 @@ function sourceLabel(source) {
   return labels[source] || String(source);
 }
 function hasChineseText(card) {
+  if (typeof card.translationComplete === 'boolean') return card.translationComplete;
   const faces = cardFaces(card);
   return faces.every((face) => !face.oracleText || Boolean(face.zhText));
 }
@@ -188,15 +198,26 @@ function setResultState({ title, message, kind = 'search', action } = {}) {
   state.hidden = false;
 }
 
-function appendResults() {
+function renderResultPage(cards) {
   const fragment = document.createDocumentFragment();
-  const next = matchedCards.slice(renderedCount, renderedCount + PAGE_SIZE);
-  for (const card of next) fragment.append(renderCard(card));
+  for (const card of cards) fragment.append(renderCard(card));
   $('#results').append(fragment);
-  renderedCount += next.length;
-  $('#load-more').hidden = renderedCount >= matchedCards.length;
-  $('#load-more').textContent = '继续载入 · 已显示 ' + fmt(renderedCount) + ' / ' + fmt(matchedCards.length);
-  $('#result-end').hidden = !matchedCards.length || renderedCount < matchedCards.length;
+  renderedCount += cards.length;
+  $('#load-more').hidden = renderedCount >= searchTotal;
+  $('#load-more').textContent = '继续载入 · 已显示 ' + fmt(renderedCount) + ' / ' + fmt(searchTotal);
+  $('#result-end').hidden = !searchTotal || renderedCount < searchTotal;
+}
+
+async function appendResults() {
+  if (!lastSearch || pageLoading || renderedCount >= searchTotal) return;
+  const revision = searchRevision; pageLoading = true; $('#load-more').disabled = true;
+  try {
+    const result = await remoteCatalog.search({ ...lastSearch, offset: renderedCount, limit: PAGE_SIZE, signal: searchController?.signal });
+    if (revision !== searchRevision || currentView !== 'catalog') return;
+    if (result.error) throw new Error(result.error.message);
+    searchTotal = result.total; matchedCards.push(...result.cards); syncCachedCards(); renderResultPage(result.cards);
+  } catch (error) { if (error.name !== 'AbortError' && revision === searchRevision) notify(error.message || '加载失败，请重试。', 'error'); }
+  finally { if (revision === searchRevision) { pageLoading = false; $('#load-more').disabled = false; } }
 }
 
 function renderActiveFilters() {
@@ -215,11 +236,13 @@ function showIdleCatalog() {
   filterUI.showError(null);
   matchedCards = [];
   renderedCount = 0;
+  searchTotal = 0; lastSearch = null;
 }
 
 async function runSearch() {
   clearTimeout(searchTimer);
   const revision = ++searchRevision;
+  searchController?.abort(); searchController = new AbortController(); pageLoading = false;
   if (currentView !== 'catalog') return;
   const query = $('#search-input').value.trim();
   const visual = filterUI.getSearch();
@@ -235,7 +258,7 @@ async function runSearch() {
   let result;
   try {
     const validationError = visual.error ? { message: visual.error } : validateSearch(combinedQuery, { commanderOnly: visual.filters.commanderOnly });
-    if (!validationError && !manifest) {
+    if (!validationError) {
       renderActiveFilters();
       filterUI.showError(null);
       errorBox.hidden = true;
@@ -243,14 +266,18 @@ async function runSearch() {
       $('#results').setAttribute('aria-busy', 'true');
       $('#load-more').hidden = true;
       $('#result-end').hidden = true;
-      $('#results-count').textContent = '正在加载搜索数据…';
-      setResultState({ title: '正在加载卡库…', message: '载入卡牌数据…', kind: 'loading' });
-      const ready = await ensureCatalog();
-      if (ready && revision === searchRevision && currentView === 'catalog') runSearch();
-      return;
+      $('#results-count').textContent = '正在检索…';
+      setResultState({ title: '正在检索…', kind: 'loading' });
+      ensureMetadata().catch(() => {});
+      lastSearch = { query: combinedQuery, commanderOnly: visual.filters.commanderOnly, sort: $('#sort-select').value };
+      result = await remoteCatalog.search({ ...lastSearch, offset: 0, limit: PAGE_SIZE, signal: searchController.signal });
+      if (revision !== searchRevision || currentView !== 'catalog') return;
+      syncCachedCards();
+    } else {
+      result = { cards: [], total: 0, error: validationError };
     }
-    result = validationError ? { cards: [], total: 0, error: validationError } : searchCards(allCards, combinedQuery, { commanderOnly: visual.filters.commanderOnly }, $('#sort-select').value);
   } catch (error) {
+    if (error.name === 'AbortError' || revision !== searchRevision || currentView !== 'catalog') return;
     result = { cards: [], total: 0, error: { message: error.message || '检索出现问题，请修改条件后重试。', rawPosition: error.position } };
   }
   renderActiveFilters();
@@ -262,7 +289,8 @@ async function runSearch() {
   $('#result-end').hidden = true;
   errorBox.hidden = !result.error;
   if (result.error) {
-    const position = Number.isInteger(result.error.rawPosition) ? '（搜索框第 ' + (result.error.rawPosition + 1) + ' 个字符附近）' : '';
+    const rawPosition = result.error.rawPosition ?? result.error.position;
+    const position = Number.isInteger(rawPosition) ? '（搜索框第 ' + (rawPosition + 1) + ' 个字符附近）' : '';
     errorBox.textContent = result.error.message + position;
     $('#results-count').textContent = '搜索条件需要调整';
     setResultState({ title: '搜索条件有误', kind: 'help', action: { label: '打开高级搜索', run: showAdvancedFilters } });
@@ -272,12 +300,14 @@ async function runSearch() {
   matchedCards = result.cards || [];
   renderedCount = 0;
   const count = result.total ?? matchedCards.length;
+  searchTotal = count;
   $('#results-count').replaceChildren(node('strong', { text: fmt(count) }), document.createTextNode(query || $('#active-filters').children.length ? '张匹配卡牌' : '张卡牌'));
   if (!matchedCards.length) {
     setResultState({ title: '无匹配卡牌', kind: 'search', action: { label: '清空搜索与筛选', run: clearSearch } });
     return;
   }
-  appendResults();
+  $('#load-more').disabled = false;
+  renderResultPage(matchedCards);
 }
 
 function resetFilters() {
@@ -324,6 +354,7 @@ function closeFilters() {
 }
 
 function showAdvancedFilters() {
+  ensureMetadata().catch(error => notify(error.message || '筛选选项加载失败。', 'error'));
   $('#catalog-view').classList.add('idle-filters-open');
   filterUI.setMode('advanced');
   if (window.matchMedia('(max-width: 700px)').matches) {
@@ -335,6 +366,7 @@ function showAdvancedFilters() {
 }
 
 function switchView(view) {
+  if (view !== 'playtest') playtestRevision++;
   if (view !== 'playtest') playtestUI?.closeOverlays({ restoreFocus: false });
   closeFilters();
   currentView = view;
@@ -359,7 +391,14 @@ function initializeDeckWorkspace() {
   try {
     if (deckUI) deckUI.setCards(allCards);
     else deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify,
-      loadCards: async () => { if (!await ensureCatalog()) throw new Error('卡库载入失败，请重试。'); return allCards; },
+      loadDeckCards: async deck => {
+        await Promise.all([loadCardsByIds(deck.entries.map(entry => entry.cardId), { versions: deck.entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) }), ensureMetadata()]);
+        return allCards;
+      },
+      loadCardsByIds,
+      findCandidates: async (query, options) => { const result = await remoteCatalog.suggest(query, options); syncCachedCards(); return result; },
+      resolveDeckText: async text => { const result = await remoteCatalog.resolveText(text); syncCachedCards(); return result; },
+      loadCardDetails: async id => { const card = await remoteCatalog.detail(id); syncCachedCards(); return card; },
       onOpenCatalog: openCatalogFromDeck, onLibraryChange: refreshCatalogTarget, onPlaytest: openPlaytest });
     refreshCatalogTarget();
   } catch (error) {
@@ -369,25 +408,39 @@ function initializeDeckWorkspace() {
 }
 
 async function openPlaytest(deck) {
+  const revision = ++playtestRevision;
   try {
     if (!deck) throw new Error('卡组已不存在，请重新选择。');
-    if (!await ensureCatalog()) return;
+    let snapshotEntries = [];
+    try { snapshotEntries = new PlaytestStorage().load(deck.id)?.state?.deck?.entries || []; } catch { /* The setup screen handles recovery. */ }
+    await loadCardsByIds(deck.entries.map(entry => entry.cardId), { versions: deck.entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) });
+    if (snapshotEntries.length) {
+      try { await loadCardsByIds(snapshotEntries.map(entry => entry.cardId), { versions: snapshotEntries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) }); }
+      catch (error) {
+        if (!['CARD_NOT_FOUND', 'VERSION_NOT_FOUND'].includes(error.code)) throw error;
+        syncCachedCards();
+      }
+    }
     playtestModule ||= import('./lib/playtest-ui.js').catch(error => { playtestModule = null; throw error; });
     const { initPlaytestUI } = await playtestModule;
-    playtestUI ||= initPlaytestUI({ container: $('#playtest-view'), cards: allCards, onInspect: openDetail, onExit: () => switchView('decks'), onNotify: notify });
+    if (revision !== playtestRevision) return;
+    playtestUI?.destroy();
+    playtestUI = initPlaytestUI({ container: $('#playtest-view'), cards: allCards, onInspect: openDetail, onExit: () => switchView('decks'), onNotify: notify });
     playtestUI.open(deck);
     switchView('playtest');
     window.scrollTo({ top: 0, behavior: 'instant' });
-  } catch (error) { notify(error.message || '手动测试暂时无法打开，请重试。', 'error'); }
+  } catch (error) { if (revision === playtestRevision) notify(error.message || '手动测试暂时无法打开，请重试。', 'error'); }
 }
 
 async function addCard(card, version) {
   if (currentView === 'playtest') return;
-  if (!deckUI) { notify(loading ? '卡库仍在加载，请稍候。' : '卡组工作台暂时不可用，请刷新后重试。', 'error'); return; }
+  if (!deckUI) { notify('卡组工作台暂时不可用，请刷新后重试。', 'error'); return; }
+  const targetId = currentView === 'decks' ? deckUI.getSelectedDeckId() : catalogTargetId;
   try {
-    const targetId = currentView === 'decks' ? deckUI.getSelectedDeckId() : catalogTargetId;
+    const [core] = await loadCardsByIds([card.id], { versions: version ? [{ cardId: card.id, versionId: version.id }] : [] });
+    if (core) card = core;
     const target = resolveDeckTarget(deckUI.listDecks(), targetId);
-    if (targetId && !target) { if (currentView === 'catalog') catalogTargetId = null; refreshCatalogTarget(); notify('目标卡组已不存在，请重新选择。', 'error'); return; }
+    if (targetId && !target) { if (catalogTargetId === targetId) catalogTargetId = null; refreshCatalogTarget(); notify('目标卡组已不存在，请重新选择。', 'error'); return; }
     if (target) deckUI.quickAddCard(card, version, target.id);
     else await deckUI.addCard(card, version);
   } catch (error) {
@@ -428,7 +481,8 @@ function refreshCatalogTarget() {
   synchronizeQuery();
 }
 
-function openCatalogFromDeck({ deckId, query = '', restrictIdentity = true }) {
+async function openCatalogFromDeck({ deckId, query = '', restrictIdentity = true }) {
+  try { await ensureMetadata(); } catch (error) { notify(error.message, 'error'); return; }
   catalogTargetId = deckId;
   catalogScopeEnabled = restrictIdentity;
   filterUI.clear({ commanderOnly: true, silent: true }); generatedClause = ''; scopeClause = '';
@@ -440,10 +494,12 @@ function openCatalogFromDeck({ deckId, query = '', restrictIdentity = true }) {
   if (!window.matchMedia('(max-width: 700px)').matches) $('#search-input').focus();
 }
 
-function openDetail(card, version = null) {
+async function openDetail(card, version = null) {
   if (!card) return;
+  const revision = ++detailRevision;
   previousFocus = document.activeElement;
   detailCard = card;
+  detailLoading = !card.versionsComplete;
   detailVersion = version || selectedVersionFor(card);
   detailLanguage = 'zh';
   renderDetail();
@@ -451,13 +507,26 @@ function openDetail(card, version = null) {
   $('#detail-layer').hidden = false;
   document.body.classList.add('modal-open');
   $('#detail-close').focus();
+  try {
+    const complete = await remoteCatalog.detail(card.id);
+    if (revision !== detailRevision || !detailCard || detailCard.id !== card.id) return;
+    const selected = detailVersion?.id;
+    detailCard = complete; detailLoading = false; detailVersion = complete.versions?.find(item => item.id === selected) || selectedVersionFor(complete);
+    syncCachedCards(); renderDetail();
+  } catch (error) {
+    if (revision !== detailRevision || !detailCard) return;
+    const pending = $('#detail-pending'); if (pending) pending.textContent = '详情未载入';
+    $('#detail-content').append(node('div', { class: 'inline-error', role: 'alert' }, [error.message || '详情加载失败。', node('button', { class: 'button', text: '重试', onClick: () => openDetail(card, version) })]));
+  }
 }
 
 function closeDetail() {
+  detailRevision++;
   $('#detail-layer').hidden = true;
   if (!$('#catalog-view').classList.contains('filters-mobile-open')) document.body.classList.remove('modal-open');
   if (previousFocus?.isConnected) previousFocus.focus();
   detailCard = null;
+  detailLoading = false;
   detailVersion = null;
 }
 
@@ -537,6 +606,7 @@ function renderDetail() {
     if (tags.length > primaryTags.length) meta.append(node('details', { class: 'detail-more-tags' }, [node('summary', { text: '查看全部 ' + tags.length + ' 个标签' }), node('div', { class: 'detail-tags' }, tags.map((tag) => node('span', { text: tagNames[tag] || tag })))]));
   }
   root.append(node('div', { class: 'detail-overview' }, [images, meta]));
+  if (detailLoading) { root.append(node('p', { id: 'detail-pending', class: 'data-note', role: 'status', text: '正在加载详情…' })); return; }
   const language = node('div', { class: 'language-toggle', role: 'group', 'aria-label': '规则显示语言' });
   for (const [value, label] of [['zh', '中文'], ['compare', '中英对照'], ['en', 'English']]) language.append(node('button', { class: detailLanguage === value ? 'active' : '', type: 'button', 'aria-pressed': detailLanguage === value, text: label, onClick: () => { detailLanguage = value; renderDetail(); } }));
   root.append(node('div', { class: 'detail-language-bar' }, [node('h3', { text: '规则文字' + (faces.length > 1 ? ' · ' + faces.length + ' 个牌面' : '') }), language]));
@@ -560,11 +630,11 @@ function renderDataStatus() {
   const translated = coverage?.translatedFaces;
   const hasCoverage = Number.isFinite(required) && required >= 0 && Number.isFinite(translated) && translated >= 0;
   const coveragePercent = hasCoverage ? (required ? Math.min(100, translated / required * 100) : 100).toFixed(1).replace(/\.0$/, '') : null;
-  const tagged = allCards.filter((card) => card.tags?.length).length;
+  const tagged = manifest?.tagCoverage?.cards || 0;
   $('#tag-coverage').textContent = tagged ? 'Scryfall Oracle Tags · ' + fmt(tagged) + ' 张牌' : '暂无标签数据';
   const content = $('#data-dialog-content');
   content.replaceChildren();
-  content.append(node('div', { class: 'data-facts' }, [node('div', { class: 'data-fact' }, [node('strong', { text: fmt(allCards.length) }), node('span', { text: '独立卡牌身份' })]), node('div', { class: 'data-fact' }, [node('strong', { text: coveragePercent !== null ? coveragePercent + '%' : '待统计' }), node('span', { text: '中文规则覆盖率' })]), node('div', { class: 'data-fact' }, [node('strong', { text: fmt(tagged) }), node('span', { text: '已有功能标签' })])]));
+  content.append(node('div', { class: 'data-facts' }, [node('div', { class: 'data-fact' }, [node('strong', { text: fmt(manifest?.counts?.cards) }), node('span', { text: '独立卡牌身份' })]), node('div', { class: 'data-fact' }, [node('strong', { text: coveragePercent !== null ? coveragePercent + '%' : '待统计' }), node('span', { text: '中文规则覆盖率' })]), node('div', { class: 'data-fact' }, [node('strong', { text: fmt(tagged) }), node('span', { text: '已有功能标签' })])]));
   if (hasCoverage) content.append(node('p', { class: 'data-note', text: '规则文字必需牌面 ' + fmt(required) + ' 个，已有中文 ' + fmt(translated) + ' 个，缺失 ' + fmt(Math.max(0, required - translated)) + ' 个。原文无规则文字的牌面单独统计。' }));
   const date = manifest?.freezeDate || manifest?.snapshotDate || manifest?.generatedAt || manifest?.builtAt || manifest?.updatedAt || manifest?.date;
   if (date) content.append(node('p', { class: 'data-note', text: '卡池冻结日期：' + String(date).slice(0, 10) + (manifest?.snapshot ? ' · 英文 ' + String(manifest.snapshot.oracleDate || '').slice(0, 10) + ' · 中文 ' + String(manifest.snapshot.chineseDate || '').slice(0, 10) : '') }));
@@ -609,7 +679,18 @@ function wireEvents() {
   $('.brand').addEventListener('click', (event) => { event.preventDefault(); deckUI?.showLibrary(); switchView('decks'); });
   $('.skip-link').addEventListener('click', (event) => { event.preventDefault(); switchView('catalog'); $('#search-input').focus(); });
   $('#catalog-target-toggle').addEventListener('click', () => { const picker = $('#catalog-target-picker'); picker.hidden = !picker.hidden; $('#catalog-target-toggle').setAttribute('aria-expanded', String(!picker.hidden)); if (!picker.hidden) $('#catalog-target-select').focus(); });
-  $('#catalog-target-select').addEventListener('change', event => { catalogTargetId = event.target.value || null; catalogScopeEnabled = true; refreshCatalogTarget(); runSearch(); });
+  $('#catalog-target-select').addEventListener('change', async event => {
+    const revision = ++targetRevision;
+    const nextId = event.target.value || null;
+    try {
+      const target = resolveDeckTarget(deckUI.listDecks(), nextId);
+      const entries = target?.entries.filter(entry => entry.zone === 'commander') || [];
+      await loadCardsByIds(entries.map(entry => entry.cardId), { versions: entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) });
+      if (revision !== targetRevision) return;
+      catalogTargetId = nextId; catalogScopeEnabled = true;
+      refreshCatalogTarget(); runSearch();
+    } catch (error) { if (revision === targetRevision) { event.target.value = catalogTargetId || ''; notify(error.message, 'error'); } }
+  });
   $('#catalog-scope-filter').addEventListener('change', event => { catalogScopeEnabled = event.target.checked; synchronizeQuery(); runSearch(); });
   $('#catalog-return-deck').addEventListener('click', async () => { const id = catalogTargetId; switchView('decks'); if (id) await deckUI.openDeck(id); });
   $('#view-grid').addEventListener('click', () => setResultView('grid'));
@@ -617,7 +698,13 @@ function wireEvents() {
   $('#detail-close').addEventListener('click', closeDetail);
   $('#detail-scrim').addEventListener('click', closeDetail);
   $('#help-open').addEventListener('click', () => $('#help-dialog').showModal());
-  $('#data-info-open').addEventListener('click', () => $('#data-dialog').showModal());
+  $('#data-info-open').addEventListener('click', () => {
+    $('#data-dialog').showModal();
+    if (!manifest) {
+      $('#data-dialog-content').replaceChildren(node('p', { role: 'status', text: '正在加载…' }));
+      ensureMetadata().catch(error => $('#data-dialog-content').replaceChildren(node('p', { role: 'alert', text: error.message || '数据说明加载失败。' })));
+    }
+  });
   $$('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => document.getElementById(button.dataset.closeDialog).close()));
   $$('.app-dialog').forEach((dialog) => dialog.addEventListener('click', (event) => { const box = dialog.getBoundingClientRect(); if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) dialog.close(); }));
   document.addEventListener('keydown', (event) => {
@@ -641,41 +728,27 @@ function setResultView(view) {
   for (const mode of ['grid', 'list']) { $('#view-' + mode).classList.toggle('active', view === mode); $('#view-' + mode).setAttribute('aria-pressed', String(view === mode)); }
 }
 
-function ensureCatalog() {
-  if (manifest) return Promise.resolve(true);
-  if (catalogPromise) return catalogPromise;
-  loading = true;
-  catalogPromise = (async () => {
-  try {
-    const catalog = await loadCatalog({ onProgress: (progress) => {
-      const label = typeof progress === 'string' ? progress : progress?.message || progress?.label || (progress?.phase === 'cards' ? '已载入 ' + fmt(progress.cardsLoaded) + ' 张卡牌 · 数据分片 ' + progress.loaded + ' / ' + progress.total : '正在读取卡库清单…');
-      const loadingMessage = $('#loading-message');
-      if (loadingMessage && hasCatalogSearchIntent()) loadingMessage.textContent = label;
-    } });
-    allCards = catalog.cards;
-    manifest = catalog.manifest;
-    knownSetCodes = new Set(allCards.flatMap(card => (card.versions || []).map(version => version.set)).filter(Boolean));
-    filterUI.setCatalog(allCards);
-    loading = false;
-    $('#results').setAttribute('aria-busy', 'false');
+function syncCachedCards() {
+  allCards = remoteCatalog.cachedCards();
+  deckUI?.setCards(allCards);
+}
+
+async function loadCardsByIds(ids, options = {}) {
+  const cards = await remoteCatalog.getCards(ids, options);
+  syncCachedCards();
+  return cards;
+}
+
+function ensureMetadata() {
+  if (manifest) return Promise.resolve(manifest);
+  if (!metadataPromise) metadataPromise = remoteCatalog.meta().then(meta => {
+    manifest = meta.manifest || meta;
+    knownSetCodes = new Set((meta.sets || manifest.sets || []).map(item => typeof item === 'string' ? item : item.code));
+    filterUI.setMetadata({ sets: meta.sets || manifest.sets || [], subtypes: meta.subtypes || manifest.subtypes || [] });
     renderDataStatus();
-    initializeDeckWorkspace();
-    return true;
-  } catch (error) {
-    loading = false;
-    $('#results').setAttribute('aria-busy', 'false');
-    const latestQuery = $('#search-input').value.trim();
-    const latestVisual = filterUI.getSearch();
-    if (currentView === 'catalog' && hasCatalogSearchIntent() && !latestVisual.error && !validateSearch(latestQuery, { commanderOnly: latestVisual.filters.commanderOnly })) {
-      $('#results-count').textContent = '卡库暂时不可用';
-      setResultState({ title: '卡库载入失败', message: error.message || '请检查网络后重试。', kind: 'info', action: { label: '重试搜索', run: runSearch } });
-    } else if (!hasCatalogSearchIntent()) showIdleCatalog();
-    if (!deckUI) $('#deck-view').replaceChildren(node('div', { class: 'result-state' }, [icon('info'), node('h2', { text: '需要先完成卡库加载' }), node('p', { text: '卡库不可用时无法匹配卡牌。已有的本地卡组数据不会被修改。' }), node('button', { class: 'button', text: '重试加载', onClick: () => switchView('decks') })]));
-    console.error('Catalog initialization failed', error);
-    return false;
-  }
-  })().finally(() => { loading = false; catalogPromise = null; });
-  return catalogPromise;
+    return manifest;
+  }).finally(() => { metadataPromise = null; });
+  return metadataPromise;
 }
 
 wireEvents();

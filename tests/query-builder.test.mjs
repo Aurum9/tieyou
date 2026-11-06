@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONDITION_FIELDS, createCondition, createGroup, buildConditionQuery, buildFilterQuery } from '../dist/lib/query-builder.js';
-import { parseQuery, searchCards } from '../dist/lib/search.js';
+import { CONDITION_FIELDS, createCondition, createGroup, buildConditionQuery, buildFilterQuery } from '../web/lib/query-builder.js';
+import { parseQuery, searchCards } from '../web/lib/search.js';
 
 function card(id, extra = {}) {
   return {

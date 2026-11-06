@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initSearchFilters } from '../dist/lib/filter-ui.js';
+import { initSearchFilters } from '../web/lib/filter-ui.js';
 
 // Small DOM fixture: exercise the real handlers and generated query as one flow.
 class Element {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attachCardGestures } from '../dist/lib/playtest-gestures.js';
+import { attachCardGestures } from '../web/lib/playtest-gestures.js';
 
 class Node {
   constructor({ dropZone, hand = false, menu = false } = {}) {

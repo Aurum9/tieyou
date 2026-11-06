@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { searchCards } from '../dist/lib/search.js';
+import { searchCards } from '../web/lib/search.js';
 
 // Acceptance against the shipped snapshot. Expected names and Oracle evidence
 // below are hand-picked; no expectation is generated from a card's tags.
-const dataDirectory = new URL('../dist/data/', import.meta.url);
+const dataDirectory = new URL('../web/data/', import.meta.url);
 const readJson = async name => JSON.parse(await readFile(new URL(name, dataDirectory), 'utf8'));
 const manifest = await readJson('manifest.json');
 const shards = await Promise.all(manifest.shards.map(shard => readJson(shard.url)));

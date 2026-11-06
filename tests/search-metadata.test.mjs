@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { searchCards, parseQuery, validateSearch, extractSearchOptions } from '../dist/lib/search.js';
+import { searchCards, parseQuery, validateSearch, extractSearchOptions } from '../web/lib/search.js';
 
 const face = (name, power, toughness, typeLine = 'Creature — Human', extra = {}) => ({ name, power, toughness, typeLine, zhTypeLine: typeLine.includes('Creature') ? '生物～人类' : '地', oracleText: '', zhText: '', ...extra });
 const card = (id, faces, extra = {}) => ({ id, name: id, zhName: '', faces, legalities: { commander: 'legal' }, ...extra });
@@ -135,7 +135,7 @@ test('EDHREC ordering uses lower ranks first with unranked entries last and dete
 });
 
 test('new search sidecar covers exactly the frozen catalog without altering translated shards', async () => {
-  const dataURL = new URL('../dist/data/', import.meta.url);
+  const dataURL = new URL('../web/data/', import.meta.url);
   const manifest = JSON.parse(await readFile(new URL('manifest.json', dataURL), 'utf8'));
   const metadata = JSON.parse(await readFile(new URL(manifest.searchMetadata.url, dataURL), 'utf8'));
   assert.equal(metadata.schemaVersion, 1);

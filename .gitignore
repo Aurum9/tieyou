@@ -9,4 +9,8 @@ __pycache__/
 .env.*
 !.env.example
 *.log
+node_modules/
+dist/
+.sites-runtime/
+.local/
 

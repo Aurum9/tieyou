@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { queryClause, clauseRange, removeClause, replaceClause, syncQueryClauses } from '../dist/lib/query-sync.js';
-import { searchCards, extractSearchOptions } from '../dist/lib/search.js';
+import { queryClause, clauseRange, removeClause, replaceClause, syncQueryClauses } from '../web/lib/query-sync.js';
+import { searchCards, extractSearchOptions } from '../web/lib/search.js';
 test('visible generated filters are replaced without accumulating stale constraints', () => { const clause = queryClause('c:u AND f:commander'); let q = replaceClause('Sol Ring order:edhrec', '', 'c:u AND f:commander'); assert.equal(q, `Sol Ring order:edhrec AND ${clause}`); q = replaceClause(q, clause, 'c:g AND f:commander'); assert.equal(q, 'Sol Ring order:edhrec AND (c:g AND f:commander)'); assert.equal(removeClause(q, queryClause('c:g AND f:commander')), 'Sol Ring order:edhrec'); });
 test('manual prefix/suffix edits retain visual ownership and removal keeps valid AND syntax', () => { const c = '(f:commander)'; for (const text of [`${c} AND name:Elf`, `name:Elf AND ${c}`, `name:Elf ${c} order:name`]) { assert.ok(clauseRange(text, c)); assert.equal(removeClause(text, c).includes(c), false); } assert.equal(removeClause(`${c} AND (ci<=ug) AND order:edhrec`, c), '(ci<=ug) AND order:edhrec'); });
 test('quoted text, nested clauses, negative clauses and OR branches are never mistaken for owned filters', () => { const c = '(c:u)'; for (const text of ['o:"(c:u)"', '((c:u) AND t:elf)', '-(c:u)', 'NOT (c:u)', '(c:u) OR name:Forest']) assert.equal(clauseRange(text, c), null, text); });

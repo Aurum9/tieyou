@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { DeckStore, STORAGE_KEY, createDeck, newId, defaultVersion, parseDeckText, exportDeckText, exportDeckBackup, parseDeckBackup, validateDeck, findCardCandidates, getCommanderIdentity } from '../dist/lib/decks.js';
+import { DeckStore, STORAGE_KEY, createDeck, newId, defaultVersion, parseDeckText, exportDeckText, exportDeckBackup, parseDeckBackup, validateDeck, findCardCandidates, getCommanderIdentity } from '../web/lib/decks.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -184,7 +184,7 @@ test('multi-commander combinations and unknown ordinary eligibility remain unver
 });
 
 test('real frozen card snapshot supports 100-card validation and complete JSON/text roundtrips', () => {
-  const dataDir = new URL('../dist/data/', import.meta.url);
+  const dataDir = new URL('../web/data/', import.meta.url);
   const manifest = JSON.parse(readFileSync(new URL('manifest.json', dataDir), 'utf8'));
   const snapshot = manifest.shards.flatMap(shard => JSON.parse(readFileSync(new URL(shard.url, dataDir), 'utf8')));
   const leader = snapshot.find(card => /Legendary.*Creature/.test(card.typeLine) && card.legalities.commander === 'legal' && card.colorIdentity.includes('G'));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PlaytestStorage, PLAYTEST_STORAGE_PREFIX } from '../dist/lib/playtest-storage.js';
+import { PlaytestStorage, PLAYTEST_STORAGE_PREFIX } from '../web/lib/playtest-storage.js';
 const value = id => ({ format: 'edh-playtest', version: 1, state: { deck: { id } }, past: [], future: [] });
 function fixture() { const map = new Map(), backend = { fail: false, getItem: key => map.get(key) ?? null, setItem(key, raw) { if (this.fail) throw new Error('QuotaExceededError'); map.set(key, raw); }, removeItem: key => map.delete(key) }; return { map, backend, storage: new PlaytestStorage({ storage: backend }) }; }
 test('test progress is isolated per deck and does not write the deck-library key', () => { const { storage, map } = fixture(); storage.save('a', value('a')); storage.save('b', value('b')); assert.equal(storage.load('a').state.deck.id, 'a'); assert.equal(storage.load('b').state.deck.id, 'b'); assert.equal(storage.load('c'), null); assert.deepEqual([...map.keys()].sort(), [PLAYTEST_STORAGE_PREFIX + 'a', PLAYTEST_STORAGE_PREFIX + 'b']); storage.remove('a'); assert.equal(storage.load('a'), null); assert.ok(storage.load('b')); });

@@ -22,7 +22,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CACHE = HERE / ".cache"
-OUTPUT = HERE.parent / "dist" / "data"
+OUTPUT = HERE.parent / "web" / "data"
 LEGACY = Path("C:/Users/1482/Documents/New project 2")
 EXCLUDED_LAYOUTS = {"token", "double_faced_token", "emblem", "art_series", "planar", "scheme", "vanguard"}
 EXCLUDED_SET_TYPES = {"token", "memorabilia", "art_series", "minigame"}

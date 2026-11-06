@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1]
-DATA = APP / "dist/data"
+DATA = APP / "web/data"
 spec = importlib.util.spec_from_file_location("build_catalog", APP / "scripts/build_catalog.py")
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)

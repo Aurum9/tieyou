@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PlaytestSession, PLAYTEST_ZONES } from '../dist/lib/playtest.js';
+import { PlaytestSession, PLAYTEST_ZONES } from '../web/lib/playtest.js';
 
 const cards = [
   { id: 'land', name: 'Forest', zhName: '树林', typeLine: 'Basic Land — Forest', versions: [{ id: 'v-land' }] },

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initPlaytestUI } from '../dist/lib/playtest-ui.js';
-import { DeckStore } from '../dist/lib/decks.js';
-import { PLAYTEST_STORAGE_PREFIX } from '../dist/lib/playtest-storage.js';
+import { initPlaytestUI } from '../web/lib/playtest-ui.js';
+import { DeckStore } from '../web/lib/decks.js';
+import { PLAYTEST_STORAGE_PREFIX } from '../web/lib/playtest-storage.js';
 
 class Element {
   constructor(tag, ownerDocument) {

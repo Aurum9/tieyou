@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDeckMembership } from '../dist/lib/deck-membership.js';
+import { buildDeckMembership } from '../web/lib/deck-membership.js';
 
 const entry = (cardId, quantity, zone = 'main', versionId = 'printing-a') => ({ cardId, quantity, zone, versionId });
 const decks = [

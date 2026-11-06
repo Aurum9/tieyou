@@ -36,7 +36,7 @@ function modal(title, { wide = false, onClose } = {}) {
   return { panel, close, overlay };
 }
 
-export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {} }) {
+export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, loadDeckCards, loadCardsByIds, findCandidates, resolveDeckText, loadCardDetails, onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {} }) {
   let index = new Map(cards.map(card => [card.id, card]));
   let loadingCards = null;
   let openingId = null;
@@ -56,8 +56,20 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     try { const result = action(); if (refresh) render(); onLibraryChange(); if (success) onNotify(success, 'success'); return result; }
     catch (error) { notifyError(error, errorTarget); return null; }
   }
-  function setCards(nextCards) { cards = nextCards; index = new Map(cards.map(card => [card.id, card])); }
-  async function ensureCards() {
+  function setCards(nextCards) {
+    for (const card of nextCards) {
+      const previous = index.get(card.id), versions = new Map((previous?.versions || []).map(version => [version.id, version]));
+      for (const version of card.versions || []) versions.set(version.id, version);
+      index.set(card.id, { ...previous, ...card, ...(card.faces ? { faces: card.faces.map((face, position) => ({ ...previous?.faces?.[position], ...face })) } : {}), versions: [...versions.values()], versionsComplete: Boolean(previous?.versionsComplete || card.versionsComplete) });
+    }
+    cards = [...index.values()];
+  }
+  async function ensureCards(deck) {
+    if (loadDeckCards && deck) {
+      const loaded = await loadDeckCards(deck);
+      if (!Array.isArray(loaded)) throw new Error('卡牌数据尚未载入，请重试');
+      setCards(loaded); return cards;
+    }
     if (cards.length) return cards;
     if (!loadingCards) loadingCards = (async () => {
       const loaded = await loadCards();
@@ -71,7 +83,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const request = ++openRequest;
     openingId = id; openingError = null; render();
     try {
-      await ensureCards();
+      await ensureCards(store.get(id));
       if (request !== openRequest) return false;
       if (!store.get(id)) throw new Error('卡组已不存在，请返回卡组库重新选择');
       openingId = null; selectedId = id; render(); return true;
@@ -197,7 +209,25 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const zone = select(Object.entries(zoneNames), entry.zone); zone.setAttribute('aria-label', '牌张分区'); zone.addEventListener('change', () => saveEntry(entry.id, { zone: zone.value }));
     const versions = card?.versions?.length ? card.versions.map(version => [version.id, printingName(version)]) : [[entry.versionId, '默认版本']];
     if (!versions.some(([id]) => id === entry.versionId)) versions.unshift([entry.versionId, '当前版本缺失']);
-    const printing = select(versions, entry.versionId); printing.setAttribute('aria-label', '印刷版本'); printing.addEventListener('change', () => saveEntry(entry.id, { versionId: printing.value }));
+    if (loadCardDetails && card && !card.versionsComplete) versions.push(['__load_versions__', '加载其他版本…']);
+    const printing = select(versions, entry.versionId); printing.setAttribute('aria-label', '印刷版本');
+    let loadingVersions = false;
+    const completeVersions = async () => {
+      if (!loadCardDetails || !card || loadingVersions) return;
+      loadingVersions = true;
+      try {
+        const known = index.get(card.id);
+        const full = known?.versionsComplete ? known : await loadCardDetails(card.id); setCards([{ ...full, versionsComplete: true }]);
+        if (!printing.isConnected) return;
+        const selected = printing.value === '__load_versions__' ? entry.versionId : printing.value;
+        printing.replaceChildren();
+        for (const version of index.get(card.id).versions || []) { const option = el('option', '', printingName(version)); option.value = version.id; printing.append(option); }
+        printing.value = selected;
+      } catch (error) { onNotify(error.message, 'error'); printing.value = entry.versionId; }
+      finally { loadingVersions = false; }
+    };
+    printing.addEventListener('focus', completeVersions);
+    printing.addEventListener('change', () => { if (printing.value === '__load_versions__') { printing.value = entry.versionId; void completeVersions(); } else saveEntry(entry.id, { versionId: printing.value }); });
     const remove = button('移除', () => run(() => { const deck = store.get(selectedId); deck.entries = deck.entries.filter(item => item.id !== entry.id); return store.save(deck); })); remove.setAttribute('aria-label', `移除 ${card?.zhName || card?.name || '卡牌'}`);
     row.append(title, quantity, zone, printing, remove); wrapper.append(row);
     const details = el('details', 'deck-entry-details'); details.append(el('summary', '', entry.categories.length || entry.notes ? `分类 / 备注${entry.categories.length ? ` · ${entry.categories.join('、')}` : ''}` : '分类 / 备注'));
@@ -218,39 +248,68 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       section.append(identityLabel);
     }
     const results = el('div', 'deck-add-results'); section.append(results);
-    function showCandidates() {
+    let candidateRequest = 0;
+    function renderCandidates(result, request) {
+      if (request !== candidateRequest || !query.isConnected) return;
       results.replaceChildren();
-      if (!query.value.trim()) return;
-      const allCandidates = findCardCandidates(query.value, cards, { colorIdentity: restrictIdentity.checked ? commanderIdentity : null });
+      const allCandidates = Array.isArray(result) ? result : result.cards;
+      setCards(allCandidates);
       const candidates = allCandidates.slice(0, 8);
       if (!candidates.length) { results.append(el('p', 'deck-muted', restrictIdentity.checked ? '主将标识色范围内无匹配卡牌' : '无匹配卡牌')); return; }
-      if (allCandidates.length > 8) results.append(el('p', 'deck-muted', `显示前 8 项 · 共 ${allCandidates.length} 项匹配`));
+      const total = result.total ?? allCandidates.length;
+      if (total > 8) results.append(el('p', 'deck-muted', `显示前 8 项 · 共 ${total} 项匹配`));
       const printingQuery = query.value.trim().toLowerCase().match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
       for (const card of candidates) {
         const row = el('div', 'deck-search-result'); const name = el('div'); name.append(button(card.zhName || card.name, () => onInspect(card), 'deck-card-link'), el('small', 'deck-muted', card.name));
         const version = printingQuery ? card.versions?.find(item => item.set.toLowerCase() === printingQuery[1] && String(item.collectorNumber).toLowerCase() === printingQuery[2]) : null;
-        row.append(name, button('＋ 加入', () => quickAddCard(card, version, deck.id), 'button button-quiet')); results.append(row);
+        row.append(name, button('＋ 加入', () => {
+          if (!loadCardsByIds) return quickAddCard(card, version, deck.id);
+          const versionId = version?.id || defaultVersion(card);
+          return loadCardsByIds([card.id], { versions: [{ cardId: card.id, versionId }] }).then(loaded => {
+            setCards(loaded); const ready = index.get(card.id);
+            if (!ready) throw new Error('卡牌数据未找到，请重试');
+            return quickAddCard(ready, versionId, deck.id);
+          }).catch(error => onNotify(error.message, 'error'));
+        }, 'button button-quiet')); results.append(row);
       }
+    }
+    function showCandidates() {
+      const request = ++candidateRequest;
+      results.replaceChildren();
+      if (!query.value.trim()) return;
+      const options = { colorIdentity: restrictIdentity.checked ? commanderIdentity : null, limit: 8 };
+      if (!findCandidates) { renderCandidates(findCardCandidates(query.value, cards, options), request); return; }
+      const pending = el('p', 'deck-muted', '搜索中…'); pending.setAttribute('role', 'status'); results.append(pending);
+      const text = query.value;
+      Promise.resolve().then(() => findCandidates(text, options)).then(result => renderCandidates(result, request)).catch(error => {
+        if (request !== candidateRequest || !query.isConnected) return;
+        results.replaceChildren(el('p', 'deck-form-error', error.message || '搜索失败，请重试'));
+      });
     }
     let suggestionTimer;
     query.addEventListener('input', () => {
-      draft.query = query.value; clearTimeout(suggestionTimer);
+      draft.query = query.value; clearTimeout(suggestionTimer); ++candidateRequest; results.replaceChildren();
       suggestionTimer = setTimeout(() => { if (query.isConnected) showCandidates(); }, 200);
     });
     query.addEventListener('change', () => { draft.query = query.value; clearTimeout(suggestionTimer); showCandidates(); });
     form.addEventListener('submit', event => { event.preventDefault(); draft.query = query.value; clearTimeout(suggestionTimer); showCandidates(); });
     restrictIdentity.addEventListener('change', () => { identitySearchPreferences.set(deck.id, restrictIdentity.checked); if (query.value.trim()) showCandidates(); });
-    showCandidates();
     container.append(section);
+    showCandidates();
   }
   function quickAddCard(card, version, deckId = selectedId) {
     if (!deckId || !store.get(deckId)) { onNotify('目标卡组已不存在，请重新选择卡组', 'error'); return false; }
+    setCards([card]);
     const versionId = typeof version === 'string' ? version : version?.id || defaultVersion(card);
     const updated = run(() => store.addCard(deckId, card, versionId, 'main', 1));
     if (!updated) return false;
     onNotify(`已加入「${updated.name}」主牌区`, 'success'); return true;
   }
   async function addCard(card, version, preferredId = selectedId) {
+    if (loadCardDetails && !card.versionsComplete) {
+      try { card = await loadCardDetails(card.id); setCards([card]); }
+      catch (error) { onNotify(error.message, 'error'); return false; }
+    }
     return new Promise(resolve => {
       let didAdd = false;
       const current = dialog(`加入 ${card.zhName || card.name}`, { onClose: () => resolve(didAdd) });
@@ -292,22 +351,24 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   }
   async function importDialog() {
     const current = dialog('导入牌表与备份', { wide: true });
-    const loading = el('p', 'deck-muted', '正在加载卡牌数据，以检查牌名和版本…'); current.panel.append(loading);
-    try { await ensureCards(); }
-    catch (error) {
-      loading.textContent = `卡牌数据加载失败：${error.message}`;
-      current.panel.append(button('重新加载', () => { current.close(); void importDialog(); }, 'button button-primary')); onNotify(error.message, 'error'); return;
+    if (!resolveDeckText && !loadCardsByIds) {
+      const loading = el('p', 'deck-muted', '正在加载卡牌数据…'); current.panel.append(loading);
+      try { await ensureCards(); }
+      catch (error) {
+        loading.textContent = `卡牌数据加载失败：${error.message}`;
+        current.panel.append(button('重新加载', () => { current.close(); void importDialog(); }, 'button button-primary')); onNotify(error.message, 'error'); return;
+      }
+      loading.remove();
     }
     if (!openModals.has(current)) return;
-    loading.remove();
     const format = select([['text', '文本牌表'], ['json', '完整 JSON 备份']], 'text');
     const name = input('导入的卡组'); name.maxLength = 200; const nameField = field('新卡组名称', name);
     const file = input('', 'file'); file.accept = '.json,.txt,.dec,.dek,text/plain,application/json';
     const source = el('textarea', 'deck-input deck-code'); source.rows = 10; source.placeholder = '[Commander]\n1 你的统帅牌名\n\n[Main]\n1 Sol Ring\n1 Command Tower (CMM) 396\n\n[Considering]\n1 Counterspell'; source.setAttribute('aria-label', '导入内容');
     const hint = el('p', 'deck-muted', '每行填写“数量 牌名”，支持中文、英文及可选的 (系列代码) 编号。仅创建新卡组，现有卡组会保留。');
     const error = el('p', 'deck-form-error'); error.hidden = true; const preview = el('div', 'deck-import-preview');
-    let textRows = null, jsonPreview = null;
-    const clearPreview = () => { textRows = null; jsonPreview = null; preview.replaceChildren(); commitButton.disabled = true; error.hidden = true; };
+    let textRows = null, jsonPreview = null, previewRevision = 0;
+    const clearPreview = () => { ++previewRevision; textRows = null; jsonPreview = null; preview.replaceChildren(); commitButton.disabled = true; previewButton.disabled = false; error.hidden = true; };
     source.addEventListener('input', clearPreview); format.addEventListener('change', () => { nameField.hidden = format.value === 'json'; clearPreview(); });
     file.addEventListener('change', async () => { const selected = file.files?.[0]; if (!selected) return; if (selected.size > 10_000_000) { notifyError(new Error('导入文件需小于 10 MB'), error); return; } try { source.value = await selected.text(); format.value = selected.name.toLowerCase().endsWith('.json') || source.value.trim().startsWith('{') ? 'json' : 'text'; nameField.hidden = format.value === 'json'; clearPreview(); } catch (err) { notifyError(err, error); } });
     function refreshPreview() {
@@ -325,10 +386,16 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         const title = el('div', 'deck-import-row-heading'); title.append(el('strong', '', `第 ${row.line} 行 · ${zoneNames[row.zone]}`), el('span', '', row.skipped ? '已跳过' : row.message));
         const edit = input(row.raw); edit.setAttribute('aria-label', `修正第 ${row.line} 行`);
         const actions = el('div', 'deck-actions');
-        actions.append(button('应用修正', () => {
-          const parsed = parseDeckText(`[${row.zone}]\n${edit.value}`, cards).rows;
-          if (parsed.length !== 1) { notifyError(new Error('每个修正项必须包含一行牌表内容'), error); return; }
-          const replacement = { ...parsed[0], line: row.line, skipped: false }; Object.assign(row, replacement); refreshPreview();
+        actions.append(button('应用修正', async () => {
+          const revision = previewRevision, correction = row.pendingCorrection = (row.pendingCorrection || 0) + 1;
+          try {
+            const text = `[${row.zone}]\n${edit.value}`;
+            const result = resolveDeckText ? await resolveDeckText(text) : parseDeckText(text, cards);
+            if (revision !== previewRevision || row.pendingCorrection !== correction || !openModals.has(current)) return;
+            if (result.cards) setCards(result.cards);
+            if (result.rows.length !== 1) throw new Error('每个修正项必须包含一行牌表内容');
+            Object.assign(row, { ...result.rows[0], line: row.line, skipped: false }); refreshPreview();
+          } catch (err) { if (revision === previewRevision && openModals.has(current)) notifyError(err, error); }
         }));
         if (row.status === 'version-missing') actions.append(button('使用默认版本', () => { row.versionId = defaultVersion(index.get(row.cardId)); row.status = 'ready'; row.message = '已明确使用默认版本'; refreshPreview(); }));
         if (row.status === 'ambiguous') {
@@ -340,13 +407,33 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       }
       commitButton.disabled = unresolved > 0 || ready === 0;
     }
-    const previewButton = button('检查并预览', () => {
-      error.hidden = true;
+    const previewButton = button('检查并预览', async () => {
+      const revision = ++previewRevision, raw = source.value, inputFormat = format.value;
+      error.hidden = true; previewButton.disabled = true; commitButton.disabled = true;
       try {
-        if (format.value === 'json') { jsonPreview = parseDeckBackup(source.value, cards); textRows = null; }
-        else { textRows = parseDeckText(source.value, cards).rows; jsonPreview = null; if (!textRows.length) throw new Error('没有可导入的牌表行'); }
+        let nextJSON = null, nextRows = null;
+        if (inputFormat === 'json') {
+          const structure = parseDeckBackup(raw);
+          if (loadCardsByIds) {
+            const entries = structure.decks.flatMap(deck => deck.entries);
+            setCards(await loadCardsByIds([...new Set(entries.map(entry => entry.cardId))], { versions: entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) }));
+          } else if (loadDeckCards) {
+            for (const deck of structure.decks) await ensureCards(deck);
+          }
+          nextJSON = parseDeckBackup(raw, cards);
+        } else {
+          const result = resolveDeckText ? await resolveDeckText(raw) : parseDeckText(raw, cards);
+          if (result.cards) setCards(result.cards);
+          nextRows = result.rows;
+          if (!nextRows.length) throw new Error('没有可导入的牌表行');
+        }
+        if (revision !== previewRevision || !openModals.has(current)) return;
+        jsonPreview = nextJSON; textRows = nextRows;
         refreshPreview();
-      } catch (err) { textRows = null; jsonPreview = null; preview.replaceChildren(); commitButton.disabled = true; notifyError(err, error); }
+      } catch (err) {
+        if (revision !== previewRevision || !openModals.has(current)) return;
+        textRows = null; jsonPreview = null; preview.replaceChildren(); commitButton.disabled = true; notifyError(err, error);
+      } finally { if (revision === previewRevision && openModals.has(current)) previewButton.disabled = false; }
     }, 'button button-primary');
     const commitButton = button('确认新增导入', () => {
       const imported = run(() => {

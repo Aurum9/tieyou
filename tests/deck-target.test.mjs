@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from '../dist/lib/deck-target.js';
-import { parseQuery, searchCards } from '../dist/lib/search.js';
+import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from '../web/lib/deck-target.js';
+import { parseQuery, searchCards } from '../web/lib/search.js';
 
 const card = (id, name, colorIdentity = [], versions = []) => ({
   id, name, zhName: '', aliases: [], colorIdentity, colors: [], manaValue: 0,

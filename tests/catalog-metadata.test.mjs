@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { attachSearchMetadata } from '../dist/lib/catalog-metadata.js';
+import { attachSearchMetadata } from '../web/lib/catalog-metadata.js';
 
 function fixture() {
   const oracleDate = '2026-11-02T10:02:00.811+00:00';

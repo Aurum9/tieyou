@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchCards, parseQuery, validateSearch } from '../dist/lib/search.js';
+import { searchCards, parseQuery, validateSearch } from '../web/lib/search.js';
 
 // Small independent catalogue: these fictional names avoid tying parser behavior to live Oracle changes.
 function card(id, name, zhName, extra = {}) {
