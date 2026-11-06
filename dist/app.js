@@ -1,10 +1,11 @@
 import { loadCatalog } from './lib/catalog.js';
-import { parseQuery, searchCards, validateSearch } from './lib/search.js';
-import { hasSearchIntent } from './lib/search-intent.js';
+import { searchCards, validateSearch, extractSearchOptions } from './lib/search.js';
 import { initDeckUI } from './lib/deck-ui.js';
 import { initSearchFilters } from './lib/filter-ui.js';
 import { getCommanderIdentity } from './lib/decks.js';
 import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from './lib/deck-target.js';
+import { buildDeckMembership } from './lib/deck-membership.js';
+import { clauseRange, removeClause, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -33,6 +34,31 @@ let catalogPromise = null;
 let searchRevision = 0;
 let mobileFilterFocus = null;
 let filterUI = null;
+let generatedClause = '';
+let scopeClause = '';
+let catalogMembership = new Map();
+
+function synchronizeQuery() {
+  if (!filterUI) return;
+  const input = $('#search-input'), visual = filterUI.getSearch();
+  try { const result = syncQueryClauses(input.value, { oldVisual: generatedClause, visual: visual.query, oldScope: scopeClause, scope: currentCommanderScope(), fallbackSort: $('#sort-select').value }); input.value = result.query; generatedClause = result.generatedClause; scopeClause = result.scopeClause; }
+  catch { /* Keep incomplete handwritten syntax available for correction. */ }
+}
+
+function acceptQueryEdit() {
+  const text = $('#search-input').value;
+  if (generatedClause && !clauseRange(text, generatedClause)) { filterUI.clear({ commanderOnly: false, silent: true }); generatedClause = ''; }
+  if (scopeClause && !clauseRange(text, scopeClause)) { scopeClause = ''; catalogScopeEnabled = false; $('#catalog-scope-filter').checked = false; }
+  try { const options = extractSearchOptions(text, 'name'); if (SORT_QUERIES[options.sort]) $('#sort-select').value = options.sort; } catch { /* Search validation shows the exact error. */ }
+}
+
+function hasCatalogSearchIntent() {
+  const visual = filterUI.getSearch();
+  if (visual.error || visual.hasUserConditions) return true;
+  let manual = removeClause($('#search-input').value, generatedClause);
+  manual = removeClause(manual, scopeClause);
+  try { return Boolean(extractSearchOptions(manual, 'name').query.trim()); } catch { return Boolean(manual.trim()); }
+}
 
 function node(tag, attrs = {}, children = []) {
   const item = document.createElement(tag);
@@ -136,7 +162,7 @@ function notify(message, type = 'info') {
 }
 
 function renderCard(card) {
-  const article = node('article', { class: 'card-tile' });
+  const article = node('article', { class: 'card-tile', 'data-card-id': card.id });
   const version = selectedVersionFor(card);
   const image = imageFrame(version?.image || card.image || cardFaces(card)[0]?.image, cardName(card), 'card-image-button', true);
   image.addEventListener('click', () => openDetail(card));
@@ -148,6 +174,7 @@ function renderCard(card) {
   if (!hasChineseText(card)) set.append(node('span', { class: 'card-translation-missing', text: '中文待补' }));
   else if (card.translation?.stale || cardFaces(card).some((face) => face.translation?.stale)) set.append(node('span', { class: 'card-translation-missing', text: '译文待更新' }));
   const info = node('div', { class: 'card-info' }, [title, node('p', { class: 'card-english', text: card.name, title: card.name }), add, type, set]);
+  info.append(node('p', { class: 'card-membership', text: catalogMembership.get(card.id)?.label || '', hidden: !catalogMembership.has(card.id) }));
   article.append(image, info);
   return article;
 }
@@ -197,19 +224,18 @@ async function runSearch() {
   if (currentView !== 'catalog') return;
   const query = $('#search-input').value.trim();
   const visual = filterUI.getSearch();
-  if (!hasSearchIntent(query, visual)) { showIdleCatalog(); return; }
+  if (!hasCatalogSearchIntent()) { renderActiveFilters(); showIdleCatalog(); return; }
   const wasIdle = $('#catalog-view').classList.contains('is-idle');
   $('#catalog-view').classList.remove('is-idle');
   if (wasIdle && !window.matchMedia('(max-width: 700px)').matches) {
     $('#catalog-view').classList.remove('filters-collapsed');
     $('#filter-toggle').setAttribute('aria-expanded', 'true');
   }
-  const combinedQuery = [query ? '(' + query + ')' : '', visual.query, currentCommanderScope()].filter(Boolean).join(' AND ');
+  const combinedQuery = query;
   const errorBox = $('#search-error');
   let result;
   try {
-    if (query) parseQuery(query);
-    const validationError = visual.error ? { message: visual.error } : validateSearch(combinedQuery, visual.filters);
+    const validationError = visual.error ? { message: visual.error } : validateSearch(combinedQuery);
     if (!validationError && !manifest) {
       renderActiveFilters();
       filterUI.showError(null);
@@ -225,7 +251,7 @@ async function runSearch() {
       if (ready && revision === searchRevision && currentView === 'catalog') runSearch();
       return;
     }
-    result = validationError ? { cards: [], total: 0, error: validationError } : searchCards(allCards, combinedQuery, visual.filters, $('#sort-select').value);
+    result = validationError ? { cards: [], total: 0, error: validationError } : searchCards(allCards, combinedQuery);
   } catch (error) {
     result = { cards: [], total: 0, error: { message: error.message || '检索出现问题，请修改条件后重试。', rawPosition: error.position } };
   }
@@ -260,9 +286,11 @@ function resetFilters() {
   filterUI.reset();
 }
 
-function clearSearch() { $('#search-input').value = ''; resetFilters(); }
+function clearSearch() { $('#search-input').value = ''; generatedClause = ''; scopeClause = ''; catalogScopeEnabled = false; $('#catalog-scope-filter').checked = false; $('#sort-select').value = 'name'; resetFilters(); }
 function setQuery(query) {
+  filterUI.clear({ commanderOnly: true, silent: true }); generatedClause = ''; scopeClause = ''; catalogScopeEnabled = false; $('#catalog-scope-filter').checked = false;
   $('#search-input').value = query;
+  synchronizeQuery();
   $$('dialog[open]').forEach((dialog) => dialog.close());
   switchView('catalog');
   $('#search-input').focus();
@@ -396,12 +424,15 @@ function refreshCatalogTarget() {
   $$('.add-card-button').forEach(button => { button.title = target ? '加入「' + target.name + '」主牌区' : '选择卡组并加入'; });
   const detailTarget = currentAddTarget();
   $$('.detail-add').forEach(button => { button.textContent = detailTarget ? '加入「' + detailTarget.name + '」主牌区' : '选择卡组并加入'; });
+  catalogMembership = buildDeckMembership(decks, catalogTargetId);
+  $$('#results .card-tile').forEach(tile => { const badge = $('.card-membership', tile), item = catalogMembership.get(tile.dataset.cardId); if (badge) { badge.textContent = item?.label || ''; badge.hidden = !item; } });
+  synchronizeQuery();
 }
 
 function openCatalogFromDeck({ deckId, query = '', restrictIdentity = true }) {
   catalogTargetId = deckId;
   catalogScopeEnabled = restrictIdentity;
-  filterUI.reset();
+  filterUI.clear({ commanderOnly: true, silent: true }); generatedClause = ''; scopeClause = '';
   filterUI.setMode('advanced');
   $('#search-input').value = catalogQueryFromDeckSearch(query, knownSetCodes);
   refreshCatalogTarget();
@@ -556,6 +587,7 @@ function renderDataStatus() {
   list.append(node('li', { text: '中文缺失会保留英文，过期译文会单独标记。当前未将未覆盖牌面视为验收通过。' }));
   content.append(list);
   if (manifest?.versionCoverage?.allLanguagesSnapshotLoaded === false) content.append(node('p', { class: 'data-note', text: '版本范围：当前默认语言纸牌印刷及社区映射的中文印刷。全部语言的印刷版本尚未接入，因此 lang: 筛选只作用于已收录版本。' }));
+  if (manifest?.searchMetadata) content.append(node('p', { class: 'data-note', text: 'EDHREC 排名采用 ' + String(manifest.searchMetadata.oracleDate).slice(0, 10) + ' 的 Scryfall 数据快照，' + fmt(manifest.searchMetadata.rankedCards) + ' 张牌有排名；排名较小的牌优先，未排名的牌排在末尾。力量与防御力按每个牌面的原始数值查询，* 等未定值不计入数值范围。' }));
   if (manifest?.reports?.coverage) content.append(node('p', { class: 'data-note' }, node('a', { href: './data/' + manifest.reports.coverage, target: '_blank', rel: 'noreferrer', text: '查看本次中文覆盖报告' })));
   content.append(node('p', { class: 'data-note', text: '卡组保存在当前浏览器中。清除站点数据或更换浏览器前，请通过「我的卡组」导出完整 JSON 备份。' }));
 }
@@ -571,10 +603,10 @@ function trapFocus(event, container) {
 }
 
 function wireEvents() {
-  filterUI = initSearchFilters({ onChange: () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); } });
+  filterUI = initSearchFilters({ onChange: () => { synchronizeQuery(); clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); } });
   $('#search-form').addEventListener('submit', (event) => { event.preventDefault(); runSearch(); });
-  $('#search-input').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); });
-  $('#sort-select').addEventListener('change', runSearch);
+  $('#search-input').addEventListener('input', () => { acceptQueryEdit(); clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); });
+  $('#sort-select').addEventListener('change', () => { try { $('#search-input').value = [extractSearchOptions($('#search-input').value).query, SORT_QUERIES[$('#sort-select').value]].filter(Boolean).join(' '); runSearch(); } catch (error) { notify(error.message, 'error'); } });
   $('#load-more').addEventListener('click', appendResults);
   $('#filter-reset').addEventListener('click', resetFilters);
   $('#filter-toggle').addEventListener('click', openFilters);
@@ -587,7 +619,7 @@ function wireEvents() {
   $('.skip-link').addEventListener('click', (event) => { event.preventDefault(); switchView('catalog'); $('#search-input').focus(); });
   $('#catalog-target-toggle').addEventListener('click', () => { const picker = $('#catalog-target-picker'); picker.hidden = !picker.hidden; $('#catalog-target-toggle').setAttribute('aria-expanded', String(!picker.hidden)); if (!picker.hidden) $('#catalog-target-select').focus(); });
   $('#catalog-target-select').addEventListener('change', event => { catalogTargetId = event.target.value || null; catalogScopeEnabled = true; refreshCatalogTarget(); runSearch(); });
-  $('#catalog-scope-filter').addEventListener('change', event => { catalogScopeEnabled = event.target.checked; runSearch(); });
+  $('#catalog-scope-filter').addEventListener('change', event => { catalogScopeEnabled = event.target.checked; synchronizeQuery(); runSearch(); });
   $('#catalog-return-deck').addEventListener('click', async () => { const id = catalogTargetId; switchView('decks'); if (id) await deckUI.openDeck(id); });
   $('#view-grid').addEventListener('click', () => setResultView('grid'));
   $('#view-list').addEventListener('click', () => setResultView('list'));
@@ -627,7 +659,7 @@ function ensureCatalog() {
     const catalog = await loadCatalog({ onProgress: (progress) => {
       const label = typeof progress === 'string' ? progress : progress?.message || progress?.label || (progress?.phase === 'cards' ? '已载入 ' + fmt(progress.cardsLoaded) + ' 张卡牌 · 数据分片 ' + progress.loaded + ' / ' + progress.total : '正在读取卡库清单…');
       const loadingMessage = $('#loading-message');
-      if (loadingMessage && hasSearchIntent($('#search-input').value, filterUI.getSearch())) loadingMessage.textContent = label;
+      if (loadingMessage && hasCatalogSearchIntent()) loadingMessage.textContent = label;
     } });
     allCards = catalog.cards;
     manifest = catalog.manifest;
@@ -643,12 +675,11 @@ function ensureCatalog() {
     $('#results').setAttribute('aria-busy', 'false');
     const latestQuery = $('#search-input').value.trim();
     const latestVisual = filterUI.getSearch();
-    const latestCombined = [latestQuery ? '(' + latestQuery + ')' : '', latestVisual.query].filter(Boolean).join(' AND ');
-    if (currentView === 'catalog' && hasSearchIntent(latestQuery, latestVisual) && !latestVisual.error && !validateSearch(latestCombined, latestVisual.filters)) {
+    if (currentView === 'catalog' && hasCatalogSearchIntent() && !latestVisual.error && !validateSearch(latestQuery)) {
       $('#results-count').textContent = '卡库暂时不可用';
       $('#data-status-text').textContent = '卡库载入失败 · 已保存的卡组数据仍保留在当前浏览器';
       setResultState({ title: '卡库还没有准备好', message: error.message || '请检查网络后重试。', kind: 'info', action: { label: '重试搜索', run: runSearch } });
-    } else if (!hasSearchIntent(latestQuery, latestVisual)) showIdleCatalog();
+    } else if (!hasCatalogSearchIntent()) showIdleCatalog();
     if (!deckUI) $('#deck-view').replaceChildren(node('div', { class: 'result-state' }, [icon('info'), node('h2', { text: '需要先完成卡库加载' }), node('p', { text: '卡库不可用时无法匹配卡牌。已有的本地卡组数据不会被修改。' }), node('button', { class: 'button', text: '重试加载', onClick: () => switchView('decks') })]));
     console.error('Catalog initialization failed', error);
     return false;

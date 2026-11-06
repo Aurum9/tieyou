@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONDITION_FIELDS, createCondition, createGroup, buildConditionQuery } from '../dist/lib/query-builder.js';
+import { CONDITION_FIELDS, createCondition, createGroup, buildConditionQuery, buildFilterQuery } from '../dist/lib/query-builder.js';
 import { parseQuery, searchCards } from '../dist/lib/search.js';
 
 function card(id, extra = {}) {
@@ -40,8 +40,8 @@ function ids(model, suffix = '') {
 }
 
 test('schema exposes every parser field and uniquely identifies conditions', () => {
-  assert.deepEqual(CONDITION_FIELDS.map(field => field.value), ['name', 'o', 't', 'c', 'ci', 'mv', 'set', 'cn', 'r', 'lang', 'f', 'tag']);
-  assert.equal(new Set(CONDITION_FIELDS.map(field => field.value)).size, 12);
+  assert.deepEqual(CONDITION_FIELDS.map(field => field.value), ['name', 'o', 't', 'c', 'ci', 'mv', 'pow', 'tou', 'set', 'cn', 'r', 'lang', 'f', 'tag']);
+  assert.equal(new Set(CONDITION_FIELDS.map(field => field.value)).size, 14);
   assert.equal(CONDITION_FIELDS.find(field => field.value === 'r').options.length, 6);
   for (const field of CONDITION_FIELDS) {
     assert.ok(['text', 'number', 'select', 'colors'].includes(field.input));
@@ -179,4 +179,52 @@ test('invalid group settings and circular references are handled without throwin
   const cycle = createGroup(); cycle.children.push(cycle);
   assert.match(buildConditionQuery(cycle).error, /循环/);
   assert.match(buildConditionQuery(group('all', { kind: 'invalid' })).error, /结构无效/);
+});
+
+test('visual filters serialize every selected field into one executable query', () => {
+  const result = buildFilterQuery({
+    colors: ['U', 'G'], colorRelation: 'any', identities: ['U', 'G'], identityRelation: 'within',
+    types: ['Creature', 'Artifact'], supertypes: ['Legendary'], subtype: '妖精',
+    minManaValue: 0, maxManaValue: 4, minPower: -1, maxPower: 3, minToughness: '0.5', maxToughness: 6,
+    commanderOnly: true, translation: 'translated',
+  });
+  assert.equal(result.error, null);
+  assert.equal(result.query, '(c:u OR c:g) AND ci<=ug AND (t:"creature" OR t:"artifact") AND (t:"legendary") AND t:"妖精" AND mv>=0 AND mv<=4 AND pow>=-1 AND pow<=3 AND tou>=0.5 AND tou<=6 AND f:commander AND is:translated');
+  assert.equal(result.count, 13); assert.equal(result.explicitCount, 12);
+  assert.doesNotThrow(() => parseQuery(result.query));
+});
+
+test('visual color relations preserve any, all, exact, within and colorless semantics', () => {
+  const expected = { any: '(c:u OR c:g)', all: 'c>=ug', exact: 'c=ug', within: 'c<=ug' };
+  for (const [colorRelation, query] of Object.entries(expected)) assert.equal(buildFilterQuery({ colors: ['U', 'G'], colorRelation }).query, query);
+  assert.equal(buildFilterQuery({ identities: ['C'] }).query, 'ci=无色');
+  assert.match(buildFilterQuery({ colors: ['C', 'U'] }).error, /无色/);
+});
+
+test('visual default legality remains visible without counting as an explicit search', () => {
+  assert.deepEqual(buildFilterQuery({ commanderOnly: true }), { query: 'f:commander', error: null, count: 1, explicitCount: 0 });
+  assert.deepEqual(buildFilterQuery({}), { query: '', error: null, count: 0, explicitCount: 0 });
+  assert.equal(buildFilterQuery({ translation: 'missing' }).query, 'is:untranslated');
+});
+
+test('visual stat ranges preserve zero, negatives and decimals while rejecting nonnumeric or inverted bounds', () => {
+  assert.equal(buildFilterQuery({ minPower: '-.5', maxPower: 0, minToughness: -1, maxToughness: '2.' }).query, 'pow>=-.5 AND pow<=0 AND tou>=-1 AND tou<=2.');
+  for (const [filters, expected] of [
+    [{ minPower: 4, maxPower: 2 }, /力量下限/], [{ minToughness: 2, maxToughness: -1 }, /防御力下限/],
+    [{ minManaValue: -1 }, /非负/], [{ minManaValue: 4, maxManaValue: 2 }, /法术力值下限/],
+    [{ minPower: '*' }, /力量需要填写数字/], [{ maxToughness: '1e2' }, /防御力需要填写数字/],
+  ]) assert.match(buildFilterQuery(filters).error, expected);
+});
+
+test('visual subtype text is quoted and cannot inject additional query conditions', () => {
+  const result = buildFilterQuery({ subtype: 'Elf" OR mv>=0 OR t:"Dragon' });
+  const ast = parseQuery(result.query);
+  assert.equal(ast.type, 'term');
+  assert.equal(ast.value, 'elf" or mv>=0 or t:"dragon');
+});
+
+test('more-condition stat fields accept signed numbers and exclude query injection', () => {
+  assert.equal(built(group('all', rule('pow', -1, '>='), rule('tou', '.5', '<='))).query, '(pow>="-1" AND tou<=".5")');
+  assert.match(buildConditionQuery(group('all', rule('pow', '*'))).error, /力量请输入数字/);
+  assert.match(buildConditionQuery(group('all', rule('tou', '1 OR mv>=0'))).error, /防御力请输入数字/);
 });

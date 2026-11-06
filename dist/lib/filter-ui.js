@@ -1,7 +1,8 @@
-import { CONDITION_FIELDS, createCondition, createGroup, buildConditionQuery } from './query-builder.js';
+import { CONDITION_FIELDS, createCondition, createGroup, buildConditionQuery, buildFilterQuery } from './query-builder.js';
 
 const COLOR_NAMES = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿', C: '无色' };
 const TYPE_NAMES = { Creature: '生物', Instant: '瞬间', Sorcery: '法术', Artifact: '神器', Enchantment: '结界', Planeswalker: '鹏洛客', Land: '地', Battle: '战役' };
+const SUPERTYPE_NAMES = { Basic: '基本', Legendary: '传奇', Snow: '雪境', World: '世界', Ongoing: '持续' };
 const RELATIONS = { any: '包含任一', all: '包含全部', exact: '恰好', within: '仅限' };
 const TAG_NAMES = { draw: '抓牌', 'draw-engine': '抓牌引擎', loot: '抓后弃', rummage: '弃后抓', wheel: '转轮', 'impulsive-draw': '冲动抓牌', ramp: '加速', 'mana-rock': '法术力石', 'mana-dork': '产费生物', ritual: '一次性产费', 'cost-reducer': '减费', 'land-ramp': '地加速', 'extra-land': '额外下地', tutor: '检索', 'tutor-land': '找地', 'tutor-creature': '找生物', 'tutor-artifact': '找神器', 'spot-removal': '单体去除', sweeper: '清场', counterspell: '反击', bounce: '回手', discard: '弃牌干扰', burn: '烧伤', theft: '偷取', flicker: '闪烁', recursion: '坟场回收', regrowth: '坟场回手', reanimate: '复活', 'hate-graveyard': '坟场针对', 'sacrifice-outlet': '牺牲源', protection: '保护', 'gives-hexproof': '赋予辟邪', 'gives-indestructible': '赋予不灭', fog: '防止战斗伤害', pillowfort: '枕头堡', anthem: '全队强化', overrun: '践踏爆发', 'extra-turn': '额外回合', 'extra-combat-phase': '额外战斗', 'drain-life': '吸血', lifegain: '获得生命', 'copy-spell': '复制咒语', 'copy-creature': '复制生物', landfall: '地落', 'sacrifice-matters': '牺牲协同', 'lifegain-matters': '加血协同', 'pp-counters-matter': '+1/+1 指示物协同', 'synergy-equipment': '武具协同', 'synergy-aura': '灵气协同', tax: '征税', hatebear: '干扰小生物', 'typal-elf': '妖精部族协同', 'typal-dragon': '龙部族协同', 'alternate-win-condition': '特殊胜利条件' };
 
@@ -35,7 +36,7 @@ function meaningfulRules(group) {
 export function initSearchFilters({ onChange }) {
   const $ = selector => document.querySelector(selector);
   const $$ = selector => Array.from(document.querySelectorAll(selector));
-  const defaults = () => ({ colors: [], colorRelation: 'any', identities: [], identityRelation: 'within', types: [], minManaValue: '', maxManaValue: '', commanderOnly: true, translation: 'all' });
+  const defaults = () => ({ colors: [], colorRelation: 'any', identities: [], identityRelation: 'within', types: [], supertypes: [], subtype: '', minManaValue: '', maxManaValue: '', minPower: '', maxPower: '', minToughness: '', maxToughness: '', commanderOnly: true, translation: 'all' });
   let filters = defaults();
   let conditionRoot = createGroup();
   let tags = [];
@@ -44,7 +45,8 @@ export function initSearchFilters({ onChange }) {
   let vocabularyPromise;
   const datalist = el('datalist', { id: 'tag-vocabulary' });
   const setlist = el('datalist', { id: 'set-vocabulary' });
-  document.body.append(datalist, setlist);
+  const subtypelist = el('datalist', { id: 'subtype-vocabulary' });
+  document.body.append(datalist, setlist, subtypelist);
 
   function changed() {
     syncSummary();
@@ -125,7 +127,7 @@ export function initSearchFilters({ onChange }) {
     } else {
       value = el('input', { class: 'condition-value', type: spec.input === 'number' ? 'number' : 'text', 'aria-label': spec.label + '条件值', placeholder: spec.placeholder || '输入' + spec.label, autocomplete: 'off' });
       value.value = rule.value;
-      if (spec.input === 'number') { value.min = '0'; value.step = 'any'; value.inputMode = 'decimal'; }
+      if (spec.input === 'number') { if (!spec.signed) value.min = '0'; value.step = 'any'; value.inputMode = 'decimal'; }
       if (rule.field === 'tag') value.setAttribute('list', 'tag-vocabulary');
       if (rule.field === 'set') value.setAttribute('list', 'set-vocabulary');
       value.addEventListener('input', () => { rule.value = value.validity?.badInput ? '无效数字' : value.value; changed(); });
@@ -169,7 +171,7 @@ export function initSearchFilters({ onChange }) {
     const parts = [];
     if (tags.length) parts.push('(' + tags.map(tag => 'tag:' + tag).join(tagMatch === 'any' ? ' OR ' : ' AND ') + ')');
     if (built.query) parts.push(built.query);
-    return { query: parts.join(' AND '), error: built.error, count: tags.length + meaningfulRules(conditionRoot).length + (filters.identities.length ? 1 : 0) + (filters.translation !== 'all' ? 1 : 0) };
+    return { query: parts.join(' AND '), error: built.error, count: tags.length + meaningfulRules(conditionRoot).length + (filters.identities.length ? 1 : 0) + (filters.translation !== 'all' ? 1 : 0) + filters.supertypes.length + (filters.subtype.trim() ? 1 : 0) + ['minPower', 'maxPower', 'minToughness', 'maxToughness'].filter(key => filters[key] !== '').length };
   }
   function syncSummary() {
     const result = advancedQuery();
@@ -177,33 +179,21 @@ export function initSearchFilters({ onChange }) {
     $('#advanced-count').hidden = !result.count;
     $('#advanced-retained').hidden = mode !== 'simple' || !result.count;
     $('#advanced-retained').textContent = result.count + ' 项高级条件仍在生效 · 点击查看';
-    const preview = [];
-    const op = { any: ':', all: '>=', exact: '=', within: '<=' };
-    for (const [key, field, relation] of [['colors', 'c', 'colorRelation'], ['identities', 'ci', 'identityRelation']]) {
-      const colors = filters[key];
-      if (colors.length) {
-        if (colors[0] === 'C') preview.push(field + '=无色');
-        else if (filters[relation] === 'any') preview.push('(' + colors.map(color => field + ':' + color.toLowerCase()).join(' OR ') + ')');
-        else preview.push(field + op[filters[relation]] + colors.join('').toLowerCase());
-      }
-    }
-    if (filters.types.length) preview.push('(' + filters.types.map(type => 't:' + type.toLowerCase()).join(' OR ') + ')');
-    if (filters.minManaValue !== '') preview.push('mv>=' + filters.minManaValue);
-    if (filters.maxManaValue !== '') preview.push('mv<=' + filters.maxManaValue);
-    if (filters.commanderOnly) preview.push('f:commander');
-    if (result.query) preview.push(result.query);
-    $('#generated-query').textContent = result.error || preview.join(' AND ') || '尚未添加搜索条件';
-    if (filters.translation !== 'all') $('#generated-query').textContent += '\n中文内容：' + (filters.translation === 'translated' ? '已有中文规则' : '待补中文规则');
+    const complete = getSearch();
+    $('#generated-query').textContent = complete.error || complete.query || '尚未添加搜索条件';
   }
   function sync() {
     for (const [selector, key] of [['#color-filters', 'colors'], ['#identity-filters', 'identities']]) {
       $$(selector + ' button').forEach(pick => pick.setAttribute('aria-pressed', String(filters[key].includes(pick.dataset.color))));
     }
     $$('#type-filters input').forEach(input => { input.checked = filters.types.includes(input.value); });
+    $$('#supertype-filters input').forEach(input => { input.checked = filters.supertypes.includes(input.value); });
+    $('#subtype-filter').value = filters.subtype;
     $('#color-relation').value = filters.colorRelation;
     $('#identity-relation').value = filters.identityRelation;
     $('#mana-min').value = filters.minManaValue;
     $('#mana-max').value = filters.maxManaValue;
+    for (const [selector, key] of [['#power-min', 'minPower'], ['#power-max', 'maxPower'], ['#toughness-min', 'minToughness'], ['#toughness-max', 'maxToughness']]) $(selector).value = filters[key];
     $('#mana-label').textContent = filters.minManaValue === '' && filters.maxManaValue === '' ? '不限' : (filters.minManaValue === '' ? '0' : filters.minManaValue) + ' – ' + (filters.maxManaValue === '' ? '不限' : filters.maxManaValue);
     $('#translation-filter').value = filters.translation;
     $('#commander-filter').checked = filters.commanderOnly;
@@ -212,11 +202,21 @@ export function initSearchFilters({ onChange }) {
     syncSummary();
   }
   function reset() { filters = defaults(); conditionRoot = createGroup(); tags = []; tagMatch = 'any'; renderBuilder(); sync(); changed(); }
+  function clear({ commanderOnly = false, silent = false } = {}) {
+    filters = { ...defaults(), commanderOnly }; conditionRoot = createGroup(); tags = []; tagMatch = 'any'; renderBuilder(); sync();
+    if (!silent) changed();
+  }
   function getSearch() {
     const result = advancedQuery();
-    const badNumber = ['#mana-min', '#mana-max'].some(selector => $(selector).validity.badInput);
-    const error = badNumber ? '法术力值需要填写非负数字，留空表示不限。' : result.error;
-    return { filters: { ...filters, colors: [...filters.colors], identities: [...filters.identities], types: [...filters.types] }, query: result.query, error };
+    const basic = buildFilterQuery(filters);
+    const badMana = ['#mana-min', '#mana-max'].some(selector => $(selector).validity.badInput);
+    const badStats = ['#power-min', '#power-max', '#toughness-min', '#toughness-max'].some(selector => $(selector).validity.badInput);
+    const error = badMana ? '法术力值需要填写非负数字，留空表示不限。' : badStats ? '力量与防御力需要填写数字，留空表示不限。' : basic.error || result.error;
+    return {
+      filters: { ...filters, colors: [...filters.colors], identities: [...filters.identities], types: [...filters.types], supertypes: [...filters.supertypes] },
+      query: [basic.query, result.query].filter(Boolean).join(' AND '), advancedQuery: result.query,
+      hasUserConditions: !!(basic.explicitCount || tags.length || meaningfulRules(conditionRoot).length || error), error,
+    };
   }
   function renderActiveFilters() {
     const wrap = $('#active-filters');
@@ -224,6 +224,11 @@ export function initSearchFilters({ onChange }) {
     if (filters.colors.length) items.push({ label: '颜色：' + RELATIONS[filters.colorRelation] + filters.colors.map(color => COLOR_NAMES[color]).join(' / '), remove: () => { filters.colors = []; } });
     if (filters.identities.length) items.push({ label: '标识色：' + RELATIONS[filters.identityRelation] + filters.identities.map(color => COLOR_NAMES[color]).join(' / '), advanced: true, remove: () => { filters.identities = []; } });
     for (const type of filters.types) items.push({ label: TYPE_NAMES[type], remove: () => { filters.types = filters.types.filter(value => value !== type); } });
+    for (const type of filters.supertypes) items.push({ label: SUPERTYPE_NAMES[type], advanced: true, remove: () => { filters.supertypes = filters.supertypes.filter(value => value !== type); } });
+    if (filters.subtype.trim()) items.push({ label: '副类别：' + filters.subtype.trim(), advanced: true, remove: () => { filters.subtype = ''; } });
+    for (const [key, label] of [['minPower', '力量 ≥ '], ['maxPower', '力量 ≤ '], ['minToughness', '防御力 ≥ '], ['maxToughness', '防御力 ≤ ']]) {
+      if (filters[key] !== '') items.push({ label: label + filters[key], advanced: true, remove: () => { filters[key] = ''; } });
+    }
     if (filters.minManaValue !== '') items.push({ label: '法术力值 ≥ ' + filters.minManaValue, remove: () => { filters.minManaValue = ''; } });
     if (filters.maxManaValue !== '') items.push({ label: '法术力值 ≤ ' + filters.maxManaValue, remove: () => { filters.maxManaValue = ''; } });
     if (filters.commanderOnly) items.push({ label: 'EDH 合法', remove: () => { filters.commanderOnly = false; } });
@@ -244,12 +249,24 @@ export function initSearchFilters({ onChange }) {
   function showError(message) { $('#filter-error').hidden = !message; $('#filter-error').textContent = message || ''; }
   function setCatalog(cards) {
     const sets = new Map();
-    for (const card of cards) for (const version of card.versions || []) {
-      if (version.set && !sets.has(version.set)) sets.set(version.set, version.setName || version.set);
+    const subtypes = new Set();
+    for (const card of cards) {
+      for (const version of card.versions || []) {
+        if (version.set && !sets.has(version.set)) sets.set(version.set, version.setName || version.set);
+      }
+      for (const face of [card, ...(card.faces || [])]) for (const line of [face.typeLine, face.zhTypeLine]) {
+        for (const part of String(line || '').split(/\s*\/\/\s*/)) {
+          const suffix = part.split(/[—–～~]/).slice(1).join(' ');
+          for (const subtype of suffix.match(/Time Lord|[^\s／/]+/g) || []) subtypes.add(subtype);
+        }
+      }
     }
     const fragment = document.createDocumentFragment();
     for (const [code, name] of [...sets].sort((a, b) => a[0].localeCompare(b[0]))) fragment.append(el('option', { value: code, label: name + ' · ' + code.toUpperCase() }));
     setlist.replaceChildren(fragment);
+    const subtypeFragment = document.createDocumentFragment();
+    for (const subtype of [...subtypes].sort((a, b) => a.localeCompare(b, 'zh-CN'))) subtypeFragment.append(el('option', { value: subtype }));
+    subtypelist.replaceChildren(subtypeFragment);
   }
 
   for (const original of $$('#color-filters button')) {
@@ -267,6 +284,9 @@ export function initSearchFilters({ onChange }) {
     $(selector).addEventListener('input', event => { filters[key] = event.target.value; $('#mana-label').textContent = filters.minManaValue === '' && filters.maxManaValue === '' ? '不限' : (filters.minManaValue || '0') + ' – ' + (filters.maxManaValue || '不限'); changed(); });
   }
   $$('#type-filters input').forEach(input => input.addEventListener('change', () => { filters.types = $$('#type-filters input:checked').map(item => item.value); changed(); }));
+  $$('#supertype-filters input').forEach(input => input.addEventListener('change', () => { filters.supertypes = $$('#supertype-filters input:checked').map(item => item.value); changed(); }));
+  $('#subtype-filter').addEventListener('input', event => { filters.subtype = event.target.value; changed(); });
+  for (const [selector, key] of [['#power-min', 'minPower'], ['#power-max', 'maxPower'], ['#toughness-min', 'minToughness'], ['#toughness-max', 'maxToughness']]) $(selector).addEventListener('input', event => { filters[key] = event.target.value; changed(); });
   $('#commander-filter').addEventListener('change', event => { filters.commanderOnly = event.target.checked; changed(); });
   $('#tag-match').addEventListener('change', event => { tagMatch = event.target.value; changed(); });
   $$('[data-tag]').forEach(pick => pick.addEventListener('click', () => { tags = tags.includes(pick.dataset.tag) ? tags.filter(tag => tag !== pick.dataset.tag) : [...tags, pick.dataset.tag]; sync(); changed(); }));
@@ -275,5 +295,5 @@ export function initSearchFilters({ onChange }) {
   $('#filter-advanced').addEventListener('click', () => setMode('advanced'));
   $('#advanced-retained').addEventListener('click', () => setMode('advanced'));
   renderBuilder(); sync(); setMode('simple');
-  return { getSearch, renderActiveFilters, reset, setMode, showError, setCatalog };
+  return { getSearch, renderActiveFilters, reset, clear, setMode, showError, setCatalog };
 }

@@ -472,10 +472,12 @@ def main() -> None:
                {"name": "magic-cards-zhs (CC BY-SA 4.0)", "url": chinese_url, "date": chinese_date},
                {"name": "Scryfall Default Cards", "url": meta.get("default_cards", {}).get("jsonl_download_uri", ""), "date": meta.get("default_cards", {}).get("updated_at", "")},
                {"name": "Scryfall Oracle Tags", "url": meta.get("oracle_tags", {}).get("jsonl_download_uri", ""), "date": meta.get("oracle_tags", {}).get("updated_at", "")}]
+    from build_search_metadata import write_search_metadata
+    search_metadata = write_search_metadata(cards, canonical, oracle_date, output)
     manifest = {"schemaVersion": 1, "updatedAt": datetime.now(timezone.utc).isoformat(), "freezeDate": args.freeze_date,
                 "snapshot": {"oracleDate": oracle_date, "chineseDate": chinese_date},
                 "counts": {"cards": len(cards), "faces": face_count, "versions": sum(len(c["versions"]) for c in cards)},
-                "shards": shards, "coverage": coverage, "sources": sources,
+                "shards": shards, "coverage": coverage, "sources": sources, "searchMetadata": search_metadata,
                 "tagCoverage": {"cards": sum(bool(c["tags"]) for c in cards), "tags": len(vocabulary), "includesAncestors": True},
                 "translationReview": {"upstreamAIFaces": upstream_ai_faces, "manualReviewPerformed": False,
                                       "overrideFaces": len(applied_overrides), "overrideReviewStatus": "ai-reviewed" if applied_overrides else None},

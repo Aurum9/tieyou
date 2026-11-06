@@ -12,6 +12,8 @@ python -m unittest discover -s app/tests -p 'test_catalog_*.py' -v
 
 离线构建读取本机缓存；尚未刷新时可回退到旧万智牌 Agent 项目的只读原始快照。旧项目绝不写入。本地源码已包含完整静态构建产物，运行网页无需安装 Python 或访问旧项目。
 
+力量、防御力与 EDHREC 排名由 `search-metadata.json` 单独补充，按同一冻结 Oracle ID 和牌面名称精确绑定，保留翻译分片原值。完整构建会自动生成；仅补充检索元数据可运行 `python app/scripts/build_search_metadata.py`。生成器要求原始快照日期与当前 manifest 完全一致；更新排名需要先正式刷新数据快照。
+
 卡池按实际已发售实体印刷判定。Oracle 代表对象可能是 MTGO 版本或未来重印，不能据此删掉既有实体牌。默认版本 ID 与画面展示的系列、编号和图片保持一致。版本范围覆盖当前默认语言批量数据与社区已有映射，暂未下载全部语言印刷。
 
 中文按 Oracle ID 与英文牌面名称精确匹配，逐面保留来源、原始阶段和英文基线哈希。缺失为空；源于上游 GPT 的译文标记 `upstreamAI: true`、`reviewStatus: unreviewed`。英文基线匹配只代表未观察到文字变化，不能证明翻译正确或经过人工复核。

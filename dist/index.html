@@ -41,7 +41,7 @@
         <button class="nav-item active" data-view="decks" aria-current="page"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
         <button class="nav-item" data-view="catalog"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
       </nav>
-      <span class="edition-badge"><span class="status-dot"></span>本地工作台<span class="edition-version">V0.2</span></span>
+      <span class="edition-badge"><span class="status-dot"></span>本地工作台<span class="edition-version">V0.2.1</span></span>
     </header>
 
     <main id="catalog-view" class="catalog-layout is-idle filters-collapsed" hidden>
@@ -84,6 +84,32 @@
           <div id="advanced-filters" hidden>
           <p class="advanced-intro">点选条件即可组合搜索，无需输入语法。</p>
           <fieldset class="filter-section">
+            <legend>超类别</legend>
+            <div class="type-filters supertype-filters" id="supertype-filters">
+              <label><input type="checkbox" value="Basic"/><span>基本</span></label>
+              <label><input type="checkbox" value="Legendary"/><span>传奇</span></label>
+              <label><input type="checkbox" value="Snow"/><span>雪境</span></label>
+              <label><input type="checkbox" value="World"/><span>世界</span></label>
+              <label><input type="checkbox" value="Ongoing"/><span>持续</span></label>
+            </div>
+            <p class="filter-note">多选时匹配任一超类别。</p>
+          </fieldset>
+          <fieldset class="filter-section">
+            <legend>副类别</legend>
+            <label class="sr-only" for="subtype-filter">副类别名称</label>
+            <input id="subtype-filter" class="condition-value" type="text" list="subtype-vocabulary" placeholder="例如：妖精、龙、武具、Elf" autocomplete="off"/>
+            <p class="filter-note">支持中文或英文名称；载入卡库后提供已有副类别建议。</p>
+          </fieldset>
+          <fieldset class="filter-section">
+            <legend>力量</legend>
+            <div class="mana-bounds"><label for="power-min">最低<input id="power-min" type="number" step="any" inputmode="decimal" placeholder="不限" aria-label="最低力量"/></label><span aria-hidden="true">—</span><label for="power-max">最高<input id="power-max" type="number" step="any" inputmode="decimal" placeholder="不限" aria-label="最高力量"/></label></div>
+          </fieldset>
+          <fieldset class="filter-section">
+            <legend>防御力</legend>
+            <div class="mana-bounds"><label for="toughness-min">最低<input id="toughness-min" type="number" step="any" inputmode="decimal" placeholder="不限" aria-label="最低防御力"/></label><span aria-hidden="true">—</span><label for="toughness-max">最高<input id="toughness-max" type="number" step="any" inputmode="decimal" placeholder="不限" aria-label="最高防御力"/></label></div>
+            <p class="filter-note">力量与防御力支持负数、0 和小数。数值筛选不包含 * 等未定值。</p>
+          </fieldset>
+          <fieldset class="filter-section">
             <legend>标识色</legend>
             <div id="identity-filters" class="color-filters" aria-label="标识色选择"></div>
             <label class="small-select-label" for="identity-relation">匹配方式<select id="identity-relation"><option value="within">仅在所选色内（含无色）</option><option value="any">包含任一所选色</option><option value="all">包含全部所选色</option><option value="exact">恰好为所选色</option></select></label>
@@ -100,7 +126,7 @@
             <legend>中文内容</legend>
             <select id="translation-filter" class="field-select" aria-label="中文内容"><option value="all">全部卡牌</option><option value="translated">已有中文规则</option><option value="missing">待补中文规则</option></select>
           </fieldset>
-          <section class="filter-section condition-section" aria-labelledby="conditions-heading"><h3 id="conditions-heading">更多搜索条件</h3><p class="filter-note">牌名、规则文字、子类别、系列、编号、稀有度、语言等均可在这里选择。</p><div id="condition-builder"></div><p class="filter-note">系列、编号、稀有度与语言会匹配同一个印刷版本；当前版本语言主要为英文及简体中文。</p></section>
+          <section class="filter-section condition-section" aria-labelledby="conditions-heading"><h3 id="conditions-heading">更多搜索条件</h3><p class="filter-note">牌名、规则文字、系列、编号、稀有度、语言等可进一步组合，也可以建立任选或排除条件组。</p><div id="condition-builder"></div><p class="filter-note">系列、编号、稀有度与语言会匹配同一个印刷版本；当前版本语言主要为英文及简体中文。</p></section>
           <details class="generated-query"><summary>查看自动生成的语法</summary><code id="generated-query">尚未添加高级条件</code></details>
           <button id="help-open" type="button" class="text-button syntax-reference">查看完整语法参考</button>
           </div>
@@ -126,7 +152,7 @@
         <div id="data-status" class="data-status" role="status"><span class="status-dot"></span><span id="data-status-text">正在连接卡牌数据库…</span><button id="data-info-open" class="status-info" aria-label="查看数据来源与覆盖情况"><svg class="icon"><use href="#i-info"/></svg></button></div>
         <div class="results-toolbar">
           <div class="results-count-wrap"><button id="filter-toggle" class="button filter-toggle" aria-expanded="true" aria-controls="filters"><svg class="icon"><use href="#i-filter"/></svg><span>筛选</span><span id="filter-count" class="filter-count" hidden>0</span></button><p id="results-count" aria-live="polite">正在加载卡库…</p></div>
-          <div class="result-options"><label class="sort-label" for="sort-select">排序<select id="sort-select"><option value="name">名称 A–Z</option><option value="mana-asc">法术力值 ↑</option><option value="mana-desc">法术力值 ↓</option><option value="released">最新发行</option></select></label><div class="view-toggle" role="group" aria-label="结果显示方式"><button id="view-grid" class="active" aria-label="网格显示" aria-pressed="true"><svg class="icon"><use href="#i-grid"/></svg></button><button id="view-list" aria-label="列表显示" aria-pressed="false"><svg class="icon"><use href="#i-list"/></svg></button></div></div>
+          <div class="result-options"><label class="sort-label" for="sort-select">排序<select id="sort-select"><option value="name">名称 A–Z</option><option value="edhrec">EDHREC 热度</option><option value="mana-asc">法术力值 ↑</option><option value="mana-desc">法术力值 ↓</option><option value="released">最新发行</option></select></label><div class="view-toggle" role="group" aria-label="结果显示方式"><button id="view-grid" class="active" aria-label="网格显示" aria-pressed="true"><svg class="icon"><use href="#i-grid"/></svg></button><button id="view-list" aria-label="列表显示" aria-pressed="false"><svg class="icon"><use href="#i-list"/></svg></button></div></div>
         </div>
         <div id="active-filters" class="active-filters" hidden></div>
         <div id="search-error" class="inline-error" role="alert" hidden></div>
@@ -151,7 +177,7 @@
     <dialog id="help-dialog" class="app-dialog help-dialog" aria-labelledby="help-title">
       <header class="dialog-header"><div><p class="eyebrow">SEARCH REFERENCE</p><h2 id="help-title">用一句话，缩小牌库。</h2></div><button class="icon-button" data-close-dialog="help-dialog" aria-label="关闭检索帮助"><svg class="icon"><use href="#i-close"/></svg></button></header>
       <p class="dialog-intro">直接输入中文、英文牌名或规则文字。多个条件用空格连接，也可以使用下面的高级语法。</p>
-      <div class="syntax-table"><div><code>name: / o: / t:</code><span>牌名 / 规则文字 / 类别</span></div><div><code>c: / ci:</code><span>牌面颜色 / 标识色，支持 =、&lt;=、&gt;=</span></div><div><code>mv&lt;=3</code><span>法术力值比较</span></div><div><code>set: / cn:</code><span>系列代码 / 收藏编号</span></div><div><code>r: / lang:</code><span>稀有度 / 版本语言</span></div><div><code>f:commander</code><span>EDH 合法卡牌</span></div><div><code>tag:抓牌</code><span>功能标签，当前覆盖范围见数据说明</span></div><div><code>AND / OR / - / ( )</code><span>组合、任选、排除、条件分组</span></div></div>
+      <div class="syntax-table"><div><code>name: / o: / t:</code><span>牌名 / 规则文字 / 类别（含超类别及副类别）</span></div><div><code>c: / ci:</code><span>牌面颜色 / 标识色，支持 =、&lt;=、&gt;=</span></div><div><code>mv&lt;=3</code><span>法术力值比较</span></div><div><code>pow&gt;=2 tou&lt;=4</code><span>力量与防御力范围，支持负数与小数</span></div><div><code>set: / cn:</code><span>系列代码 / 收藏编号</span></div><div><code>r: / lang:</code><span>稀有度 / 版本语言</span></div><div><code>f:commander</code><span>EDH 合法卡牌</span></div><div><code>is:translated / is:untranslated</code><span>已有中文规则 / 待补中文规则</span></div><div><code>tag:抓牌</code><span>功能标签，当前覆盖范围见数据说明</span></div><div><code>order:edhrec</code><span>按照 EDHREC 热度排序</span></div><div><code>AND / OR / - / ( )</code><span>组合、任选、排除、条件分组</span></div></div>
       <div class="syntax-example"><span>组合示例</span><button data-query="t:生物 ci<=ug mv<=3 (tag:抓牌 OR tag:加速)"><code>t:生物 ci&lt;=ug mv&lt;=3 (tag:抓牌 OR tag:加速)</code><svg class="icon"><use href="#i-arrow"/></svg></button></div>
       <p class="help-note">短语可以用英文双引号括起。当前实现首版约定语法；不支持的字段会提示错误。</p>
     </dialog>

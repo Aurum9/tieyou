@@ -13,7 +13,7 @@ class Element {
   remove() { if (this.parentNode) { this.parentNode.children = this.parentNode.children.filter(child => child !== this); this.parentNode = null; } }
   setAttribute(name, value) { this.attributes[name] = value; }
   addEventListener(name, handler) { (this.events[name] ||= []).push(handler); }
-  dispatch(name) { const event = { preventDefault() {}, target: this }; for (const handler of this.events[name] || []) handler(event); }
+  dispatch(name) { const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, target: this }; for (const handler of this.events[name] || []) handler(event); return event; }
   querySelectorAll(selector) { return all(this, node => selector.startsWith('.') && node.className.split(' ').includes(selector.slice(1))); }
   focus() { document.activeElement = this; }
   get isConnected() { return this === document.body || Boolean(this.parentNode?.isConnected); }
@@ -61,20 +61,37 @@ test('manual playtest entry receives the fresh selected deck without changing th
   assert.equal(state.ui.getDeck(state.first.id).entries[0].quantity, 1); assert.equal(state.changes.length, 1);
 });
 
-test('name suggestions offer autocomplete and add directly, preserving query through rerenders and advanced navigation', async () => {
+test('live candidate rows replace the redundant submit button and dropdown, keeping direct add and advanced navigation', async () => {
   const state = fixture({ initiallyLoaded: true }); await state.ui.openDeck(state.first.id);
   let query = queryInput(state.container); query.value = 'Elf'; query.dispatch('change');
   assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 8);
-  const options = all(state.container, node => node.tagName === 'datalist')[0].children;
-  assert.ok(options.some(option => option.value === 'Elf 0')); assert.ok(options.some(option => option.value === '精灵0'));
+  assert.equal(all(state.container, node => node.tagName === 'datalist').length, 0);
+  assert.equal(query.attributes.list, undefined); assert.equal(button(state.container, '查找卡牌'), undefined);
+  assert.match(state.container.textContent, /前 8 个匹配，请补充关键词/);
   button(state.container, '＋ 加入').dispatch('click');
   assert.equal(state.ui.getDeck(state.first.id).entries[0].zone, 'main');
   query = queryInput(state.container); assert.equal(query.value, 'Elf'); assert.equal(all(document.body, node => node.attributes.role === 'dialog').length, 0);
-  all(state.container, node => node.className === 'deck-add-form')[0].dispatch('submit');
-  assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 12);
+  const submission = all(state.container, node => node.className === 'deck-add-form')[0].dispatch('submit');
+  assert.equal(submission.defaultPrevented, true); assert.equal(query.value, 'Elf');
+  assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 8);
   button(state.container, '高级搜索 ↗').dispatch('click');
   assert.deepEqual(state.navigation, [{ deckId: state.first.id, query: 'Elf', restrictIdentity: false }]);
   state.ui.showLibrary(); await state.ui.openDeck(state.first.id); assert.equal(queryInput(state.container).value, 'Elf');
+});
+
+test('typing updates candidate rows after the debounce and still accepts Chinese names and printing codes', async () => {
+  const state = fixture({ initiallyLoaded: true }); await state.ui.openDeck(state.first.id);
+  let query = queryInput(state.container); query.value = '精灵10'; query.dispatch('input');
+  assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 0);
+  await new Promise(resolve => setTimeout(resolve, 230));
+  assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 1);
+  button(state.container, '＋ 加入').dispatch('click');
+  assert.equal(state.ui.getDeck(state.first.id).entries[0].cardId, 'elf-10');
+  query = queryInput(state.container); query.value = 'abc 2'; query.dispatch('change');
+  assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 1);
+  button(state.container, '＋ 加入').dispatch('click');
+  const printingEntry = state.ui.getDeck(state.first.id).entries.find(entry => entry.cardId === 'elf-2');
+  assert.equal(printingEntry.versionId, 'v-2'); assert.equal(printingEntry.zone, 'main');
 });
 
 test('failed lazy load offers retry and does not open the editor with missing-card warnings', async () => {

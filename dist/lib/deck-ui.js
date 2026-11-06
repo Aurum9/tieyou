@@ -204,12 +204,10 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   }
   function renderAddSearch(deck) {
     const section = el('section', 'deck-add-section'); section.append(el('h2', '', '添加卡牌'));
-    const draft = searchDrafts.get(deck.id) || { query: '', expanded: false }; searchDrafts.set(deck.id, draft);
+    const draft = searchDrafts.get(deck.id) || { query: '' }; searchDrafts.set(deck.id, draft);
     const form = el('form', 'deck-add-form'); const query = input(draft.query); query.placeholder = '中文 / 英文牌名，或系列＋编号（如 cmm 396）'; query.setAttribute('aria-label', '搜索要加入的卡牌'); query.autocomplete = 'off';
-    const suggestions = el('datalist'); suggestions.id = `deck-name-suggestions-${deck.id}`; query.setAttribute('list', suggestions.id);
-    const search = button('查找卡牌', () => {}, 'button button-primary'); search.type = 'submit';
     const advanced = button('高级搜索 ↗', () => onOpenCatalog({ deckId: deck.id, query: query.value.trim(), restrictIdentity: restrictIdentity.checked }));
-    form.append(query, search, advanced); section.append(form, suggestions);
+    form.append(query, advanced); section.append(form);
     const commanderIdentity = getCommanderIdentity(deck, cards);
     const restrictIdentity = input('', 'checkbox'); restrictIdentity.checked = commanderIdentity !== null && identitySearchPreferences.get(deck.id) !== false; restrictIdentity.disabled = commanderIdentity === null;
     const identityLabel = el('label', 'deck-check-label'); identityLabel.append(restrictIdentity, el('span', '', '仅显示主将标识色内的牌'));
@@ -222,20 +220,14 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     section.append(identityHint, identityLabel);
     const results = el('div', 'deck-add-results'); section.append(results);
     function showCandidates() {
-      results.replaceChildren(); suggestions.replaceChildren();
+      results.replaceChildren();
       if (!query.value.trim()) return;
       const allCandidates = findCardCandidates(query.value, cards, { colorIdentity: restrictIdentity.checked ? commanderIdentity : null });
-      const candidates = draft.expanded ? allCandidates.slice(0, 50) : allCandidates.slice(0, 8);
+      const candidates = allCandidates.slice(0, 8);
       if (!candidates.length) { results.append(el('p', 'deck-muted', restrictIdentity.checked ? '主将标识色范围内没有找到对应卡牌。可调整牌名，或取消标识色限制继续查找。' : '没有找到对应卡牌。可以输入完整牌名，或使用“系列代码 编号”。')); return; }
-      if (draft.expanded && allCandidates.length >= 50) results.append(el('p', 'deck-muted', '显示前 50 张，请补充牌名缩小范围。'));
-      else if (!draft.expanded && allCandidates.length > 8) results.append(el('p', 'deck-muted', '以下为前 8 个匹配，点击“查找卡牌”查看更多。'));
+      if (allCandidates.length > 8) results.append(el('p', 'deck-muted', '以下为前 8 个匹配，请补充关键词，或进入高级搜索查看更多。'));
       const printingQuery = query.value.trim().toLowerCase().match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
-      const completionNames = new Set();
       for (const card of candidates) {
-        for (const name of [card.zhName, card.name, ...(card.faces || []).flatMap(face => [face.zhName, face.name])].filter(Boolean)) {
-          if (completionNames.has(name)) continue;
-          completionNames.add(name); const option = el('option'); option.value = name; suggestions.append(option);
-        }
         const row = el('div', 'deck-search-result'); const name = el('div'); name.append(button(card.zhName || card.name, () => onInspect(card), 'deck-card-link'), el('small', 'deck-muted', card.name));
         const version = printingQuery ? card.versions?.find(item => item.set.toLowerCase() === printingQuery[1] && String(item.collectorNumber).toLowerCase() === printingQuery[2]) : null;
         row.append(name, button('＋ 加入', () => quickAddCard(card, version, deck.id), 'button button-quiet')); results.append(row);
@@ -243,11 +235,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }
     let suggestionTimer;
     query.addEventListener('input', () => {
-      draft.query = query.value; draft.expanded = false; clearTimeout(suggestionTimer);
-      suggestionTimer = setTimeout(() => { if (query.isConnected) showCandidates(); }, 140);
+      draft.query = query.value; clearTimeout(suggestionTimer);
+      suggestionTimer = setTimeout(() => { if (query.isConnected) showCandidates(); }, 200);
     });
-    query.addEventListener('change', () => { draft.query = query.value; draft.expanded = false; clearTimeout(suggestionTimer); showCandidates(); });
-    form.addEventListener('submit', event => { event.preventDefault(); draft.query = query.value; draft.expanded = true; clearTimeout(suggestionTimer); showCandidates(); });
+    query.addEventListener('change', () => { draft.query = query.value; clearTimeout(suggestionTimer); showCandidates(); });
+    form.addEventListener('submit', event => { event.preventDefault(); draft.query = query.value; clearTimeout(suggestionTimer); showCandidates(); });
     restrictIdentity.addEventListener('change', () => { identitySearchPreferences.set(deck.id, restrictIdentity.checked); if (query.value.trim()) showCandidates(); });
     showCandidates();
     container.append(section);

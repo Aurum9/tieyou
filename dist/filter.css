@@ -35,6 +35,8 @@
 .mana-bounds>span{color:#a0aa93;padding-bottom:8px;text-align:center}
 .mana-bounds input,.condition-value,.condition-select{width:100%;min-width:0;border:1px solid #d5decb;border-radius:5px;background:#fffefa;color:var(--ink);padding:8px;font-size:12px;min-height:36px}
 .mana-bounds input:invalid{border-color:#bc7264;background:#fff7f0}
+.supertype-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+#subtype-filter{display:block;max-width:100%}
 .tag-filters button[aria-pressed=true]{color:#fffefa;background:#356548;border-color:#356548}
 .tag-section #add-tag-condition{font-size:11px;color:#37643e;margin-top:5px}
 .condition-group{border:1px solid #d7e1ce;background:#f1f5eb;border-radius:7px;padding:9px;margin-top:10px;min-width:0}

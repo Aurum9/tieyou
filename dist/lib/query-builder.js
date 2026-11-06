@@ -33,6 +33,8 @@ export const CONDITION_FIELDS = [
   { value: 'c', label: '颜色', input: 'colors', operators: colorOperators, options: colorOptions, help: '按卡牌自身颜色筛选；选择无色时不同时选择其他颜色。' },
   { value: 'ci', label: '标识色', input: 'colors', operators: colorOperators, options: colorOptions, help: '包含规则文字中的颜色信息。要找能加入主将卡组的牌，选择“仅使用所选颜色（含无色）”。' },
   { value: 'mv', label: '法术力值', input: 'number', operators: numberOperators, placeholder: '例如：0、3、0.5', help: '允许 0 和非负小数；添加两条条件可以设置上下限。' },
+  { value: 'pow', label: '力量', input: 'number', signed: true, operators: numberOperators, placeholder: '例如：-1、0、3', help: '允许负数和小数；数值筛选不包含 * 等未定值。' },
+  { value: 'tou', label: '防御力', input: 'number', signed: true, operators: numberOperators, placeholder: '例如：0、4、6', help: '添加两条条件可以设置上下限；数值筛选不包含 * 等未定值。' },
   { value: 'set', label: '系列代码', input: 'text', operators: exactOperators, placeholder: '例如：m21', help: '系列、编号、稀有度和语言会共同匹配同一个印刷版本。' },
   { value: 'cn', label: '收藏编号', input: 'text', operators: exactOperators, placeholder: '例如：123、12a' },
   { value: 'r', label: '稀有度', input: 'select', operators: exactOperators, options: [
@@ -88,7 +90,8 @@ export function buildConditionQuery(group) {
         if (!field.operators.some(operator => operator.value === node.op)) throw new Error(`“${field.label}”不支持当前比较方式，请重新选择。`);
         if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) throw new Error(`“${field.label}”包含无法搜索的控制字符，请重新输入。`);
         if (field.input === 'number') {
-          if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value) || !Number.isFinite(Number(value))) throw new Error('法术力值请输入非负数字，例如 0、3 或 0.5。');
+          const pattern = field.signed ? /^-?(?:\d+(?:\.\d*)?|\.\d+)$/ : /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+          if (!pattern.test(value) || !Number.isFinite(Number(value))) throw new Error(field.signed ? `${field.label}请输入数字，例如 -1、0、3 或 0.5。` : '法术力值请输入非负数字，例如 0、3 或 0.5。');
         } else if (field.input === 'colors') {
           value = value.toUpperCase();
           if (value === 'C') value = '无色';
@@ -117,5 +120,57 @@ export function buildConditionQuery(group) {
     return { query, error: null, count };
   } catch (error) {
     return { query: '', error: error.message || '搜索条件无效，请检查后重试。', count };
+  }
+}
+
+/** Serialize visual filters into the same public query language used by the search box. */
+export function buildFilterQuery(filters = {}) {
+  const parts = [];
+  let count = 0;
+  let explicitCount = 0;
+  const add = (value, explicit = true) => { parts.push(value); count++; if (explicit) explicitCount++; };
+  const has = value => value !== '' && value !== null && value !== undefined;
+  try {
+    for (const [key, field, relationKey] of [['colors', 'c', 'colorRelation'], ['identities', 'ci', 'identityRelation']]) {
+      const colors = filters[key] || [];
+      if (!colors.length) continue;
+      const relation = filters[relationKey] || (key === 'identities' ? 'within' : 'any');
+      if (!['any', 'all', 'exact', 'within'].includes(relation)) throw new Error('颜色匹配方式无效，请重新选择。');
+      if (colors.includes('C')) {
+        if (colors.length !== 1) throw new Error('无色请单独选择。');
+        add(`${field}=无色`);
+      } else {
+        if (colors.some(color => !/^[WUBRG]$/.test(color))) throw new Error('颜色选项无效，请重新选择。');
+        const unique = [...new Set(colors)].join('').toLowerCase();
+        add(relation === 'any' ? `(${[...unique].map(color => `${field}:${color}`).join(' OR ')})` : `${field}${{ all: '>=', exact: '=', within: '<=' }[relation]}${unique}`);
+      }
+    }
+    for (const key of ['types', 'supertypes']) {
+      const values = filters[key] || [];
+      if (values.length) add(`(${values.map(value => `t:${quote(String(value).toLowerCase())}`).join(' OR ')})`);
+    }
+    if (String(filters.subtype || '').trim()) add(`t:${quote(String(filters.subtype).trim())}`);
+    for (const [minKey, maxKey, field, label, signed] of [
+      ['minManaValue', 'maxManaValue', 'mv', '法术力值', false],
+      ['minPower', 'maxPower', 'pow', '力量', true],
+      ['minToughness', 'maxToughness', 'tou', '防御力', true],
+    ]) {
+      const min = filters[minKey], max = filters[maxKey];
+      const pattern = signed ? /^-?(?:\d+(?:\.\d*)?|\.\d+)$/ : /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+      for (const [value, op] of [[min, '>='], [max, '<=']]) {
+        if (!has(value)) continue;
+        if (!pattern.test(String(value)) || !Number.isFinite(Number(value))) throw new Error(`${label}需要填写${signed ? '' : '非负'}数字，留空表示不限。`);
+        add(`${field}${op}${value}`);
+      }
+      if (has(min) && has(max) && Number(min) > Number(max)) throw new Error(`${label}下限不能大于上限。`);
+    }
+    if (filters.commanderOnly) add('f:commander', false);
+    if (filters.translation && filters.translation !== 'all') {
+      if (!['translated', 'missing'].includes(filters.translation)) throw new Error('中文内容选项无效，请重新选择。');
+      add(filters.translation === 'translated' ? 'is:translated' : 'is:untranslated');
+    }
+    return { query: parts.join(' AND '), error: null, count, explicitCount };
+  } catch (error) {
+    return { query: parts.join(' AND '), error: error.message || '筛选条件无效，请检查后重试。', count, explicitCount };
   }
 }

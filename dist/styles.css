@@ -21,3 +21,5 @@
 .card-set,.is-list .card-set,.card-translation-missing,.is-list .card-translation-missing{font-size:10px}
 .card-type>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .card-type .mana-symbols{flex-shrink:0}
+
+.card-membership{font-size:10px;color:#2b6043;background:#edf4e6;border:1px solid #cfdfc5;border-radius:5px;padding:4px 7px;margin:8px 0 0;line-height:1.5;grid-column:1/-1;overflow-wrap:anywhere}.is-list .card-membership{grid-column:1/-1}

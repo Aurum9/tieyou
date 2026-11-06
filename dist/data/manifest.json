@@ -137,5 +137,13 @@
   "reports": {
     "coverage": "coverage-report.json",
     "repairAudit": "source-repair-audit.json"
+  },
+  "searchMetadata": {
+    "url": "search-metadata.json",
+    "oracleDate": "2026-11-02T10:02:00.811+00:00",
+    "cards": 33708,
+    "rankedCards": 32226,
+    "bytes": 4318484,
+    "sha256": "18b47dde453187214150747151eefd6e168e60acc8a1bee1b3ffb4b7312b017d"
   }
 }
