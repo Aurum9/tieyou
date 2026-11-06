@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#20533f" />
     <meta name="description" content="为中文万智牌玩家准备的 EDH 卡查与组牌工作台。" />
     <title>牌库 · EDH ATELIER</title>
@@ -41,7 +41,7 @@
         <button class="nav-item active" data-view="decks" aria-current="page"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
         <button class="nav-item" data-view="catalog"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
       </nav>
-      <span class="edition-badge"><span class="status-dot"></span>本地工作台<span class="edition-version">V0.2.2</span></span>
+      <span class="edition-badge"><span class="status-dot"></span>本地工作台<span class="edition-version">V0.2.3</span></span>
     </header>
 
     <main id="catalog-view" class="catalog-layout is-idle filters-collapsed" hidden>
@@ -132,7 +132,7 @@
           </div>
           <p id="filter-error" class="filter-error" role="alert" hidden></p>
         </div>
-        <div class="filter-footer"><svg class="icon"><use href="#i-book"/></svg><span>每一次构筑，从一张牌开始。</span></div>
+        <div class="filter-footer"><button id="filter-results" type="button" class="button button-primary mobile-only">查看结果</button><span class="filter-footer-note"><svg class="icon"><use href="#i-book"/></svg>每一次构筑，从一张牌开始。</span></div>
       </aside>
 
       <section class="catalog-content" aria-label="卡牌检索">

@@ -5,3 +5,73 @@
 
 .deck-add-form{display:grid;grid-template-columns:minmax(0,1fr) auto}
 @media(max-width:700px){.deck-add-form{grid-template-columns:minmax(0,1fr) auto;align-items:start}.deck-add-form .button{font-size:11px;padding:9px 10px}}
+
+/* Keep the workshop usable with touch controls and a narrow on-screen keyboard. */
+@media(max-width:700px){
+  #deck-view{min-width:0;overflow-wrap:anywhere;padding:18px max(12px,env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+  #deck-view .button,#deck-view .deck-danger,.deck-modal .button,.deck-modal .deck-danger{min-height:44px;font-size:13px}
+  #deck-view .deck-input:not([type=checkbox]),.deck-modal .deck-input:not([type=checkbox]){min-height:44px;min-width:0;font-size:16px}
+  #deck-view textarea.deck-input,.deck-modal textarea.deck-input{line-height:1.6}
+  #deck-view .deck-card-link,.deck-title-button{min-height:44px;display:inline-flex;align-items:center;max-width:100%;overflow-wrap:anywhere}
+  #deck-view .deck-card-link{font-size:14px}
+  .deck-page-heading{flex-direction:column;align-items:stretch;gap:12px;margin-top:20px}
+  .deck-page-heading>div{min-width:0}
+  .deck-page-heading h1{font-size:28px;overflow-wrap:anywhere}
+  .deck-page-heading>.deck-actions{justify-content:flex-start;max-width:none;width:100%;gap:8px}
+  .deck-page-heading>.deck-actions>.button{flex:1 1 auto;padding:9px 10px}
+  .deck-page-heading>.deck-actions>.button-primary:first-child{flex-basis:100%}
+  .deck-save-status{line-height:1.7;margin-bottom:20px}
+  .deck-library-grid{grid-template-columns:minmax(0,1fr);gap:16px}
+  .deck-tile-body{padding:18px;min-width:0;overflow-wrap:anywhere}
+  .deck-tile-footer{gap:12px}
+  .deck-tile-footer>.button{flex-shrink:0}
+  .deck-trash-row{align-items:flex-start;gap:10px}
+  .deck-trash-row>span{min-width:0;align-self:center;overflow-wrap:anywhere}
+  .deck-trash-row>.button{flex-shrink:0}
+  .deck-trash summary,.deck-metadata summary,.deck-checks summary,.deck-entry-details summary{min-height:44px;padding-top:10px;padding-bottom:10px;line-height:24px;overflow-wrap:anywhere}
+  .deck-metadata,.deck-checks{padding:12px 15px}
+  .deck-metadata[open]>summary{margin-bottom:12px}
+  .deck-stats{grid-template-columns:repeat(2,minmax(0,1fr));margin:18px 0}
+  .deck-stats>div{min-width:0;padding:17px 15px}
+  .deck-stats>div:nth-child(2){border-right:0}
+  .deck-stats>div:nth-child(-n+2){border-bottom:1px solid var(--line)}
+  .deck-stats strong{font-size:21px;overflow-wrap:anywhere}
+  .deck-add-section{padding:15px}
+  .deck-add-form{grid-template-columns:minmax(0,1fr);gap:8px}
+  .deck-add-form>.deck-input{width:100%}
+  #deck-view .deck-add-form>.button{justify-self:end;width:auto;padding:9px 12px;font-size:13px}
+  .deck-check-label{min-height:44px;font-size:13px;line-height:1.6;gap:10px}
+  .deck-check-label .deck-input[type=checkbox]{flex:0 0 18px;margin:0}
+  .deck-add-section>.deck-muted{font-size:12px}
+  .deck-add-results{max-height:350px;overscroll-behavior:contain}
+  .deck-search-result{gap:10px;align-items:center}
+  .deck-search-result>div{flex:1;min-width:0;overflow-wrap:anywhere}
+  .deck-search-result small{font-size:11px;overflow-wrap:anywhere}
+  .deck-search-result>.button{flex:0 0 auto;white-space:nowrap;padding:9px 10px}
+  .deck-list-heading{gap:12px;align-items:center}
+  .deck-list-heading h2{font-size:17px;min-width:0}
+  .deck-list-heading select{width:55%;max-width:190px}
+  .deck-entry-main{grid-template-columns:64px minmax(0,1fr) 64px;gap:8px;padding:12px}
+  .deck-entry-main .deck-entry-title{grid-column:1/-1;grid-row:1;min-width:0}
+  .deck-entry-main .deck-entry-title small{white-space:normal;font-size:11px;overflow-wrap:anywhere}
+  .deck-entry-main>input[type=number]{grid-column:1;grid-row:2}
+  .deck-entry-main>select:nth-of-type(1){grid-column:2;grid-row:2}
+  .deck-entry-main>select:nth-of-type(2){grid-column:1/-1;grid-row:3}
+  .deck-entry-main>.button:last-child{grid-column:3;grid-row:2;justify-self:stretch;padding:9px 6px;min-height:44px}
+  .deck-entry-details{padding-left:12px;padding-right:12px;font-size:12px}
+  .deck-entry-details[open] summary{margin-bottom:8px}
+  .deck-storage-note{font-size:12px}
+  .deck-modal-overlay{--deck-safe-top:max(12px,env(safe-area-inset-top));--deck-safe-bottom:max(12px,env(safe-area-inset-bottom));padding:var(--deck-safe-top) 12px var(--deck-safe-bottom);overscroll-behavior:contain}
+  .deck-modal{width:100%;max-height:calc(100dvh - var(--deck-safe-top) - var(--deck-safe-bottom));padding:18px;overscroll-behavior:contain;scroll-padding-bottom:20px}
+  .deck-modal-header{gap:12px;align-items:flex-start;margin-bottom:18px}
+  .deck-modal-header h2{min-width:0;font-size:20px;line-height:1.4;overflow-wrap:anywhere}
+  .deck-modal-header>.button{flex-shrink:0}
+  .deck-modal .deck-code{font-size:16px;line-height:1.5}
+  .deck-modal .deck-actions{gap:8px;align-items:stretch}
+  .deck-modal .deck-actions>.button{flex:1 1 auto}
+  .deck-modal input[type=file]::file-selector-button{min-height:44px;max-width:100%;font:inherit}
+  .deck-import-row-heading{flex-direction:column;gap:4px;overflow-wrap:anywhere}
+  .deck-import-row .deck-actions>.deck-input{flex-basis:100%}
+  .deck-import-row .deck-actions>.deck-check-label{padding:0 4px}
+  .deck-empty{padding:36px 18px}
+}

@@ -16,15 +16,16 @@ class Element {
 }
 function all(root, predicate) { return root.children.flatMap(node => [...(predicate(node) ? [node] : []), ...all(node, predicate)]); }
 function button(root, text) { return all(root, node => node.tagName === 'button' && node.textContent === text)[0]; }
-function fixture() {
-  globalThis.document = { createElement: tag => new Element(tag) }; globalThis.window = { matchMedia: () => ({ matches: false }) };
+function fixture({ mobile = false } = {}) {
+  const layoutListeners = new Set(), media = { matches: mobile, addEventListener: (_, fn) => layoutListeners.add(fn), removeEventListener: (_, fn) => layoutListeners.delete(fn) };
+  globalThis.document = { createElement: tag => new Element(tag) }; globalThis.window = { matchMedia: () => media };
   const map = new Map(), backend = { fail: false, getItem: key => map.get(key) ?? null, setItem(key, value) { if (this.fail) throw new Error('quota'); map.set(key, value); }, removeItem: key => map.delete(key) }; globalThis.localStorage = backend;
   const store = new DeckStore({ storage: backend }), draft = store.create('测试草稿');
   draft.entries = [{ id: 'e', cardId: 'forest', versionId: 'v', quantity: 15, zone: 'main', categories: [], notes: '' }]; const deck = store.save(draft);
   const cards = [{ id: 'forest', name: 'Forest', zhName: '树林', typeLine: 'Basic Land — Forest', versions: [{ id: 'v' }] }];
   const container = new Element('main'), notices = [], inspections = [];
   const newUI = () => initPlaytestUI({ container, cards, onNotify: (...args) => notices.push(args), onInspect: (...args) => inspections.push(args) });
-  const ui = newUI(); ui.open(deck); return { ui, newUI, container, deck, store, map, backend, notices, inspections };
+  const ui = newUI(); ui.open(deck); return { ui, newUI, container, deck, store, map, backend, notices, inspections, resize(matches) { media.matches = matches; for (const fn of layoutListeners) fn(); }, layoutListeners };
 }
 function start(f) { all(f.container, n => n.tagName === 'form' && n.className === 'pt-setup')[0].dispatch('submit'); }
 test('playtest UI starts a snapshot and all play actions leave original durable deck unchanged', () => {
@@ -40,3 +41,21 @@ test('paid mulligan UI blocks keep until bottom selection; saved progress resume
 test('quota failure stays visible, keeps current session and supports retry without a false saved status', () => { const f = fixture(); f.backend.fail = true; start(f); assert.match(f.container.textContent, /保存失败/); assert.equal(f.map.has(PLAYTEST_STORAGE_PREFIX + f.deck.id), false); assert.ok(button(f.container, '重试保存')); f.backend.fail = false; button(f.container, '重试保存').dispatch('click'); assert.match(f.container.textContent, /已保存在此浏览器/); assert.ok(f.map.has(PLAYTEST_STORAGE_PREFIX + f.deck.id)); });
 test('corrupt progress blocks overwrite until explicitly selected and never changes the original deck', () => { const f = fixture(), before = f.map.get('edh.deck-library.v1'); f.map.set(PLAYTEST_STORAGE_PREFIX + f.deck.id, '{bad'); const ui = f.newUI(); ui.open(f.deck); assert.match(f.container.textContent, /旧测试进度暂时无法恢复/); assert.equal(button(f.container, '按当前牌表新建测试').disabled, true); start(f); assert.equal(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id), '{bad'); const overwrite = all(f.container, n => n.className === 'pt-check').at(-1).children[0]; overwrite.checked = true; overwrite.dispatch('change'); start(f); assert.match(f.container.textContent, /手牌 · 7/); assert.equal(f.map.get('edh.deck-library.v1'), before); });
 test('resuming after a deck edit retains the original test snapshot while a new test uses the edited deck', () => { const f = fixture(); start(f); const edited = structuredClone(f.deck); edited.entries[0].quantity = 3; const ui = f.newUI(); ui.open(edited); button(f.container, '继续上次测试').dispatch('click'); assert.match(f.container.textContent, /手牌 · 7/); button(f.container, '重开 \/ 设置').dispatch('click'); start(f); assert.match(f.container.textContent, /手牌 · 3/); });
+
+test('mobile card actions follow the selected row, can collapse, and survive resizing without changing the test', () => {
+  const f = fixture({ mobile: true }); start(f); button(f.container, '保留并开始').dispatch('click');
+  const grid = () => all(f.container, n => n.className === 'pt-card-grid')[0];
+  grid().children[4].dispatch('click');
+  assert.equal(grid().children[6].className, 'pt-panel pt-selection');
+  assert.equal(all(f.container, n => n.className === 'pt-panel pt-selection').length, 1);
+  const before = f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id);
+  f.resize(false);
+  assert.equal(all(grid(), n => n.className === 'pt-panel pt-selection').length, 0);
+  assert.ok(button(f.container, '下地'));
+  f.resize(true);
+  assert.equal(grid().children[6].className, 'pt-panel pt-selection');
+  button(f.container, '收起操作').dispatch('click');
+  assert.equal(all(f.container, n => n.className === 'pt-panel pt-selection').length, 0);
+  assert.equal(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id), before);
+  f.ui.destroy(); assert.equal(f.layoutListeners.size, 0);
+});

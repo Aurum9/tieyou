@@ -317,7 +317,7 @@ function closeFilters() {
   $('#filter-scrim').hidden = true;
   $('#filters').removeAttribute('role');
   $('#filters').removeAttribute('aria-modal');
-  document.body.classList.remove('modal-open');
+  if ($('#detail-layer').hidden && !$('.deck-modal-overlay')) document.body.classList.remove('modal-open');
   if (window.matchMedia('(max-width: 700px)').matches) $('#filter-toggle').setAttribute('aria-expanded', 'false');
   mobileFilterFocus?.focus();
   mobileFilterFocus = null;
@@ -602,13 +602,17 @@ function trapFocus(event, container) {
 
 function wireEvents() {
   filterUI = initSearchFilters({ onChange: () => { synchronizeQuery(); clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); } });
-  $('#search-form').addEventListener('submit', (event) => { event.preventDefault(); runSearch(); });
+  $('#search-form').addEventListener('submit', (event) => {
+    event.preventDefault(); runSearch();
+    if (window.matchMedia('(max-width: 700px)').matches) $('#search-input').blur();
+  });
   $('#search-input').addEventListener('input', () => { acceptQueryEdit(); clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); });
   $('#sort-select').addEventListener('change', () => { try { const sort = $('#sort-select').value; $('#search-input').value = [extractSearchOptions($('#search-input').value).query, sort === 'name' ? '' : SORT_QUERIES[sort]].filter(Boolean).join(' '); runSearch(); } catch (error) { notify(error.message, 'error'); } });
   $('#load-more').addEventListener('click', appendResults);
   $('#filter-reset').addEventListener('click', resetFilters);
   $('#filter-toggle').addEventListener('click', openFilters);
   $('#filter-close').addEventListener('click', closeFilters);
+  $('#filter-results').addEventListener('click', closeFilters);
   $('#filter-scrim').addEventListener('click', closeFilters);
   $('#advanced-open').addEventListener('click', showAdvancedFilters);
   $$('[data-query]').forEach((button) => button.addEventListener('click', () => setQuery(button.dataset.query)));

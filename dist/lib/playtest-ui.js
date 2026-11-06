@@ -14,6 +14,7 @@ function download(raw, name) { const url = URL.createObjectURL(new Blob([raw], {
 export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit = () => {}, onNotify = () => {} }) {
   const index = new Map(cards.map(card => [card.id, card]));
   const storage = new PlaytestStorage();
+  const mobileLayout = window.matchMedia('(max-width: 700px)');
   let deck = null, session = null, screen = 'setup', zone = 'hand', selectedId = null, bottomIds = [], libraryOpen = false, libraryQuery = '', saveError = '', savedAt = '', recoveryError = '', recoveryRaw = null, savedSession = null;
   function state() { return session.state; }
   function displayName(piece) { const card = index.get(piece.cardId), face = card?.faces?.[piece.face]; return face?.zhName || face?.name || piece.name; }
@@ -94,9 +95,8 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
         else if (selectedBottom >= 0) bottomIds.splice(selectedBottom, 1);
         else if (bottomIds.length < s.bottomRequired) bottomIds.push(piece.id);
         else { onNotify(`最多选择 ${s.bottomRequired} 张沉底牌`, 'info'); return; }
-      } else selectedId = piece.id;
+      } else selectedId = mobileLayout.matches && selectedId === piece.id ? null : piece.id;
       render();
-      if (!opening && window.matchMedia('(max-width: 700px)').matches) container.querySelector('.pt-selection')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, `pt-card${piece.tapped ? ' is-tapped' : ''}${selectedId === piece.id ? ' is-selected' : ''}${selectedBottom >= 0 ? ' is-bottom' : ''}${library ? ' pt-library-card' : ''}`);
     tile.setAttribute('aria-label', `${displayName(piece)}${piece.tapped ? '，已横置' : ''}${selectedBottom >= 0 ? `，沉底顺序${selectedBottom + 1}` : ''}`); tile.setAttribute('aria-pressed', String(opening && s.bottomRequired ? selectedBottom >= 0 : selectedId === piece.id));
     if (!library) {
@@ -126,12 +126,19 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     if (zone === 'stack') zoneHeading.append(el('span', 'pt-muted', '末尾为堆叠顶；选择牌张后手动移动以结算'));
     board.append(zoneHeading);
     const grid = el('div', 'pt-card-grid');
-    for (const id of s.zones[zone]) grid.append(tile(s.pieces[id], s));
+    const ids = s.zones[zone], selectedIndex = ids.indexOf(selectedId);
+    const selectionRowEnd = selectedIndex < 0 ? -1 : Math.min(ids.length - 1, Math.floor(selectedIndex / 3) * 3 + 2);
+    for (const [position, id] of ids.entries()) {
+      grid.append(tile(s.pieces[id], s));
+      if (mobileLayout.matches && position === selectionRowEnd) renderSelection(s, grid, { compact: true });
+    }
     if (!s.zones[zone].length) grid.append(el('p', 'pt-empty', `这里还没有牌。${zone === 'battlefield' ? '从手牌下地，或将结算后的永久物移入战场。' : ''}`)); board.append(grid);
-    const side = el('aside', 'pt-side'); renderLibrary(s, side); renderSelection(s, side); table.append(board, side); container.append(table);
+    const side = el('aside', 'pt-side'); renderLibrary(s, side);
+    if (!mobileLayout.matches || (selectedId && selectedIndex < 0)) renderSelection(s, side, { compact: mobileLayout.matches });
+    table.append(board, side); container.append(table);
   }
   function renderLibrary(s, parent) {
-    const panel = el('section', 'pt-panel'); panel.append(el('div', 'pt-library-heading', ''), el('h2', '', '牌库'), el('strong', 'pt-library-count', `${s.zones.library.length} 张`));
+    const panel = el('section', 'pt-panel pt-library-panel'), heading = el('div', 'pt-library-heading'); heading.append(el('h2', '', '牌库'), el('strong', 'pt-library-count', `${s.zones.library.length} 张`)); panel.append(heading);
     if (s.phase === 'playing') {
       const drawForm = el('form', 'pt-draw-form'), count = number(1, 1, 1000, '抓牌张数'), draw = button('抓牌', () => {}, 'button button-primary'); draw.type = 'submit'; drawForm.append(count, draw); drawForm.addEventListener('submit', e => { e.preventDefault(); act({ type: 'draw', count: Number(count.value) }); });
       const controls = el('div', 'pt-actions'); controls.append(button('洗牌', () => act({ type: 'shuffle' })), button(libraryOpen ? '收起牌库' : '查看 / 搜索牌库', () => { libraryOpen = !libraryOpen; render(); })); panel.append(drawForm, controls);
@@ -144,8 +151,11 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     } else panel.append(el('p', 'pt-muted', '保留起手后，可以抓牌、找牌和洗牌。'));
     parent.append(panel);
   }
-  function renderSelection(s, parent) {
-    const panel = el('section', 'pt-panel pt-selection'); panel.append(el('h2', '', '选中卡牌'));
+  function renderSelection(s, parent, { compact = false } = {}) {
+    const panel = el('section', 'pt-panel pt-selection'), heading = el('div', 'pt-selection-heading');
+    panel.setAttribute('aria-label', '选中卡牌操作'); heading.append(el('h2', '', '选中卡牌'));
+    if (compact) heading.append(button('收起操作', () => { selectedId = null; render(); }, 'button button-quiet pt-selection-close'));
+    panel.append(heading);
     const piece = s.pieces[selectedId]; if (!piece) { panel.append(el('p', 'pt-muted', s.phase === 'opening' && s.bottomRequired ? '点击起手牌选择沉底顺序。' : '点击一张牌，查看详情或执行操作。')); parent.append(panel); return; }
     const card = index.get(piece.cardId), from = PLAYTEST_ZONES.find(key => s.zones[key].includes(piece.id));
     panel.append(el('h3', '', displayName(piece)), el('p', 'pt-muted', `${ZONES[from]}${piece.tapped ? ' · 已横置' : ''}`));
@@ -188,5 +198,7 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     if (!savedSession) { try { const data = storage.load(deck.id); if (data) savedSession = PlaytestSession.restore(data, cards); } catch (error) { recoveryError = error.message; try { recoveryRaw = storage.raw(deck.id); } catch { /* The storage error is already shown. */ } } }
     render();
   }
-  return { open, destroy() { container.replaceChildren(); session = null; } };
+  const updateLayout = () => { if (deck) render(); };
+  mobileLayout.addEventListener?.('change', updateLayout);
+  return { open, destroy() { mobileLayout.removeEventListener?.('change', updateLayout); container.replaceChildren(); session = null; } };
 }
