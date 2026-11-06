@@ -36,7 +36,7 @@ function modal(title, { wide = false, onClose } = {}) {
   return { panel, close, overlay };
 }
 
-export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, onOpenCatalog = () => {}, onLibraryChange = () => {} }) {
+export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {} }) {
   let index = new Map(cards.map(card => [card.id, card]));
   let loadingCards = null;
   let openingId = null;
@@ -144,7 +144,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   function renderEditor(deck) {
     const back = button('← 卡组库', showLibrary); container.append(back);
     const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('p', 'deck-eyebrow', 'DECK WORKSHOP'), el('h1', '', deck.name));
-    const actions = el('div', 'deck-actions'); actions.append(button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
+    const actions = el('div', 'deck-actions'); actions.append(button('手动测试 ↗', () => { const fresh = store.get(deck.id); if (fresh) onPlaytest(fresh); else onNotify('卡组已不存在，请重新选择', 'error'); }, 'button button-primary'), button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
     header.append(title, actions); container.append(header, status());
     const metadata = el('details', 'deck-metadata'); metadata.append(el('summary', '', '编辑名称与说明'));
     const name = input(deck.name); name.maxLength = 200; const description = el('textarea', 'deck-input'); description.value = deck.description; description.rows = 2;

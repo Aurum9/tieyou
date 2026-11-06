@@ -25,10 +25,10 @@ function fixture({ loadCards, initiallyLoaded = false } = {}) {
   globalThis.localStorage = storage;
   const store = new DeckStore({ storage }); const first = store.create('甲卡组'), second = store.create('乙卡组');
   const cards = Array.from({ length: 12 }, (_, n) => ({ id: `elf-${n}`, name: `Elf ${n}`, zhName: `精灵${n}`, typeLine: 'Creature — Elf', colorIdentity: ['G'], versions: [{ id: `v-${n}`, set: 'abc', collectorNumber: String(n), lang: 'en' }] }));
-  const container = new Element('main'); document.body.append(container); const notices = [], changes = [], navigation = [];
+  const container = new Element('main'); document.body.append(container); const notices = [], changes = [], navigation = [], playtests = [];
   let loads = 0;
-  const ui = initDeckUI({ container, cards: initiallyLoaded ? cards : [], loadCards: async () => { loads++; return loadCards ? loadCards(cards) : cards; }, onNotify: (...args) => notices.push(args), onLibraryChange: () => changes.push(true), onOpenCatalog: params => navigation.push(params) });
-  return { ui, container, cards, first, second, storage, notices, changes, navigation, get loads() { return loads; } };
+  const ui = initDeckUI({ container, cards: initiallyLoaded ? cards : [], loadCards: async () => { loads++; return loadCards ? loadCards(cards) : cards; }, onNotify: (...args) => notices.push(args), onLibraryChange: () => changes.push(true), onOpenCatalog: params => navigation.push(params), onPlaytest: deck => playtests.push(deck) });
+  return { ui, container, cards, first, second, storage, notices, changes, navigation, playtests, get loads() { return loads; } };
 }
 function queryInput(container) { return all(container, node => node.attributes['aria-label'] === '搜索要加入的卡牌')[0]; }
 function button(container, text) { return all(container, node => node.tagName === 'button' && node.textContent === text)[0]; }
@@ -50,6 +50,15 @@ test('quick add writes one main-deck card to the explicit target, keeps editor s
   assert.equal(entry.zone, 'main'); assert.equal(entry.quantity, 1); assert.equal(entry.versionId, 'v-0'); assert.equal(state.changes.length, 1);
   assert.equal(state.ui.quickAddCard(state.cards[0], null, 'deleted-deck'), false);
   assert.equal(state.changes.length, 1); assert.equal(all(document.body, node => node.attributes.role === 'dialog').length, 0);
+});
+
+test('manual playtest entry receives the fresh selected deck without changing the library', async () => {
+  const state = fixture({ initiallyLoaded: true }); await state.ui.openDeck(state.first.id);
+  state.ui.quickAddCard(state.cards[0], null, state.first.id);
+  button(state.container, '手动测试 ↗').dispatch('click');
+  assert.equal(state.playtests.length, 1); assert.equal(state.playtests[0].id, state.first.id); assert.equal(state.playtests[0].entries[0].quantity, 1);
+  state.playtests[0].entries[0].quantity = 99;
+  assert.equal(state.ui.getDeck(state.first.id).entries[0].quantity, 1); assert.equal(state.changes.length, 1);
 });
 
 test('name suggestions offer autocomplete and add directly, preserving query through rerenders and advanced navigation', async () => {

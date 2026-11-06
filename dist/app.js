@@ -14,6 +14,8 @@ const MANA_GLYPHS = { W: '☀', U: '◆', B: '●', R: '◆', G: '♣', C: '◇'
 let allCards = [];
 let manifest = null;
 let deckUI = null;
+let playtestUI = null;
+let playtestModule = null;
 let matchedCards = [];
 let renderedCount = 0;
 let currentView = 'decks';
@@ -311,8 +313,9 @@ function switchView(view) {
   currentView = view;
   $('#catalog-view').hidden = view !== 'catalog';
   $('#deck-view').hidden = view !== 'decks';
+  $('#playtest-view').hidden = view !== 'playtest';
   $$('.nav-item').forEach((button) => {
-    const active = button.dataset.view === view;
+    const active = button.dataset.view === (view === 'playtest' ? 'decks' : view);
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
@@ -320,7 +323,7 @@ function switchView(view) {
   if (view === 'decks') {
     if (deckUI) deckUI.render();
     else initializeDeckWorkspace();
-  } else {
+  } else if (view === 'catalog') {
     runSearch();
   }
 }
@@ -330,7 +333,7 @@ function initializeDeckWorkspace() {
     if (deckUI) deckUI.setCards(allCards);
     else deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify,
       loadCards: async () => { if (!await ensureCatalog()) throw new Error('卡库载入失败，请重试。'); return allCards; },
-      onOpenCatalog: openCatalogFromDeck, onLibraryChange: refreshCatalogTarget });
+      onOpenCatalog: openCatalogFromDeck, onLibraryChange: refreshCatalogTarget, onPlaytest: openPlaytest });
     refreshCatalogTarget();
   } catch (error) {
     $('#deck-view').replaceChildren(node('div', { class: 'result-state' }, [icon('info'), node('h2', { text: '卡组工作台暂时无法载入' }), node('p', { text: error.message || '请重试。' }), node('button', { class: 'button', text: '重试', onClick: initializeDeckWorkspace })]));
@@ -338,7 +341,21 @@ function initializeDeckWorkspace() {
   }
 }
 
+async function openPlaytest(deck) {
+  try {
+    if (!deck) throw new Error('卡组已不存在，请重新选择。');
+    if (!await ensureCatalog()) return;
+    playtestModule ||= import('./lib/playtest-ui.js').catch(error => { playtestModule = null; throw error; });
+    const { initPlaytestUI } = await playtestModule;
+    playtestUI ||= initPlaytestUI({ container: $('#playtest-view'), cards: allCards, onInspect: openDetail, onExit: () => switchView('decks'), onNotify: notify });
+    playtestUI.open(deck);
+    switchView('playtest');
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  } catch (error) { notify(error.message || '手动测试暂时无法打开，请重试。', 'error'); }
+}
+
 async function addCard(card, version) {
+  if (currentView === 'playtest') return;
   if (!deckUI) { notify(loading ? '卡库仍在加载，请稍候。' : '卡组工作台暂时不可用，请刷新后重试。', 'error'); return; }
   try {
     const targetId = currentView === 'decks' ? deckUI.getSelectedDeckId() : catalogTargetId;
@@ -393,11 +410,11 @@ function openCatalogFromDeck({ deckId, query = '', restrictIdentity = true }) {
   if (!window.matchMedia('(max-width: 700px)').matches) $('#search-input').focus();
 }
 
-function openDetail(card) {
+function openDetail(card, version = null) {
   if (!card) return;
   previousFocus = document.activeElement;
   detailCard = card;
-  detailVersion = selectedVersionFor(card);
+  detailVersion = version || selectedVersionFor(card);
   detailLanguage = 'zh';
   renderDetail();
   $('#detail-content').scrollTop = 0;
@@ -511,7 +528,7 @@ function renderDetail() {
   versionSelect.addEventListener('change', () => { detailVersion = versions[Number(versionSelect.value)]; renderDetail(); });
   root.append(node('section', { class: 'version-section' }, [node('label', { class: 'version-heading', for: 'detail-version' }, ['印刷版本', node('span', { text: fmt(versions.length) + ' 个已收录版本' })]), versionSelect, node('p', { class: 'version-caption', text: (card.matchingVersions?.length ? '已优先选择符合当前检索条件的版本。' : '') + '加入卡组时使用此版本。当前收录默认语言印刷和已映射中文印刷，全部语言版本仍待补充。' })]));
   const addTarget = currentAddTarget();
-  root.append(node('button', { class: 'button button-primary detail-add', type: 'button', onClick: () => addCard(card, detailVersion || versions[0]) }, [icon('plus'), addTarget ? '加入「' + addTarget.name + '」主牌区' : '选择卡组并加入']));
+  if (currentView !== 'playtest') root.append(node('button', { class: 'button button-primary detail-add', type: 'button', onClick: () => addCard(card, detailVersion || versions[0]) }, [icon('plus'), addTarget ? '加入「' + addTarget.name + '」主牌区' : '选择卡组并加入']));
   root.append(node('p', { class: 'detail-footer-note', text: '中文内容保留译文来源，牌面与规则以英文 Oracle 为核对依据。卡图通过 Scryfall 载入。' }));
   root.scrollTop = oldScroll;
 }
