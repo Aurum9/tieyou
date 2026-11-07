@@ -58,7 +58,7 @@ export function attachCardGestures(element, { id, zone, axis = 'free', onDrop = 
     active.offsetY = Math.min(Math.max(0, active.startY - rect.top), rect.height);
     ghost = element.cloneNode?.(true) || null;
     if (ghost) {
-      ghost.classList?.remove('is-tapped', 'pt-card-held', 'pt-card-dragging'); ghost.classList?.add('pt-drag-ghost');
+      ghost.classList?.remove('pt-card-held', 'pt-card-dragging'); ghost.classList?.add('pt-drag-ghost');
       ghost.setAttribute?.('aria-hidden', 'true'); ghost.inert = true; ghost.removeAttribute?.('id');
       for (const child of ghost.querySelectorAll?.('[id]') || []) child.removeAttribute('id');
       if (ghost.style) Object.assign(ghost.style, { position: 'fixed', left: '0', top: '0', width: `${rect.width}px`, height: `${rect.height}px`, margin: '0', pointerEvents: 'none', zIndex: '10000' });
@@ -105,7 +105,7 @@ export function attachCardGestures(element, { id, zone, axis = 'free', onDrop = 
     const destination = target?.dataset?.dropZone || target?.getAttribute?.('data-drop-zone');
     if (active.mode !== 'pending' || menu) { suppressClick = true; event.preventDefault(); }
     finish();
-    if (destination) onDrop(id, destination);
+    if (destination) onDrop(id, destination, { target, x: event.clientX, y: event.clientY });
     else if (menu) onMenu();
   }
   function pointerCancel(event) { if (active && event.pointerId === active.pointerId) { suppressClick = true; finish(); } }

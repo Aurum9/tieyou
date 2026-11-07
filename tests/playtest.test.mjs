@@ -114,3 +114,130 @@ test('restore rejects duplicate, lost or foreign cards, unsupported format, brok
 });
 test('long sessions bound logs and persisted history while retaining valid progress', () => { const s = playing(); for (let i = 0; i < 110; i++) s.dispatch({ type: 'life', delta: -1 }); const data = s.export(); assert.equal(data.state.log.length, 100); assert.equal(data.past.length, 12); assert.ok(JSON.stringify(data).length < 1500000); assert.deepEqual(PlaytestSession.restore(data, cards).state, s.state); });
 test('invalid random source cannot partially mutate a shuffle', () => { const s = new PlaytestSession(deck(), cards, {}, { random: () => 0.5 }); s.dispatch({ type: 'keep' }); const before = s.state; const restored = PlaytestSession.restore(s.export(), cards, { random: () => 1 }); assert.throws(() => restored.dispatch({ type: 'shuffle' }), /随机数/); assert.deepEqual(restored.state, before); });
+
+test('lands and mana rocks fill lower slots while other cards fill upper slots and gaps stay open', () => {
+  const tagCards = [
+    { id: 'ring', typeLine: 'Artifact', tags: [{ slug: 'mana-rock' }] },
+    { id: 'signet', typeLine: 'Artifact', tags: ['manarock'] },
+    { id: 'elf', typeLine: 'Creature — Elf Druid', tags: ['mana-dork', 'ramp'] }
+  ];
+  const source = { ...deck(), entries: [entry('land', 2), entry('spell'), ...tagCards.map(card => entry(card.id))] };
+  const s = new PlaytestSession(source, [...cards, ...tagCards], { drawFirstTurn: false });
+  s.dispatch({ type: 'keep' });
+  const [land, spareLand] = Object.values(s.state.pieces).filter(piece => piece.cardId === 'land').map(piece => piece.id);
+  const [spell, ring, signet, elf] = ['spell', 'ring', 'signet', 'elf'].map(id => find(s, id));
+  for (const id of [land, spell, ring, signet, elf]) s.dispatch({ type: 'move', id, to: 'battlefield' });
+  assert.deepEqual(s.state.battlefieldPositions, {
+    [land]: { row: 'lower', slot: 0 }, [spell]: { row: 'upper', slot: 0 }, [ring]: { row: 'lower', slot: 1 },
+    [signet]: { row: 'lower', slot: 2 }, [elf]: { row: 'upper', slot: 1 }
+  });
+  s.dispatch({ type: 'move', id: land, to: 'graveyard' });
+  assert.equal(s.state.battlefieldPositions[land], undefined);
+  assert.deepEqual(s.state.battlefieldPositions[ring], { row: 'lower', slot: 1 });
+  s.dispatch({ type: 'move', id: spareLand, to: 'battlefield' });
+  assert.deepEqual(s.state.battlefieldPositions[spareLand], { row: 'lower', slot: 0 });
+  conserved(s, 6);
+});
+
+test('moving or swapping battlefield slots keeps tap, counters and the selected face', () => {
+  const s = playing(), chief = find(s, 'chief'), mdfc = find(s, 'mdfc');
+  s.dispatch({ type: 'flip', id: mdfc });
+  s.dispatch({ type: 'move', id: mdfc, to: 'battlefield' });
+  s.dispatch({ type: 'move', id: chief, to: 'battlefield' });
+  s.dispatch({ type: 'tap', id: mdfc });
+  s.dispatch({ type: 'counter', id: mdfc, name: '测试', delta: 2 });
+  const before = s.state;
+  assert.deepEqual(before.battlefieldPositions[mdfc], { row: 'lower', slot: 0 });
+  s.dispatch({ type: 'move', id: mdfc, to: 'battlefield', row: 'upper', slot: 0 });
+  assert.deepEqual(s.state.battlefieldPositions, { [mdfc]: { row: 'upper', slot: 0 }, [chief]: { row: 'lower', slot: 0 } });
+  assert.deepEqual(s.state.pieces, before.pieces);
+  assert.deepEqual(s.state.zones, before.zones);
+  s.dispatch({ type: 'move', id: mdfc, to: 'battlefield', slot: 6 });
+  assert.deepEqual(s.state.battlefieldPositions[mdfc], { row: 'upper', slot: 6 });
+  assert.deepEqual(PlaytestSession.restore(s.export(), cards).state.battlefieldPositions, s.state.battlefieldPositions);
+  s.dispatch({ type: 'move', id: mdfc, to: 'battlefield', row: 'upper' });
+  assert.deepEqual(s.state.battlefieldPositions[mdfc], { row: 'upper', slot: 0 });
+  s.dispatch({ type: 'move', id: mdfc, to: 'battlefield', row: 'upper' });
+  assert.deepEqual(s.state.battlefieldPositions[mdfc], { row: 'upper', slot: 0 });
+  assert.deepEqual(s.state.pieces, before.pieces);
+});
+
+test('cross-zone placement falls back to the first free slot in the requested row', () => {
+  const s = playing(), spell = find(s, 'spell'), land = find(s, 'land'), chief = find(s, 'chief');
+  s.dispatch({ type: 'move', id: land, to: 'battlefield', row: 'lower', slot: 1199 });
+  s.dispatch({ type: 'move', id: spell, to: 'battlefield', row: 'lower', slot: 1199 });
+  assert.deepEqual(s.state.battlefieldPositions[land], { row: 'lower', slot: 1199 });
+  assert.deepEqual(s.state.battlefieldPositions[spell], { row: 'lower', slot: 0 });
+  const before = s.state;
+  for (const extra of [{ slot: -1 }, { slot: 1200 }, { slot: 0.5 }, { row: 'middle' }, { to: 'hand', slot: 0 }]) {
+    assert.throws(() => s.dispatch({ type: 'move', id: chief, to: 'battlefield', ...extra }));
+  }
+  assert.deepEqual(s.state, before);
+  s.dispatch({ type: 'token', name: '地衍生物', typeLine: '基本地 — 平原' });
+  const token = s.state.zones.battlefield.at(-1);
+  assert.deepEqual(s.state.battlefieldPositions[token], { row: 'lower', slot: 1 });
+  s.dispatch({ type: 'removeToken', id: token });
+  assert.equal(s.state.battlefieldPositions[token], undefined);
+  conserved(s);
+});
+
+test('reordering hand and viewed library cards preserves the rest of their zones', () => {
+  const s = playing(), [first, second, ...restOfHand] = s.state.zones.hand;
+  const [a, b, c, ...restOfLibrary] = s.state.zones.library;
+  s.dispatch({ type: 'reorder', id: second, beforeId: first });
+  assert.deepEqual(s.state.zones.hand, [second, first, ...restOfHand]);
+  s.dispatch({ type: 'reorder', id: a, afterId: c });
+  assert.deepEqual(s.state.zones.library, [b, c, a, ...restOfLibrary]);
+  s.dispatch({ type: 'draw', count: 1 });
+  assert.equal(s.state.zones.hand.at(-1), b);
+  s.dispatch({ type: 'move', id: c, to: 'library', position: 'bottom' });
+  assert.deepEqual(s.state.zones.library, [a, ...restOfLibrary, c]);
+  const before = s.state;
+  for (const extra of [{}, { beforeId: first, afterId: second }, { beforeId: second }, { afterId: a }]) {
+    assert.throws(() => s.dispatch({ type: 'reorder', id: second, ...extra }));
+  }
+  assert.deepEqual(s.state, before);
+  conserved(s);
+});
+
+test('older saves rebuild battlefield positions across current state and history', () => {
+  const s = playing(), land = find(s, 'land'), chief = find(s, 'chief');
+  s.dispatch({ type: 'move', id: land, to: 'battlefield', row: 'upper', slot: 6 });
+  s.dispatch({ type: 'move', id: chief, to: 'battlefield', row: 'lower', slot: 4 });
+  s.dispatch({ type: 'tap', id: land });
+  s.undo();
+  const data = s.export();
+  for (const state of [data.state, ...data.past, ...data.future]) {
+    delete state.battlefieldPositions;
+    delete state.showLibraryTop;
+  }
+  const restored = PlaytestSession.restore(data, cards);
+  assert.deepEqual(restored.state.battlefieldPositions, { [land]: { row: 'lower', slot: 0 }, [chief]: { row: 'upper', slot: 0 } });
+  assert.equal(restored.state.showLibraryTop, false);
+  restored.redo();
+  assert.equal(restored.state.pieces[land].tapped, true);
+  restored.undo(); restored.undo();
+  assert.deepEqual(restored.state.battlefieldPositions, { [land]: { row: 'lower', slot: 0 } });
+});
+
+test('library top display persists and restore rejects corrupt battlefield positions', () => {
+  const s = playing(), land = find(s, 'land'), chief = find(s, 'chief');
+  s.dispatch({ type: 'move', id: land, to: 'battlefield' });
+  s.dispatch({ type: 'move', id: chief, to: 'battlefield' });
+  s.dispatch({ type: 'showLibraryTop', value: true });
+  const data = s.export();
+  assert.equal(PlaytestSession.restore(data, cards).state.showLibraryTop, true);
+  assert.throws(() => s.dispatch({ type: 'showLibraryTop', value: 'false' }));
+  assert.equal(s.state.showLibraryTop, true);
+  const mutations = [
+    state => { state.showLibraryTop = null; },
+    state => { state.battlefieldPositions[land] = state.battlefieldPositions[chief]; },
+    state => { state.battlefieldPositions[land].slot = 1200; },
+    state => { delete state.battlefieldPositions[land]; state.battlefieldPositions.unknown = { row: 'lower', slot: 0 }; }
+  ];
+  for (const mutate of mutations) {
+    const bad = structuredClone(data);
+    mutate(bad.state);
+    assert.throws(() => PlaytestSession.restore(bad, cards));
+  }
+});

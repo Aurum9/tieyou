@@ -425,7 +425,7 @@ async function openPlaytest(deck) {
     const { initPlaytestUI } = await playtestModule;
     if (revision !== playtestRevision) return;
     playtestUI?.destroy();
-    playtestUI = initPlaytestUI({ container: $('#playtest-view'), cards: allCards, onInspect: openDetail, onExit: () => switchView('decks'), onNotify: notify });
+    playtestUI = initPlaytestUI({ container: $('#playtest-view'), cards: allCards, onExit: () => switchView('decks'), onNotify: notify });
     playtestUI.open(deck);
     switchView('playtest');
     window.scrollTo({ top: 0, behavior: 'instant' });

@@ -1,6 +1,7 @@
-import { PlaytestSession, PLAYTEST_DEFAULTS, PLAYTEST_ZONES } from './playtest.js';
+import { PlaytestSession, PLAYTEST_DEFAULTS, PLAYTEST_ZONES, PLAYTEST_BATTLEFIELD_ROWS, PLAYTEST_BATTLEFIELD_SLOTS } from './playtest.js';
 import { PlaytestStorage } from './playtest-storage.js';
 import { attachCardGestures } from './playtest-gestures.js';
+import { createLibraryPanel } from './playtest-library.js';
 import { getVersion } from './decks.js';
 
 const ZONES = { hand: '手牌', battlefield: '战场', graveyard: '坟场', exile: '放逐区', command: '统帅区', library: '牌库', stack: '堆叠' };
@@ -13,10 +14,10 @@ function number(value, min, max, label) { const n = input(value, 'number'); n.mi
 function check(text, checked) { const control = input('', 'checkbox'); control.checked = checked; const label = el('label', 'pt-check'); label.append(control, el('span', '', text)); return { control, label }; }
 function download(raw, name) { const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 
-export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit = () => {}, onNotify = () => {} }) {
+export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify = () => {} }) {
   const index = new Map(cards.map(card => [card.id, card])), storage = new PlaytestStorage();
   let deck = null, session = null, savedSession = null, screen = 'setup', bottomIds = [], saveError = '', recoveryError = '', recoveryRaw = null;
-  let layer = null, dialog = null, previousFocus = null, focusOrigin = null, counterName = '+1/+1', libraryQuery = '';
+  let layer = null, dialog = null, previousFocus = null, focusOrigin = null, counterName = '+1/+1', libraryQuery = '', peekIds = null;
   let gestures = [], dialogGestures = [];
   const clean = list => { for (const cleanup of list.splice(0)) cleanup(); };
   const state = () => session.state;
@@ -24,15 +25,25 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
   function nameOf(piece) { const card = index.get(piece.cardId), face = card?.faces?.[piece.inverted && card.layout === 'flip' ? 1 : piece.face]; return face?.zhName || face?.name || piece.name; }
   function imageOf(piece) { const card = index.get(piece.cardId), version = getVersion(card, piece.versionId); return version?.faceImages?.[piece.face] || (piece.face ? card?.faces?.[piece.face]?.image : version?.image) || card?.faces?.[piece.face]?.image || card?.image; }
   function save() { try { storage.save(deck.id, session.export()); saveError = ''; } catch (error) { saveError = error.message; onNotify(error.message, 'error'); } }
-  function act(action) {
-    try { session.dispatch(action); bottomIds = bottomIds.filter(id => state().zones.hand.includes(id)); save(); render(); return true; }
+  function act(action, { dismiss = false } = {}) {
+    try { session.dispatch(action); }
     catch (error) { onNotify(error.message, 'error'); return false; }
+    bottomIds = bottomIds.filter(id => state().zones.hand.includes(id));
+    if (action.type === 'shuffle') peekIds = null;
+    if (peekIds) {
+      const remaining = new Set(state().zones.library);
+      if (action.type === 'move' && action.to === 'library') remaining.delete(action.id);
+      peekIds = peekIds.filter(id => remaining.has(id));
+      if (!peekIds.length) peekIds = null;
+    }
+    if (dismiss) closeDialog({ restoreFocus: false });
+    save(); render(); return true;
   }
   function disposeDialog() {
     clean(dialogGestures); const old = dialog; dialog = null;
     if (old) { old.close?.(); old.remove(); }
   }
-  function closeOverlays({ restoreFocus = true } = {}) {
+  function closeDialog({ restoreFocus = true } = {}) {
     layer = null; disposeDialog();
     if (restoreFocus) {
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
@@ -43,16 +54,37 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     }
     previousFocus = null; focusOrigin = null;
   }
+  function closeOverlays(options) {
+    closeDialog(options);
+    peekIds = null;
+    container.querySelector('.pt-library-peek')?.remove();
+  }
   function openLayer(next) {
     previousFocus = document.activeElement;
     focusOrigin = next.kind === 'card' ? { id: next.id, menu: previousFocus?.classList?.contains('pt-card-menu') } : null;
     layer = next; renderDialog();
   }
   function showCard(id) { counterName = '+1/+1'; openLayer({ kind: 'card', id }); }
-  function moveCard(id, destination) {
+  function moveCard(id, destination, { target, x } = {}) {
+    const s = state();
+    if (destination === 'hand-reorder' || destination === 'library-reorder') {
+      const zone = destination === 'hand-reorder' ? 'hand' : 'library';
+      const anchor = target?.getAttribute('data-piece-id');
+      if (!anchor || anchor === id) return false;
+      if (zone === 'library' && (!peekIds?.includes(id) || !peekIds.includes(anchor))) return false;
+      if (!s.zones[zone].includes(id)) return moveCard(id, zone);
+      const rect = target.getBoundingClientRect();
+      const key = x < rect.left + rect.width / 2 ? 'beforeId' : 'afterId';
+      return act({ type: 'reorder', id, [key]: anchor });
+    }
+    if (destination === 'battlefield-slot' || destination === 'battlefield-row') {
+      const row = target.getAttribute('data-row'), slot = target.getAttribute('data-slot');
+      const action = { type: 'move', id, to: 'battlefield', row };
+      if (slot !== null) action.slot = Number(slot);
+      return act(action, { dismiss: true });
+    }
     const to = destination.startsWith('library-') ? 'library' : destination;
-    layer = null;
-    return act({ type: 'move', id, to, position: destination === 'library-top' ? 'top' : 'bottom' });
+    return act({ type: 'move', id, to, position: destination === 'library-top' ? 'top' : 'bottom' }, { dismiss: true });
   }
   function header() {
     const h = el('header', 'pt-heading'), title = el('div', 'pt-title');
@@ -69,9 +101,7 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
   function begin(next) { closeOverlays(); session = next; screen = 'table'; bottomIds = []; save(); render(); window.scrollTo?.({ top: 0, behavior: 'instant' }); }
   function renderSetup() {
     const form = el('form', 'pt-setup'), defaults = session?.state.settings || PLAYTEST_DEFAULTS;
-    const opening = number(defaults.openingHandSize, 1, 20), life = number(defaults.startingLife, 1, 9999), free = number(defaults.freeMulligans, 0, 10);
-    const fields = el('div', 'pt-setup-fields'); fields.append(field('起手张数', opening), field('起始生命', life), field('免费调度', free));
-    const first = check('先手抓牌', defaults.drawFirstTurn); form.append(fields, first.label);
+    const first = check('先手抓牌', defaults.drawFirstTurn); form.append(first.label);
     if (savedSession) {
       const old = savedSession.state, resume = el('section', 'pt-resume');
       resume.append(el('span', '', old.phase === 'opening' ? `调度 ${old.mulligans} 次 · ${old.zones.hand.length} 张手牌` : `第 ${old.turn} 回合 · ${old.life} 生命`), button('继续试牌', () => begin(savedSession), 'button button-primary')); form.append(resume);
@@ -88,30 +118,41 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     form.append(error, start);
     form.addEventListener('submit', e => {
       e.preventDefault(); if (overwrite && !overwrite.control.checked) return;
-      try { const next = new PlaytestSession(deck, cards, { openingHandSize: Number(opening.value), startingLife: Number(life.value), freeMulligans: Number(free.value), drawFirstTurn: first.control.checked }); savedSession = null; recoveryError = ''; begin(next); }
+      try { const next = new PlaytestSession(deck, cards, { drawFirstTurn: first.control.checked }); savedSession = null; recoveryError = ''; begin(next); }
       catch (failure) { error.textContent = failure.message; error.hidden = false; }
     }); container.append(form);
   }
+  function cardFace(piece, { large = false } = {}) {
+    const face = el('span', 'pt-card-face'), url = imageOf(piece), name = nameOf(piece);
+    face.append(el('span', 'pt-card-fallback', piece.token && !large ? '✦' : name));
+    if (url && /^https?:\/\//i.test(url)) {
+      const image = el('img'); image.src = url; image.alt = large ? name : ''; image.draggable = false; image.loading = large ? 'eager' : 'lazy'; image.referrerPolicy = 'no-referrer';
+      image.addEventListener('error', () => image.remove(), { once: true }); face.append(image);
+    }
+    return face;
+  }
   function tile(piece, s, zone, { cleanupList = gestures, compact = false, horizontal = false } = {}) {
     const opening = s.phase === 'opening', selected = bottomIds.indexOf(piece.id), name = nameOf(piece);
-    const card = el('article', `pt-card${piece.tapped ? ' is-tapped' : ''}${piece.inverted ? ' is-inverted' : ''}${selected >= 0 ? ' is-bottom' : ''}${compact ? ' pt-card-compact' : ''}`);
+    const board = zone === 'battlefield';
+    const card = el('article', `pt-card${board ? ' pt-card-board' : ''}${piece.tapped ? ' is-tapped' : ''}${piece.inverted ? ' is-inverted' : ''}${selected >= 0 ? ' is-bottom' : ''}${compact ? ' pt-card-compact' : ''}`);
     card.setAttribute('data-piece-id', piece.id); card.setAttribute('data-piece-zone', zone);
-    const hit = button('', () => {
-      if (opening && s.bottomRequired) {
+    if (!opening && zone === 'hand') card.setAttribute('data-drop-zone', 'hand-reorder');
+    const selectBottom = opening && s.bottomRequired;
+    const playFromHand = !opening && zone === 'hand';
+    const actionable = selectBottom || playFromHand || board;
+    const hit = actionable ? button('', () => {
+      if (selectBottom) {
         const position = bottomIds.indexOf(piece.id);
         if (position >= 0) bottomIds.splice(position, 1);
         else if (bottomIds.length < s.bottomRequired) bottomIds.push(piece.id);
         else return;
         render();
-      } else if (!opening && zone === 'battlefield') act({ type: 'tap', id: piece.id });
-      else showCard(piece.id);
-    }, 'pt-card-hit');
-    hit.setAttribute('aria-label', `${opening && s.bottomRequired ? '选择沉底：' : zone === 'battlefield' && !opening ? (piece.tapped ? '重置：' : '横置：') : '查看：'}${name}`);
-    if (opening && s.bottomRequired) hit.setAttribute('aria-pressed', String(selected >= 0));
-    const visual = el('span', 'pt-card-visual'), face = el('span', 'pt-card-face'), url = imageOf(piece);
-    face.append(el('span', 'pt-card-fallback', piece.token ? '✦' : name));
-    if (url && /^https?:\/\//i.test(url)) { const image = el('img'); image.src = url; image.alt = ''; image.draggable = false; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; image.addEventListener('error', () => image.remove(), { once: true }); face.append(image); }
-    visual.append(face); hit.append(visual, el('strong', 'pt-card-name', name));
+      } else if (board) act({ type: 'tap', id: piece.id });
+      else moveCard(piece.id, 'battlefield');
+    }, 'pt-card-hit') : el('div', 'pt-card-hit');
+    if (actionable) hit.setAttribute('aria-label', `${selectBottom ? '选择沉底：' : board ? (piece.tapped ? '重置：' : '横置：') : '打出：'}${name}`);
+    if (selectBottom) hit.setAttribute('aria-pressed', String(selected >= 0));
+    const visual = el('span', 'pt-card-visual'); visual.append(cardFace(piece)); hit.append(visual, el('strong', 'pt-card-name', name));
     if (selected >= 0) hit.append(el('span', 'pt-bottom-badge', selected + 1));
     const counters = el('span', 'pt-card-counters');
     for (const [type, amount] of Object.entries(piece.counters)) counters.append(el('span', '', `${type} ${amount}`));
@@ -121,7 +162,7 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     if (!opening || !s.bottomRequired) {
       const menu = button('⋯', () => showCard(piece.id), 'pt-card-menu'); menu.setAttribute('aria-label', `${name}的操作`); card.append(menu);
     }
-    if (!opening) cleanupList.push(attachCardGestures(card, { id: piece.id, zone, axis: horizontal || zone === 'hand' ? 'horizontal' : 'free', onDrop: moveCard, onMenu: () => showCard(piece.id) }));
+    if (!opening) cleanupList.push(attachCardGestures(card, { id: piece.id, zone, axis: horizontal || zone === 'hand' ? 'horizontal' : 'free', onDrop: moveCard }));
     return card;
   }
   function strip(s, zone, cls = 'pt-hand-row', cleanupList = gestures) {
@@ -143,18 +184,62 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     for (const delta of [-5, -1, 1, 5]) { const b = button(delta > 0 ? `+${delta}` : `${delta}`, () => act({ type: 'life', delta }), 'pt-step'); b.setAttribute('aria-label', `生命${delta > 0 ? '增加' : '减少'}${Math.abs(delta)}`); life.append(b); }
     const turn = el('div', 'pt-turn'); turn.append(el('strong', '', `第 ${s.turn} 回合`), button('下一回合', () => act({ type: 'nextTurn' })));
     const draw = el('form', 'pt-draw-form'), count = number(1, 1, 1000, '抓牌张数'), submit = button('抓牌', () => {}, 'button button-primary'); submit.type = 'submit'; draw.append(count, submit); draw.addEventListener('submit', e => { e.preventDefault(); act({ type: 'draw', count: Number(count.value) }); });
-    const tools = el('div', 'pt-actions'), library = button(`牌库 ${s.zones.library.length}`, () => openLayer({ kind: 'zone', zone: 'library' })); library.setAttribute('data-drop-zone', 'library-top');
-    tools.append(library, button('＋ 衍生物', () => openLayer({ kind: 'tokens' })));
+    const tools = el('div', 'pt-actions');
+    tools.append(button('＋ 衍生物', () => openLayer({ kind: 'tokens' })));
     if (s.zones.stack.length) tools.append(button(`堆叠 ${s.zones.stack.length}`, () => openLayer({ kind: 'zone', zone: 'stack' })));
     bar.append(life, turn, draw, tools); container.append(bar);
   }
-  function renderBoard(s) {
-    const table = el('div', 'pt-table'), battlefield = el('section', 'pt-battlefield'); battlefield.setAttribute('data-drop-zone', 'battlefield'); battlefield.setAttribute('aria-label', '战场');
+  function renderBattlefield(s) {
+    const battlefield = el('section', 'pt-battlefield'); battlefield.setAttribute('data-drop-zone', 'battlefield'); battlefield.setAttribute('aria-label', '战场');
     battlefield.append(el('h2', 'pt-zone-title', `战场 · ${s.zones.battlefield.length}`));
-    const grid = el('div', 'pt-battlefield-cards'); grid.setAttribute('data-scroll-key', 'battlefield');
-    for (const id of s.zones.battlefield) grid.append(tile(s.pieces[id], s, 'battlefield')); battlefield.append(grid);
+    const rows = el('div', 'pt-battlefield-rows');
+    const positions = Object.fromEntries(PLAYTEST_BATTLEFIELD_ROWS.map(row => [row, new Map()]));
+    for (const id of s.zones.battlefield) {
+      const { row, slot } = s.battlefieldPositions[id];
+      positions[row].set(slot, id);
+    }
+    for (const row of PLAYTEST_BATTLEFIELD_ROWS) {
+      const section = el('div', 'pt-battlefield-row'), grid = el('div', 'pt-battlefield-cards');
+      section.setAttribute('data-drop-zone', 'battlefield-row'); section.setAttribute('data-row', row);
+      grid.setAttribute('data-hand-scroll', ''); grid.setAttribute('data-scroll-key', `battlefield-${row}`);
+      const label = row === 'upper' ? '上排' : '地／法术力神器';
+      const slots = positions[row], count = Math.min(PLAYTEST_BATTLEFIELD_SLOTS, Math.max(4, Math.max(-1, ...slots.keys()) + 2));
+      for (let slot = 0; slot < count; slot++) {
+        const id = slots.get(slot), cell = el('div', `pt-board-slot${id ? '' : ' is-empty'}`);
+        cell.setAttribute('data-drop-zone', 'battlefield-slot'); cell.setAttribute('data-row', row); cell.setAttribute('data-slot', slot);
+        if (id) cell.append(tile(s.pieces[id], s, 'battlefield', { horizontal: true }));
+        grid.append(cell);
+      }
+      section.append(el('h3', 'pt-row-title', label), grid); rows.append(section);
+    }
+    battlefield.append(rows);
+    return battlefield;
+  }
+  function libraryPile(s) {
+    const pile = el('section', 'pt-zone-pile pt-library-pile');
+    pile.setAttribute('aria-label', '牌库'); pile.setAttribute('data-drop-zone', 'library-top');
+    const title = button(`牌库 ${s.zones.library.length}`, () => openLayer({ kind: 'library', mode: 'menu' }), 'pt-pile-label');
+    title.setAttribute('data-library-title', ''); title.setAttribute('aria-haspopup', 'dialog');
+    const piece = s.showLibraryTop ? s.pieces[s.zones.library[0]] : null;
+    const back = button('', () => act({ type: 'draw', count: 1 }), `pt-library-back${piece ? ' is-revealed' : ''}`);
+    back.setAttribute('aria-label', piece ? `抓一张牌：${nameOf(piece)}` : '抓一张牌'); back.disabled = !s.zones.library.length;
+    const front = el('span', 'pt-library-back-face');
+    if (piece) front.append(cardFace(piece));
+    back.append(front); pile.append(title, back);
+    return pile;
+  }
+  function renderBoard(s) {
+    const table = el('div', 'pt-table'); table.append(renderBattlefield(s));
+    if (peekIds) {
+      const visible = new Set(peekIds);
+      table.append(createLibraryPanel({
+        mode: 'peek', ids: s.zones.library.filter(id => visible.has(id)), cleanupList: gestures,
+        cardTile: (id, options) => tile(s.pieces[id], s, 'library', options),
+        onClose: () => { peekIds = null; render(); container.querySelector('[data-library-title]')?.focus({ preventScroll: true }); },
+      }));
+    }
     const lower = el('div', 'pt-lower-table'), hand = el('section', 'pt-hand'); hand.setAttribute('data-drop-zone', 'hand'); hand.setAttribute('aria-label', '手牌'); hand.append(el('h2', 'pt-zone-title', `手牌 · ${s.zones.hand.length}`), strip(s, 'hand'));
-    const piles = el('div', 'pt-zone-piles');
+    const piles = el('div', 'pt-zone-piles'); piles.append(libraryPile(s));
     for (const zone of ['graveyard', 'exile', 'command']) {
       const pile = el('section', 'pt-zone-pile'); pile.setAttribute('data-drop-zone', zone); pile.setAttribute('aria-label', ZONES[zone]);
       const open = button(`${ZONES[zone]} ${s.zones[zone].length}`, () => openLayer({ kind: 'zone', zone }), 'pt-pile-label'); pile.append(open);
@@ -163,18 +248,33 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
       else { const empty = button('', () => openLayer({ kind: 'zone', zone }), 'pt-pile-empty'); empty.setAttribute('aria-label', `查看${ZONES[zone]}`); pile.append(empty); }
       piles.append(pile);
     }
-    lower.append(hand, piles); table.append(battlefield, lower); container.append(table);
+    lower.append(hand, piles); table.append(lower); container.append(table);
   }
   function renderCardMenu(s, parent, id) {
     const piece = s.pieces[id]; if (!piece) return;
     const card = index.get(piece.cardId), from = zoneOf(s, id), actions = el('div', 'pt-menu-actions');
-    if (card) actions.append(button('查看详情', () => { closeOverlays(); onInspect(card, getVersion(card, piece.versionId)); }));
+    const preview = el('div', 'pt-card-preview'), image = el('div', `pt-preview-image${piece.inverted ? ' is-inverted' : ''}`);
+    image.append(cardFace(piece, { large: true }));
+    const rules = el('div', 'pt-preview-rules');
+    const faces = card?.faces?.length ? card.faces : [card || piece];
+    const current = piece.inverted && card?.layout === 'flip' ? 1 : piece.face;
+    const order = faces[current] ? [faces[current], ...faces.filter((_, i) => i !== current)] : faces;
+    for (const face of order) {
+      const section = el('section');
+      if (order.length > 1) section.append(el('h3', '', face.zhName || face.name));
+      const type = face.zhTypeLine || face.typeLine;
+      if (type) section.append(el('p', 'pt-preview-type', type));
+      const ruleText = face.zhText || face.oracleText;
+      if (ruleText) section.append(el('p', 'pt-preview-text', ruleText));
+      rules.append(section);
+    }
+    preview.append(image, rules); parent.append(preview);
     if (s.phase === 'playing') {
       if (from === 'battlefield') actions.append(button(piece.tapped ? '重置' : '横置', () => act({ type: 'tap', id })));
       if (card?.layout === 'flip') actions.append(button('倒转', () => act({ type: 'invert', id })));
       else if (DOUBLE_FACED.has(card?.layout) && card.faces?.length > 1) actions.append(button('转化', () => act({ type: 'flip', id })));
     }
-    parent.append(actions);
+    if (actions.children.length) parent.append(actions);
     if (s.phase !== 'playing') return;
     if (from === 'battlefield') {
       const section = el('section', 'pt-counter-controls'), name = input(counterName); name.maxLength = 50; name.setAttribute('aria-label', '指示物名称');
@@ -191,24 +291,34 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     options.push(['library-top', '牌库顶'], ['library-bottom', '牌库底']);
     for (const [key, label] of options) { const option = el('option', '', label); option.value = key; destination.append(option); }
     destination.value = options[0][0]; const move = button('移动', () => {}); move.type = 'submit'; form.append(field('移动到', destination), move); form.addEventListener('submit', e => { e.preventDefault(); moveCard(id, destination.value); }); parent.append(form);
-    if (piece.token) parent.append(button('移除衍生物', () => { layer = null; act({ type: 'removeToken', id }); }, 'button pt-danger'));
+    if (piece.token) parent.append(button('移除衍生物', () => act({ type: 'removeToken', id }, { dismiss: true }), 'button pt-danger'));
   }
   function renderZoneMenu(s, parent, zone) {
     const list = el('div', 'pt-zone-list'); list.setAttribute('data-hand-scroll', ''); list.setAttribute('data-scroll-key', `overlay-${zone}`);
-    let query = null, listCleanups = [];
-    const update = () => {
-      clean(listCleanups); list.replaceChildren();
-      const text = (query?.value || '').normalize('NFKC').toLocaleLowerCase();
-      const ids = s.zones[zone].filter(id => { const p = s.pieces[id], c = index.get(p.cardId); return !text || `${nameOf(p)} ${c?.name || ''}`.normalize('NFKC').toLocaleLowerCase().includes(text); });
-      for (const id of ids) list.append(tile(s.pieces[id], s, zone, { cleanupList: listCleanups, horizontal: true }));
-      if (!ids.length) list.append(el('p', 'pt-empty', text ? '无匹配卡牌' : '0 张'));
-    };
-    dialogGestures.push(() => clean(listCleanups));
-    if (zone === 'library') {
-      const tools = el('div', 'pt-zone-tools'); query = input(libraryQuery, 'search'); query.placeholder = '搜索牌库'; query.setAttribute('aria-label', '搜索测试牌库'); query.addEventListener('input', () => { libraryQuery = query.value; update(); });
-      tools.append(query, button('洗牌', () => act({ type: 'shuffle' }))); parent.append(tools);
-    }
-    update(); parent.append(list);
+    for (const id of s.zones[zone]) list.append(tile(s.pieces[id], s, zone, { cleanupList: dialogGestures, horizontal: true }));
+    if (!s.zones[zone].length) list.append(el('p', 'pt-empty', '0 张'));
+    parent.append(list);
+  }
+  function renderLibraryMenu(s, parent, mode) {
+    parent.append(createLibraryPanel({
+      mode, ids: s.zones.library, query: libraryQuery, showTop: s.showLibraryTop, cleanupList: dialogGestures,
+      cardTile: (id, options) => tile(s.pieces[id], s, 'library', options),
+      cardInfo: id => {
+        const piece = s.pieces[id], card = index.get(piece.cardId), version = getVersion(card, piece.versionId);
+        return { ...card, name: card?.name || piece.name, printedName: version?.printedName, set: version?.set, setName: version?.setName, collectorNumber: version?.collectorNumber };
+      },
+      onQueryChange: value => { libraryQuery = value; },
+      onView: next => { layer = { kind: 'library', mode: next }; renderDialog(); dialog?.querySelector('[data-library-search]')?.focus({ preventScroll: true }); },
+      onShowTop: value => act({ type: 'showLibraryTop', value }),
+      onShuffle: () => act({ type: 'shuffle' }, { dismiss: true }),
+      onPeek: count => {
+        peekIds = s.zones.library.slice(0, count);
+        closeDialog({ restoreFocus: false }); render();
+        const shelf = container.querySelector('.pt-library-peek');
+        shelf?.querySelector('button')?.focus({ preventScroll: true });
+        shelf?.scrollIntoView?.({ block: 'center' });
+      },
+    }));
   }
   function renderTokenForm(parent) {
     const form = el('form', 'pt-token-form'), name = input('衍生物'), type = input('生物 — 衍生物'), power = input('1'), toughness = input('1'), quantity = number(1, 1, 50), create = button('创建', () => {}, 'button button-primary'); create.type = 'submit'; name.maxLength = 100; type.maxLength = 200; power.maxLength = toughness.maxLength = 20;
@@ -218,16 +328,21 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
   function renderDialog() {
     disposeDialog(); if (!layer || !session) return;
     const s = state(); if (layer.kind === 'card' && !s.pieces[layer.id]) { layer = null; return; }
-    const kind = layer.kind, n = el('dialog', `pt-dialog ${kind === 'zone' ? 'pt-zone-dialog' : 'pt-card-dialog'}`); dialog = n;
-    const title = kind === 'card' ? nameOf(s.pieces[layer.id]) : kind === 'zone' ? `${ZONES[layer.zone]} · ${s.zones[layer.zone].length}` : '创建衍生物';
+    const kind = layer.kind, tray = kind === 'zone' || kind === 'library';
+    const n = el('dialog', `pt-dialog ${tray ? 'pt-zone-dialog' : 'pt-card-dialog'}${kind === 'library' && layer.mode === 'menu' ? ' pt-library-options' : ''}`); dialog = n;
+    const title = kind === 'card' ? nameOf(s.pieces[layer.id]) : tray ? `${ZONES[layer.zone || 'library']} · ${s.zones[layer.zone || 'library'].length}` : '创建衍生物';
     const heading = el('header', 'pt-dialog-heading'), h = el('h2', '', title); h.id = 'pt-dialog-title'; n.setAttribute('aria-labelledby', h.id);
-    heading.append(h, button('关闭', () => closeOverlays())); n.append(heading);
-    if (kind === 'card') renderCardMenu(s, n, layer.id); else if (kind === 'zone') renderZoneMenu(s, n, layer.zone); else renderTokenForm(n);
-    n.addEventListener('cancel', e => { e.preventDefault(); closeOverlays(); }); n.addEventListener('close', () => { if (dialog === n) closeOverlays(); });
-    n.addEventListener('click', e => { if (e.target !== n || kind === 'zone') return; const r = n.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) closeOverlays(); });
+    if (kind === 'library' && layer.mode !== 'menu') heading.append(button('← 牌库操作', () => { layer = { kind: 'library', mode: 'menu' }; renderDialog(); }));
+    heading.append(h, button('关闭', () => closeDialog())); n.append(heading);
+    if (kind === 'card') renderCardMenu(s, n, layer.id);
+    else if (kind === 'zone') renderZoneMenu(s, n, layer.zone);
+    else if (kind === 'library') renderLibraryMenu(s, n, layer.mode);
+    else renderTokenForm(n);
+    n.addEventListener('cancel', e => { e.preventDefault(); closeDialog(); }); n.addEventListener('close', () => { if (dialog === n) closeDialog(); });
+    n.addEventListener('click', e => { if (e.target !== n || tray) return; const r = n.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) closeDialog(); });
     container.append(n);
     // Zone trays stay non-modal so cards can be dragged back onto the table.
-    if (kind === 'zone') n.show?.(); else n.showModal?.();
+    if (tray) n.show?.(); else n.showModal?.();
   }
   function render() {
     const active = document.activeElement;
@@ -251,7 +366,11 @@ export function initPlaytestUI({ container, cards, onInspect = () => {}, onExit 
     if (!savedSession) { try { const data = storage.load(deck.id); if (data) savedSession = PlaytestSession.restore(data, cards); } catch (error) { recoveryError = error.message; try { recoveryRaw = storage.raw(deck.id); } catch { /* Retain the recovery error. */ } } }
     render();
   }
-  const onKeyDown = event => { if (event.key === 'Escape' && layer?.kind === 'zone' && !document.body?.classList?.contains('pt-drag-active')) { event.preventDefault(); closeOverlays(); } };
+  const onKeyDown = event => {
+    if (event.key !== 'Escape' || document.body?.classList?.contains('pt-drag-active')) return;
+    if (layer?.kind === 'zone' || layer?.kind === 'library') { event.preventDefault(); closeDialog(); }
+    else if (!layer && peekIds) { event.preventDefault(); closeOverlays(); render(); container.querySelector('[data-library-title]')?.focus({ preventScroll: true }); }
+  };
   document.addEventListener?.('keydown', onKeyDown);
   return { open, closeOverlays, destroy() { closeOverlays({ restoreFocus: false }); clean(gestures); document.removeEventListener?.('keydown', onKeyDown); container.replaceChildren(); session = null; } };
 }

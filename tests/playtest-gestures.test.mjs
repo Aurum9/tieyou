@@ -36,7 +36,7 @@ test('short click remains a normal card click; desktop dragging drops once and s
   const f = fixture(); let taps = 0; f.card.addEventListener('click', () => taps++);
   f.pointer('pointerdown'); f.pointer('pointerup'); f.card.dispatch('click'); assert.equal(taps, 1);
   f.pointer('pointerdown'); f.pointer('pointermove', { clientX: 170 }); assert.ok(f.card.classes.has('pt-card-dragging')); assert.ok(f.drop.classes.has('pt-drop-active')); assert.equal(f.body.children.length, 1);
-  f.pointer('pointerup', { clientX: 170 }); f.card.dispatch('click'); assert.equal(taps, 1); assert.deepEqual(f.calls, [['piece-1', 'battlefield']]); assert.equal(f.body.children.length, 0); assert.equal(f.drop.classes.size, 0);
+  f.pointer('pointerup', { clientX: 170 }); f.card.dispatch('click'); assert.equal(taps, 1); assert.deepEqual(f.calls, [['piece-1', 'battlefield', { target: f.drop, x: 170, y: 120 }]]); assert.equal(f.body.children.length, 0); assert.equal(f.drop.classes.size, 0);
   f.pointer('pointerdown'); f.pointer('pointerup'); f.card.dispatch('click'); assert.equal(taps, 2); f.cleanup();
 });
 test('touch horizontal hand swipes scroll without moving a card; vertical swipes drag', () => {
@@ -68,7 +68,7 @@ test('right-click opens the menu, corner buttons do not start a card gesture, an
 });
 test('touch context menu is deferred until release and library-top is a valid drop', () => {
   const f = fixture(); f.pointer('pointerdown', { pointerType: 'touch' }); f.card.dispatch('contextmenu'); assert.equal(f.menus.length, 0); f.pointer('pointerup'); assert.equal(f.menus.length, 1);
-  f.doc.point = new Node({ dropZone: 'library-top' }); f.pointer('pointerdown'); f.pointer('pointermove', { clientY: 190 }); f.pointer('pointerup'); assert.deepEqual(f.calls, [['piece-1', 'library-top']]); f.cleanup();
+  f.doc.point = new Node({ dropZone: 'library-top' }); f.pointer('pointerdown'); f.pointer('pointermove', { clientY: 190 }); f.pointer('pointerup'); assert.deepEqual(f.calls, [['piece-1', 'library-top', { target: f.doc.point, x: 120, y: 120 }]]); f.cleanup();
 });
 test('a new pointer interaction on the corner menu is usable even when a browser omitted the post-drag click', () => {
   const f = fixture(); f.pointer('pointerdown'); f.pointer('pointermove', { clientY: 190 }); f.pointer('pointerup');

@@ -1,6 +1,8 @@
 // Manual playtesting: card effects, payments and replacement effects stay with the player.
 export const PLAYTEST_FORMAT = 'edh-playtest';
 export const PLAYTEST_ZONES = ['library', 'hand', 'battlefield', 'graveyard', 'exile', 'command', 'stack'];
+export const PLAYTEST_BATTLEFIELD_ROWS = Object.freeze(['upper', 'lower']);
+export const PLAYTEST_BATTLEFIELD_SLOTS = 1200;
 export const PLAYTEST_DEFAULTS = Object.freeze({ openingHandSize: 7, startingLife: 40, freeMulligans: 1, drawFirstTurn: true, drawEachTurn: true, untapEachTurn: true });
 const ZONE_NAMES = { library: '牌库', hand: '手牌', battlefield: '战场', graveyard: '坟场', exile: '放逐区', command: '统帅区', stack: '堆叠' };
 const RESTORE = Symbol('restore');
@@ -50,10 +52,52 @@ function draw(state, count) {
   log(state, actual < count ? `抓了 ${actual} 张牌（原计划 ${count} 张，牌库已空）` : `抓了 ${actual} 张牌`);
 }
 function locate(state, id) { const zone = PLAYTEST_ZONES.find(zone => state.zones[zone].includes(id)); if (!zone) fail('找不到这张测试牌'); return zone; }
-function move(state, id, to, position = 'bottom') {
+function defaultBattlefieldRow(piece, card) {
+  const face = card?.faces?.[piece.face] || card;
+  const [types] = String(face?.typeLine || piece.typeLine || '').split(/[—–]/u, 1);
+  if (/\bLand\b|(?:^|\s)(?:基本|传奇|傳奇|雪境)*地(?=\s|$)/u.test(types)) return 'lower';
+  const tags = Array.isArray(card?.tags) ? card.tags : [];
+  const manaRock = tags.some(tag => {
+    const slug = typeof tag === 'string' ? tag : tag?.slug || tag?.name;
+    return typeof slug === 'string' && /^mana[- ]?rock$/i.test(slug.trim());
+  });
+  return manaRock ? 'lower' : 'upper';
+}
+function validateBattlefieldRow(row) {
+  if (!PLAYTEST_BATTLEFIELD_ROWS.includes(row)) fail('战场排无效');
+}
+function validateBattlefieldSlot(slot) { return int(slot, '战场格位', 0, PLAYTEST_BATTLEFIELD_SLOTS - 1); }
+function placeOnBattlefield(state, id, card, { row, slot } = {}) {
+  const positions = state.battlefieldPositions;
+  const previous = Object.hasOwn(positions, id) ? positions[id] : null;
+  if (previous && row === undefined && slot === undefined) return;
+  if (row === undefined) row = previous?.row || defaultBattlefieldRow(state.pieces[id], card);
+  validateBattlefieldRow(row);
+  if (slot !== undefined) validateBattlefieldSlot(slot);
+  const occupied = new Map();
+  for (const [otherId, position] of Object.entries(positions)) {
+    if (otherId !== id && position.row === row) occupied.set(position.slot, otherId);
+  }
+  if (slot !== undefined && occupied.has(slot) && previous) {
+    positions[occupied.get(slot)] = previous;
+  } else if (slot === undefined || occupied.has(slot)) {
+    slot = 0;
+    while (occupied.has(slot)) slot++;
+    validateBattlefieldSlot(slot);
+  }
+  Object.defineProperty(positions, id, { value: { row, slot }, writable: true, enumerable: true, configurable: true });
+}
+function move(state, id, to, position = 'bottom', { row, slot, card } = {}) {
   if (!PLAYTEST_ZONES.includes(to)) fail('目标区域无效');
   if (!['top', 'bottom'].includes(position)) fail('牌库位置无效');
   const from = locate(state, id);
+  if (to === 'battlefield') {
+    placeOnBattlefield(state, id, card, { row, slot });
+    if (from === to) return;
+  } else {
+    if (row !== undefined || slot !== undefined) fail('格位仅适用于战场');
+    if (from === 'battlefield') delete state.battlefieldPositions[id];
+  }
   const piece = state.pieces[id];
   state.zones[from].splice(state.zones[from].indexOf(id), 1);
   if (position === 'top') state.zones[to].unshift(id); else state.zones[to].push(id);
@@ -61,7 +105,6 @@ function move(state, id, to, position = 'bottom') {
     piece.tapped = false; piece.inverted = false; piece.counters = {};
     if (!['battlefield', 'stack'].includes(to)) piece.face = 0;
   }
-  return from;
 }
 
 export class PlaytestSession {
@@ -71,7 +114,7 @@ export class PlaytestSession {
     this.#index = new Map(cards.map(card => [card.id, card])); this.#random = random;
     if (deck === RESTORE) return;
     const snapshot = snapshotDeck(deck, this.#index), options = settingsFor(settings);
-    const state = { sessionId: uid(), deck: snapshot, settings: options, phase: 'opening', turn: 0, life: options.startingLife, mulligans: 0, bottomRequired: 0, landsPlayed: 0, landLimit: 1, zones: Object.fromEntries(PLAYTEST_ZONES.map(zone => [zone, []])), pieces: {}, log: [] };
+    const state = { sessionId: uid(), deck: snapshot, settings: options, phase: 'opening', turn: 0, life: options.startingLife, mulligans: 0, bottomRequired: 0, landsPlayed: 0, landLimit: 1, zones: Object.fromEntries(PLAYTEST_ZONES.map(zone => [zone, []])), battlefieldPositions: {}, showLibraryTop: false, pieces: {}, log: [] };
     for (const entry of snapshot.entries) for (let i = 0; i < entry.quantity; i++) {
       const card = this.#index.get(entry.cardId), id = uid();
       state.pieces[id] = { id, cardId: card.id, versionId: entry.versionId, name: card.zhName || card.name || card.id, tapped: false, inverted: false, face: 0, counters: {}, token: false };
@@ -111,6 +154,7 @@ export class PlaytestSession {
     }
     if (type === 'mulligan' || type === 'keep') fail('起手阶段已经结束，可重开测试重新选择起手');
     if (type === 'draw') { draw(state, int(action.count ?? 1, '抓牌张数', 1, 1000)); return; }
+    if (type === 'showLibraryTop') { if (typeof action.value !== 'boolean') fail('牌库顶显示设置无效'); state.showLibraryTop = action.value; return; }
     if (type === 'life') { int(action.delta, '生命变化', -9999, 9999); state.life = int(state.life + action.delta, '生命', -99999, 99999); log(state, `生命${action.delta >= 0 ? '+' : ''}${action.delta} → ${state.life}`); return; }
     if (type === 'setLandLimit') { state.landLimit = int(action.value, '本回合下地上限', 0, 99); log(state, `本回合下地上限设为 ${state.landLimit}`); return; }
     if (type === 'shuffle') { shuffle(state.zones.library, this.#random); log(state, '已洗牌库'); return; }
@@ -123,17 +167,34 @@ export class PlaytestSession {
       const name = str(action.name?.trim(), '衍生物名称', 100), quantity = int(action.quantity ?? 1, '衍生物数量', 1, 50);
       if (Object.keys(state.pieces).length + quantity > 1200) fail('测试牌张与衍生物总数已达上限');
       const typeLine = String(action.typeLine || '生物 — 衍生物').slice(0, 200), power = String(action.power ?? '').slice(0, 20), toughness = String(action.toughness ?? '').slice(0, 20);
-      for (let i = 0; i < quantity; i++) { const id = uid(); state.pieces[id] = { id, cardId: null, versionId: null, name, typeLine, power, toughness, tapped: false, inverted: false, face: 0, counters: {}, token: true }; state.zones.battlefield.push(id); }
+      for (let i = 0; i < quantity; i++) {
+        const id = uid();
+        state.pieces[id] = { id, cardId: null, versionId: null, name, typeLine, power, toughness, tapped: false, inverted: false, face: 0, counters: {}, token: true };
+        placeOnBattlefield(state, id); state.zones.battlefield.push(id);
+      }
       log(state, `创建 ${quantity} 个${name}衍生物`); return;
     }
     const id = str(action.id, '测试牌 ID'), piece = state.pieces[id];
     if (!piece) fail('找不到这张测试牌');
     const from = locate(state, id), card = this.#index.get(piece.cardId), face = card?.faces?.[piece.face] || card;
-    if (type === 'move') { move(state, id, action.to, action.position); log(state, `${piece.name}：${ZONE_NAMES[from]} → ${ZONE_NAMES[action.to]}${action.to === 'library' ? (action.position === 'top' ? '顶' : '底') : ''}`); return; }
+    if (type === 'move') {
+      move(state, id, action.to, action.position, { row: action.row, slot: action.slot, card });
+      log(state, from === 'battlefield' && action.to === from ? `${piece.name}：调整战场位置` : `${piece.name}：${ZONE_NAMES[from]} → ${ZONE_NAMES[action.to]}${action.to === 'library' ? (action.position === 'top' ? '顶' : '底') : ''}`);
+      return;
+    }
+    if (type === 'reorder') {
+      if (!['hand', 'library'].includes(from)) fail('只有手牌和牌库支持重新排序');
+      const after = action.afterId !== undefined;
+      if (after === (action.beforeId !== undefined)) fail('请选择一个排序参照');
+      const anchor = str(after ? action.afterId : action.beforeId, '排序参照'), ids = state.zones[from];
+      if (anchor === id || !ids.includes(anchor)) fail('排序参照须为同一区域的另一张牌');
+      ids.splice(ids.indexOf(id), 1); ids.splice(ids.indexOf(anchor) + Number(after), 0, id);
+      log(state, `${piece.name}：调整${ZONE_NAMES[from]}顺序`); return;
+    }
     if (type === 'cast') { if (!['hand', 'command'].includes(from) || piece.token || /\bLand\b/.test(face?.typeLine || '')) fail('请选择手牌或统帅区中当前牌面为非地的牌施放'); move(state, id, 'stack'); log(state, `施放 ${piece.name}`); return; }
     if (type === 'playLand') {
       if (from !== 'hand' || !/\bLand\b/.test(face?.typeLine || '') || piece.token) fail('请选择手牌中当前牌面为地的牌');
-      move(state, id, 'battlefield'); state.landsPlayed++; log(state, `下地：${piece.name}`); return;
+      move(state, id, 'battlefield', undefined, { card }); state.landsPlayed++; log(state, `下地：${piece.name}`); return;
     }
     if (type === 'tap') { if (from !== 'battlefield') fail('只有战场上的牌可以横置或重置'); if (action.tapped !== undefined && typeof action.tapped !== 'boolean') fail('横置状态无效'); piece.tapped = action.tapped ?? !piece.tapped; log(state, `${piece.tapped ? '横置' : '重置'} ${piece.name}`); return; }
     if (type === 'flip') { const count = card?.faces?.length || 1; if (count < 2) fail('这张牌没有其他牌面'); piece.face = (piece.face + 1) % count; log(state, `${piece.name}：切换至牌面 ${piece.face + 1}`); return; }
@@ -145,7 +206,7 @@ export class PlaytestSession {
       const value = int((Object.hasOwn(piece.counters, name) ? piece.counters[name] : 0) + int(action.delta, '指示物变化', -999, 999), '指示物数量', 0, 999);
       if (value) piece.counters[name] = value; else delete piece.counters[name]; log(state, `${piece.name} 的 ${name} 指示物 → ${value}`); return;
     }
-    if (type === 'removeToken') { if (!piece.token) fail('只有衍生物可以移除，实体牌请移动到相应区域'); state.zones[from].splice(state.zones[from].indexOf(id), 1); delete state.pieces[id]; log(state, `移除 ${piece.name} 衍生物`); return; }
+    if (type === 'removeToken') { if (!piece.token) fail('只有衍生物可以移除，实体牌请移动到相应区域'); state.zones[from].splice(state.zones[from].indexOf(id), 1); if (from === 'battlefield') delete state.battlefieldPositions[id]; delete state.pieces[id]; log(state, `移除 ${piece.name} 衍生物`); return; }
     fail('不支持此测试操作');
   }
   undo() { if (!this.canUndo) fail('没有可撤销的操作'); this.#future.push(this.#state); this.#state = this.#past.pop(); return this.state; }
@@ -191,6 +252,24 @@ export class PlaytestSession {
     }
     const expected = new Map(); for (const entry of snapshot.entries) { const key = `${entry.cardId}\0${entry.versionId}`; expected.set(key, (expected.get(key) || 0) + entry.quantity); }
     if (counts.size !== expected.size || [...expected].some(([key, value]) => counts.get(key) !== value)) fail('测试牌张与原始快照不一致');
+    const battlefield = state.zones.battlefield;
+    if (!Object.hasOwn(state, 'battlefieldPositions')) {
+      state.battlefieldPositions = {};
+      for (const id of battlefield) placeOnBattlefield(state, id, this.#index.get(state.pieces[id].cardId));
+    } else {
+      const positions = state.battlefieldPositions, occupied = new Set();
+      if (!record(positions) || Object.keys(positions).length !== battlefield.length) fail('战场位置损坏');
+      for (const id of battlefield) {
+        const position = positions[id];
+        if (!Object.hasOwn(positions, id) || !record(position)) fail('战场位置损坏');
+        validateBattlefieldRow(position.row); validateBattlefieldSlot(position.slot);
+        const key = `${position.row}:${position.slot}`;
+        if (occupied.has(key)) fail('战场格位重复');
+        occupied.add(key);
+      }
+    }
+    if (!Object.hasOwn(state, 'showLibraryTop')) state.showLibraryTop = false;
+    if (typeof state.showLibraryTop !== 'boolean') fail('牌库顶显示设置无效');
     if (state.phase === 'opening' && state.bottomRequired > state.zones.hand.length) fail('调度沉底数量无效');
     for (const entry of state.log) { if (!record(entry)) fail('操作记录损坏'); str(entry.id, '记录 ID'); str(entry.text, '操作记录', 1000); int(entry.turn, '记录回合', 0, 99999); }
     return state;

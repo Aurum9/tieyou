@@ -56,8 +56,10 @@ function byClass(root, cls) { return all(root, node => node.classList.contains(c
 function labelled(root, label) { return all(root, node => node.getAttribute('aria-label') === label)[0]; }
 function form(root, cls) { return byClass(root, cls).find(node => node.tagName === 'form'); }
 const entry = (cardId, quantity = 1, zone = 'main') => ({ id: `e-${cardId}`, cardId, versionId: `v-${cardId}`, quantity, zone, categories: [], notes: '' });
+const forestImage = 'https://example.com/forest.jpg';
 const cardDefinitions = [
-  { id: 'forest', name: 'Forest', zhName: '树林', typeLine: 'Basic Land — Forest', versions: [{ id: 'v-forest' }] },
+  { id: 'forest', name: 'Forest', zhName: '树林', typeLine: 'Basic Land — Forest', zhTypeLine: '基本地 — 树林', zhText: '{T}：加{G}。', versions: [{ id: 'v-forest', image: forestImage, set: 'tst', collectorNumber: '215' }] },
+  { id: 'ring', name: 'Sol Ring', zhName: '阳光戒', typeLine: 'Artifact', tags: ['manarock'], versions: [{ id: 'v-ring' }] },
   { id: 'chief', name: 'Commander', zhName: '统帅', typeLine: 'Legendary Creature', versions: [{ id: 'v-chief' }] },
   { id: 'transform', name: 'Front // Back', layout: 'transform', typeLine: 'Creature', faces: [{ name: 'Front' }, { name: 'Back' }], versions: [{ id: 'v-transform' }] },
   { id: 'flip', name: 'Upright // Inverted', layout: 'flip', typeLine: 'Creature', faces: [{ name: 'Upright' }, { name: 'Inverted' }], versions: [{ id: 'v-flip' }] },
@@ -65,20 +67,33 @@ const cardDefinitions = [
 ];
 function fixture({ entries = [entry('forest', 15), entry('chief', 1, 'commander')] } = {}) {
   const doc = new Element('document'); doc.ownerDocument = doc; doc.createElement = tag => new Element(tag, doc); doc.body = doc.createElement('body'); doc.activeElement = doc.body;
+  doc.elementFromPoint = () => doc.point;
   const scrolls = []; doc.defaultView = { innerWidth: 390, innerHeight: 844, scrollTo: value => scrolls.push(value) };
   globalThis.document = doc; globalThis.window = doc.defaultView;
   const map = new Map(), backend = { fail: false, getItem: key => map.get(key) ?? null, setItem(key, value) { if (this.fail) throw new Error('quota'); map.set(key, value); }, removeItem: key => map.delete(key) }; globalThis.localStorage = backend;
   const store = new DeckStore({ storage: backend }), draft = store.create('测试草稿'); draft.entries = entries; const deck = store.save(draft);
-  const container = doc.createElement('main'); doc.body.append(container); const notices = [], inspections = [];
-  const newUI = () => initPlaytestUI({ container, cards: cardDefinitions, onNotify: (...args) => notices.push(args), onInspect: (...args) => inspections.push(args) });
-  const ui = newUI(); ui.open(deck); return { ui, newUI, container, deck, store, map, backend, notices, inspections, doc, scrolls };
+  const container = doc.createElement('main'); doc.body.append(container); const notices = [];
+  const newUI = () => initPlaytestUI({ container, cards: cardDefinitions, onNotify: (...args) => notices.push(args) });
+  const ui = newUI(); ui.open(deck); return { ui, newUI, container, deck, store, map, backend, notices, doc, scrolls };
 }
 function start(f) { form(f.container, 'pt-setup').dispatch('submit'); }
 function keep(f) { button(f.container, '保留并开始').dispatch('click'); }
 function saved(f) { return JSON.parse(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id)).state; }
 function tile(f, id) { return all(f.container, n => n.getAttribute('data-piece-id') === id)[0]; }
+function play(f, id) { byClass(tile(f, id), 'pt-card-hit')[0].dispatch('click'); }
 function openCard(f, id) { const card = tile(f, id); assert.ok(card, `visible card ${id}`); byClass(card, 'pt-card-menu')[0].dispatch('click'); return byClass(f.container, 'pt-card-dialog')[0]; }
 function move(f, id, destination) { openCard(f, id); labelled(f.container, '移动卡牌到').value = destination; form(f.container, 'pt-move-form').dispatch('submit'); }
+function libraryMenu(f) { f.container.querySelector('[data-library-title]').dispatch('click'); return byClass(f.container, 'pt-library-options')[0]; }
+function boardSlot(f, row, slot) { return byClass(f.container, 'pt-board-slot').find(n => n.getAttribute('data-row') === row && n.getAttribute('data-slot') === String(slot)); }
+function drag(f, id, destination, x = 125) {
+  const source = tile(f, id);
+  assert.ok(source?.isConnected && destination?.isConnected);
+  f.doc.point = destination;
+  source.dispatch('pointerdown');
+  f.doc.dispatch('pointermove', { clientX: x, clientY: 165 });
+  assert.equal(f.doc.dispatch('pointerup', { clientX: x, clientY: 165 }).prevented, true);
+  f.doc.point = null;
+}
 function assertConcise(root) {
   assert.doesNotMatch(root.textContent, /准备一场测试|独立快照|支持未完成的草稿|按自己的节奏试牌|这手牌，值得保留吗|当前无需沉底|自动再抓一张牌|撤销|重做|下地上限|本回合下地|请手动处理费用|每次调度重抓起手/);
 }
@@ -107,12 +122,13 @@ test('paid mulligans show bottom-selection progress and block keep until the req
   assert.equal(saved(f).zones.library.at(-1), first); assert.equal(saved(f).zones.hand.length, 7); assertConcise(f.container);
 });
 
-test('playing shows battlefield above hand and three side piles; menu movement leaves the source deck unchanged', () => {
+test('playing shows battlefield above hand and four side piles; menu movement leaves the source deck unchanged', () => {
   const f = fixture(), before = f.map.get('edh.deck-library.v1'); start(f); keep(f);
   const table = byClass(f.container, 'pt-table')[0]; assert.equal(table.children[0].getAttribute('data-drop-zone'), 'battlefield');
-  assert.equal(byClass(f.container, 'pt-hand').length, 1); assert.equal(byClass(f.container, 'pt-zone-pile').length, 3);
-  assert.deepEqual(byClass(f.container, 'pt-zone-pile').map(n => n.getAttribute('data-drop-zone')), ['graveyard', 'exile', 'command']);
-  const id = saved(f).zones.hand[0]; move(f, id, 'battlefield'); assert.ok(saved(f).zones.battlefield.includes(id));
+  assert.equal(byClass(f.container, 'pt-hand').length, 1);
+  assert.deepEqual(byClass(f.container, 'pt-zone-pile').map(n => n.getAttribute('data-drop-zone')), ['library-top', 'graveyard', 'exile', 'command']);
+  const id = saved(f).zones.hand[0]; play(f, id); assert.ok(saved(f).zones.battlefield.includes(id));
+  assert.equal(byClass(f.container, 'pt-dialog').length, 0);
   move(f, id, 'graveyard'); assert.ok(saved(f).zones.graveyard.includes(id)); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
   assert.equal(f.map.get('edh.deck-library.v1'), before); assert.equal(f.store.get(f.deck.id).entries[0].quantity, 15); assertConcise(f.container);
 });
@@ -125,7 +141,11 @@ test('battlefield click toggles tap directly; the corner menu changes counters a
   labelled(dialog, '增加指示物').dispatch('click'); assert.equal(saved(f).pieces[id].counters['+1/+1'], 1); assert.equal(labelled(f.container, '减少指示物').disabled, false);
   labelled(f.container, '减少指示物').dispatch('click'); assert.deepEqual(saved(f).pieces[id].counters, {});
   const name = labelled(f.container, '指示物名称'); name.value = '充电'; name.dispatch('input'); labelled(f.container, '增加指示物').dispatch('click'); assert.equal(saved(f).pieces[id].counters['充电'], 1);
-  button(f.container, '查看详情').dispatch('click'); assert.equal(f.inspections[0][0].id, 'forest'); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
+  const currentDialog = byClass(f.container, 'pt-card-dialog')[0];
+  assert.equal(button(currentDialog, '查看详情'), undefined);
+  assert.equal(byClass(currentDialog, 'pt-preview-image')[0].querySelector('img').src, forestImage);
+  assert.equal(byClass(currentDialog, 'pt-preview-text')[0].textContent, '{T}：加{G}。');
+  button(currentDialog, '关闭').dispatch('click'); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
 });
 
 test('counter actions keep keyboard focus across redraws and closing returns to the rebuilt card menu', () => {
@@ -174,17 +194,92 @@ test('zone trays use non-modal dialogs and closeOverlays closes them without cha
   const f = fixture(); start(f); keep(f); const before = f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id);
   button(f.container, '坟场 0').dispatch('click'); let dialog = byClass(f.container, 'pt-dialog')[0]; assert.equal(dialog.modal, false); assert.match(dialog.textContent, /0 张/);
   f.ui.closeOverlays(); assert.equal(dialog.isConnected, false); assert.equal(dialog.open, false); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
-  const libraryButton = all(f.container, n => n.tagName === 'button' && /^牌库 \d+$/.test(n.textContent))[0]; libraryButton.dispatch('click');
-  dialog = byClass(f.container, 'pt-dialog')[0]; assert.equal(dialog.modal, false); assert.ok(labelled(dialog, '搜索测试牌库')); labelled(dialog, '搜索测试牌库').value = 'missing'; labelled(dialog, '搜索测试牌库').dispatch('input'); assert.match(dialog.textContent, /无匹配卡牌/);
+  const options = libraryMenu(f); assert.equal(options.modal, false); assert.equal(labelled(options, '搜索测试牌库'), undefined);
+  button(options, '搜寻卡牌').dispatch('click');
+  dialog = byClass(f.container, 'pt-zone-dialog')[0]; assert.equal(dialog.modal, false);
+  const search = labelled(dialog, '搜索测试牌库');
+  search.value = 'tst #215'; search.dispatch('input'); assert.equal(byClass(dialog, 'pt-card').length, saved(f).zones.library.length);
+  search.value = 'missing'; search.dispatch('input'); assert.match(dialog.textContent, /无匹配卡牌/);
   dialog.dispatch('cancel'); assert.equal(byClass(f.container, 'pt-dialog').length, 0); assert.equal(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id), before);
 });
 
 test('zone trays expose every card beyond the hundredth entry and can move the last one', () => {
   const f = fixture({ entries: [entry('forest', 150)] }); start(f); keep(f); const library = saved(f).zones.library;
-  assert.ok(library.length > 100); button(f.container, `牌库 ${library.length}`).dispatch('click');
+  assert.ok(library.length > 100); button(libraryMenu(f), '查看所有牌').dispatch('click');
   const tray = byClass(f.container, 'pt-zone-dialog')[0], cards = byClass(tray, 'pt-card');
   assert.equal(cards.length, library.length); assert.deepEqual(cards.map(n => n.getAttribute('data-piece-id')), library);
   const last = library.at(-1); move(f, last, 'hand'); assert.ok(saved(f).zones.hand.includes(last)); assert.equal(saved(f).zones.library.includes(last), false);
+});
+
+test('clicking the card back draws and the optional top display follows the current library', () => {
+  const f = fixture(); start(f); keep(f);
+  const [first, second] = saved(f).zones.library;
+  const back = labelled(f.container, '抓一张牌');
+  assert.ok(back && !back.classList.contains('is-revealed'));
+  back.dispatch('click'); assert.equal(saved(f).zones.hand.at(-1), first);
+  assert.equal(byClass(f.container, 'pt-dialog').length, 0);
+  const menu = libraryMenu(f), reveal = all(menu, n => n.tagName === 'input' && n.type === 'checkbox')[0];
+  assert.equal(reveal.checked, false);
+  reveal.checked = true; reveal.dispatch('change');
+  assert.equal(saved(f).showLibraryTop, true);
+  button(f.container, '关闭').dispatch('click');
+  const faceUp = labelled(f.container, '抓一张牌：树林');
+  assert.equal(faceUp.classList.contains('is-revealed'), true);
+  faceUp.dispatch('click'); assert.equal(saved(f).zones.hand.at(-1), second);
+  assert.ok(labelled(f.container, '抓一张牌：树林'));
+});
+
+test('dragging reorders the hand and swaps or frees fixed battlefield slots', () => {
+  const f = fixture({ entries: [entry('forest', 3), entry('ring'), entry('transform')] }); start(f); keep(f);
+  const [first, second, ...rest] = saved(f).zones.hand;
+  drag(f, second, tile(f, first));
+  assert.deepEqual(saved(f).zones.hand, [second, first, ...rest]);
+  assert.deepEqual(byClass(f.container, 'pt-hand-row')[0].children.map(n => n.getAttribute('data-piece-id')), [second, first, ...rest]);
+
+  const byCardId = cardId => Object.values(saved(f).pieces).filter(p => p.cardId === cardId).map(p => p.id);
+  const [land, anotherLand] = byCardId('forest'), [ring] = byCardId('ring'), [creature] = byCardId('transform');
+  play(f, land); play(f, ring); play(f, creature);
+  assert.equal(tile(f, land).parentNode, boardSlot(f, 'lower', 0));
+  assert.equal(tile(f, ring).parentNode, boardSlot(f, 'lower', 1));
+  assert.equal(tile(f, creature).parentNode, boardSlot(f, 'upper', 0));
+  play(f, land);
+  drag(f, land, byClass(tile(f, ring), 'pt-card-hit')[0]);
+  assert.equal(tile(f, land).parentNode, boardSlot(f, 'lower', 1));
+  assert.equal(tile(f, ring).parentNode, boardSlot(f, 'lower', 0));
+  assert.equal(saved(f).pieces[land].tapped, true);
+  drag(f, ring, boardSlot(f, 'upper', 2));
+  assert.equal(tile(f, ring).parentNode, boardSlot(f, 'upper', 2));
+  assert.ok(boardSlot(f, 'lower', 0).classList.contains('is-empty'));
+  assert.equal(tile(f, land).parentNode, boardSlot(f, 'lower', 1));
+  play(f, anotherLand);
+  assert.equal(tile(f, anotherLand).parentNode, boardSlot(f, 'lower', 0));
+});
+
+test('peek drag reorders only the selected cards and supports all five destinations', () => {
+  const f = fixture(); start(f); keep(f);
+  const [a, b, c, d, e, ...unseen] = saved(f).zones.library;
+  const menu = libraryMenu(f);
+  labelled(menu, '查看前几张牌').value = '5'; form(menu, 'pt-library-peek-form').dispatch('submit');
+  const visible = () => byClass(f.container, 'pt-peek-list')[0]?.children.map(n => n.getAttribute('data-piece-id'));
+  assert.deepEqual(visible(), [a, b, c, d, e]);
+  drag(f, a, tile(f, c), 175);
+  assert.deepEqual(visible(), [b, c, a, d, e]);
+  assert.deepEqual(saved(f).zones.library, [b, c, a, d, e, ...unseen]);
+
+  drag(f, b, f.container.querySelector('[data-drop-zone="graveyard"]'));
+  assert.deepEqual(visible(), [c, a, d, e]);
+  drag(f, c, f.container.querySelector('[data-drop-zone="hand"]'));
+  drag(f, a, boardSlot(f, 'lower', 2));
+  drag(f, d, f.container.querySelector('[data-drop-zone="exile"]'));
+  assert.deepEqual(visible(), [e]);
+  drag(f, e, f.container.querySelector('[data-drop-zone="library-bottom"]'));
+  assert.equal(visible(), undefined);
+  const { zones, battlefieldPositions } = saved(f);
+  assert.equal(zones.graveyard.at(-1), b);
+  assert.equal(zones.hand.at(-1), c);
+  assert.deepEqual(battlefieldPositions[a], { row: 'lower', slot: 2 });
+  assert.equal(zones.exile.at(-1), d);
+  assert.deepEqual(zones.library, [...unseen, e]);
 });
 
 test('Escape closes a non-modal zone tray while an active drag gets the first chance to cancel', () => {
