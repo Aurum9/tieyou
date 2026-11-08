@@ -22,9 +22,11 @@ async function collect(directory) {
   }
 }
 await collect(webRoot);
-// Only vocabulary and the two public attribution/coverage documents are browser assets.
+// Publish the small reference assets individually while keeping card dumps source-only.
 const vocabulary = JSON.parse(await readFile(resolve(webRoot, 'data/tag-vocabulary.json'), 'utf8'));
 assets['/data/tag-vocabulary.json'] = { type: types['.json'], body: JSON.stringify(vocabulary.map(({ slug, label, aliases, parentSlugs }) => ({ slug, label, aliases, parentSlugs }))) };
+const tokens = await readFile(resolve(webRoot, 'data/playtest-tokens.json'), 'utf8');
+assets['/data/playtest-tokens.json'] = { type: types['.json'], body: tokens, etag: '"' + createHash('sha256').update(tokens).digest('hex').slice(0, 24) + '"' };
 for (const filename of ['coverage-report.md', 'DATA-LICENSE.md']) assets['/data/' + filename] = { type: types['.md'], body: await readFile(resolve(webRoot, 'data', filename), 'utf8') };
 if (Object.keys(assets).some(key => /catalog-\d|search-metadata|manifest\.json/.test(key))) throw new Error('Card bulk data cannot enter the browser bundle');
 const total = Object.values(assets).reduce((sum, asset) => sum + Buffer.byteLength(asset.body), 0);

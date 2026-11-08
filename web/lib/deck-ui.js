@@ -1,6 +1,15 @@
 import { DeckStore, defaultVersion, getVersion, findCardCandidates, getCommanderIdentity, validateDeck, parseDeckText, rowToEntry, exportDeckText, exportDeckBackup, parseDeckBackup } from './decks.js';
 
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
+const entryIssueLabels = {
+  duplicate: '重复',
+  quantity: '数量无效',
+  'missing-card': '卡库缺失',
+  banned: '禁牌',
+  'not-legal': '赛制不可用',
+  'color-identity': '超出标识色',
+  'commander-ineligible': '不可用作统帅',
+};
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function button(text, handler, className = 'button button-quiet') { const node = el('button', className, text); node.type = 'button'; node.addEventListener('click', handler); return node; }
 function field(label, control) { const node = el('label', 'deck-field'); node.append(el('span', '', label), control); return node; }
@@ -23,7 +32,7 @@ function modal(title, { wide = false, onClose } = {}) {
   const keydown = event => {
     if (event.key === 'Escape') close();
     if (event.key === 'Tab') {
-      const focusable = [...panel.querySelectorAll('button,input,select,textarea,a[href]')].filter(node => !node.disabled && node.offsetParent !== null);
+      const focusable = [...panel.querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(node => !node.disabled && node.offsetParent !== null);
       const first = focusable[0], last = focusable.at(-1);
       if (!focusable.length) { event.preventDefault(); return; }
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -165,10 +174,44 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     for (const [value, label] of [[`${stats.count} / 100`, '正式卡组'], [stats.commanderCount, '统帅'], [stats.consideringCount, '候选牌'], [stats.colorIdentity.join(' · ') || '—', '统帅标识色']]) { const box = el('div'); box.append(el('strong', '', value), el('span', '', label)); statsGrid.append(box); }
     container.append(statsGrid);
     const issues = stats.issues.filter(issue => !['commander-combination', 'commander-eligibility'].includes(issue.code));
+    const entryIssues = new Map(), entryRows = new Map();
     if (issues.length) {
       const checks = el('details', `deck-checks${issues.some(issue => issue.severity === 'error') ? ' has-issues' : ''}`);
       checks.append(el('summary', '', `组牌检查 · ${issues.length} 项问题`));
-      const list = el('ul'); for (const issue of issues) list.append(el('li', issue.severity === 'error' ? 'deck-check-error' : 'deck-check-warning', issue.message));
+      const list = el('ul');
+      let highlighted = [], highlightTimer;
+      const clearHighlight = () => {
+        for (const row of highlighted) row.classList.remove('is-highlighted');
+        highlighted = [];
+      };
+      function jumpToEntries(entryIds) {
+        const ids = new Set(entryIds);
+        clearTimeout(highlightTimer);
+        clearHighlight();
+        highlighted = [...entryRows].filter(([id]) => ids.has(id)).map(([, row]) => row);
+        const first = highlighted[0];
+        if (!first) return;
+        for (const row of highlighted) {
+          for (let ancestor = row.parentNode; ancestor && ancestor !== container; ancestor = ancestor.parentNode) {
+            if (ancestor.tagName?.toLowerCase() === 'details') ancestor.open = true;
+          }
+          row.classList.add('is-highlighted');
+        }
+        first.focus({ preventScroll: true });
+        first.scrollIntoView({ block: 'center' });
+        highlightTimer = setTimeout(clearHighlight, 1800);
+      }
+      for (const issue of issues) {
+        const item = el('li', issue.severity === 'error' ? 'deck-check-error' : 'deck-check-warning');
+        if (issue.entryIds.length) {
+          for (const id of issue.entryIds) {
+            if (!entryIssues.has(id)) entryIssues.set(id, []);
+            entryIssues.get(id).push(issue);
+          }
+          item.append(button(issue.message, () => jumpToEntries(issue.entryIds), 'deck-check-jump'));
+        } else item.textContent = issue.message;
+        list.append(item);
+      }
       checks.append(list); container.append(checks);
     }
     renderAddSearch(deck);
@@ -190,7 +233,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       for (const [key, entries] of [...groups].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN', { numeric: true }))) {
         section.append(el('h3', 'deck-group-title', `${key} · ${entries.reduce((sum, entry) => sum + entry.quantity, 0)}`));
         const rows = el('div', 'deck-entries');
-        for (const entry of entries.sort((a, b) => (index.get(a.cardId)?.name || a.cardId).localeCompare(index.get(b.cardId)?.name || b.cardId))) rows.append(entryRow(entry));
+        for (const entry of entries.sort((a, b) => (index.get(a.cardId)?.name || a.cardId).localeCompare(index.get(b.cardId)?.name || b.cardId))) {
+          const row = entryRow(entry, entryIssues.get(entry.id));
+          if (entryIssues.has(entry.id)) entryRows.set(entry.id, row);
+          rows.append(row);
+        }
         section.append(rows);
       }
       container.append(section);
@@ -201,10 +248,22 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     for (const [english, chinese] of [['Creature', '生物'], ['Land', '地'], ['Planeswalker', '鹏洛客'], ['Instant', '瞬间'], ['Sorcery', '法术'], ['Artifact', '神器'], ['Enchantment', '结界'], ['Battle', '战役']]) if (type.includes(english)) return chinese;
     return '其他';
   }
-  function entryRow(entry) {
+  function entryRow(entry, issues = []) {
     const card = index.get(entry.cardId); const wrapper = el('article', 'deck-entry'); const row = el('div', 'deck-entry-main');
-    const title = el('div', 'deck-entry-title'); title.append(button(card?.zhName || card?.name || `缺失卡牌 ${entry.cardId}`, () => card && onInspect(card), 'deck-card-link'));
-    title.append(el('small', 'deck-muted', card ? `${card.name} ${card.manaCost || ''}` : '请保留 JSON 备份并更新卡库'));
+    const title = el('div', 'deck-entry-title');
+    const titleLine = el('div', 'deck-entry-card');
+    titleLine.append(button(card?.zhName || card?.name || `缺失卡牌 ${entry.cardId}`, () => card && onInspect(card), 'deck-card-link'));
+    if (issues.length) {
+      wrapper.tabIndex = -1;
+      const badges = el('div', 'deck-entry-issues');
+      for (const issue of issues) {
+        const badge = el('span', 'deck-entry-issue', entryIssueLabels[issue.code] || issue.message);
+        badge.title = issue.message;
+        badges.append(badge);
+      }
+      titleLine.append(badges);
+    }
+    title.append(titleLine, el('small', 'deck-muted', card ? `${card.name} ${card.manaCost || ''}` : '请保留 JSON 备份并更新卡库'));
     const quantity = quantityInput(entry.quantity); quantity.addEventListener('change', () => saveEntry(entry.id, { quantity: Number(quantity.value) }));
     const zone = select(Object.entries(zoneNames), entry.zone); zone.setAttribute('aria-label', '牌张分区'); zone.addEventListener('change', () => saveEntry(entry.id, { zone: zone.value }));
     const versions = card?.versions?.length ? card.versions.map(version => [version.id, printingName(version)]) : [[entry.versionId, '默认版本']];
@@ -367,10 +426,35 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const source = el('textarea', 'deck-input deck-code'); source.rows = 10; source.placeholder = '[Commander]\n1 你的统帅牌名\n\n[Main]\n1 Sol Ring\n1 Command Tower (CMM) 396\n\n[Considering]\n1 Counterspell'; source.setAttribute('aria-label', '导入内容');
     const hint = el('p', 'deck-muted', '每行填写“数量 牌名”，支持中文、英文及可选的 (系列代码) 编号。仅创建新卡组，现有卡组会保留。');
     const error = el('p', 'deck-form-error'); error.hidden = true; const preview = el('div', 'deck-import-preview');
-    let textRows = null, jsonPreview = null, previewRevision = 0;
-    const clearPreview = () => { ++previewRevision; textRows = null; jsonPreview = null; preview.replaceChildren(); commitButton.disabled = true; previewButton.disabled = false; error.hidden = true; };
+    let textRows = null, jsonPreview = null, previewRevision = 0, completedRows = null;
+    const clearPreview = () => { ++previewRevision; textRows = null; jsonPreview = null; completedRows = null; preview.replaceChildren(); commitButton.disabled = true; previewButton.disabled = false; error.hidden = true; };
     source.addEventListener('input', clearPreview); format.addEventListener('change', () => { nameField.hidden = format.value === 'json'; clearPreview(); });
     file.addEventListener('change', async () => { const selected = file.files?.[0]; if (!selected) return; if (selected.size > 10_000_000) { notifyError(new Error('导入文件需小于 10 MB'), error); return; } try { source.value = await selected.text(); format.value = selected.name.toLowerCase().endsWith('.json') || source.value.trim().startsWith('{') ? 'json' : 'text'; nameField.hidden = format.value === 'json'; clearPreview(); } catch (err) { notifyError(err, error); } });
+    function importRow(row) {
+      const line = el('div', `deck-import-row${row.status !== 'ready' && !row.skipped ? ' has-error' : ''}`);
+      const title = el('div', 'deck-import-row-heading'); title.append(el('strong', '', `第 ${row.line} 行 · ${zoneNames[row.zone]}`), el('span', '', row.skipped ? '已跳过' : row.message));
+      const edit = input(row.raw); edit.setAttribute('aria-label', `修正第 ${row.line} 行`);
+      const actions = el('div', 'deck-actions');
+      actions.append(button('应用修正', async () => {
+        const revision = previewRevision, correction = row.pendingCorrection = (row.pendingCorrection || 0) + 1;
+        try {
+          const text = `[${row.zone}]\n${edit.value}`;
+          const result = resolveDeckText ? await resolveDeckText(text) : parseDeckText(text, cards);
+          if (revision !== previewRevision || row.pendingCorrection !== correction || !openModals.has(current)) return;
+          if (result.cards) setCards(result.cards);
+          if (result.rows.length !== 1) throw new Error('每个修正项必须包含一行牌表内容');
+          Object.assign(row, { ...result.rows[0], line: row.line, skipped: false }); refreshPreview();
+        } catch (err) { if (revision === previewRevision && openModals.has(current)) notifyError(err, error); }
+      }));
+      if (row.status === 'version-missing') actions.append(button('使用默认版本', () => { row.versionId = defaultVersion(index.get(row.cardId)); row.status = 'ready'; row.message = '已明确使用默认版本'; refreshPreview(); }));
+      if (row.status === 'ambiguous') {
+        const chooser = select([['', '选择卡牌'], ...row.candidates.map(id => { const card = index.get(id); return [id, `${card.zhName || card.name} · ${card.name} · ${id.slice(0, 8)}`]; })], '');
+        chooser.setAttribute('aria-label', `解决第 ${row.line} 行牌名歧义`); chooser.addEventListener('change', () => { if (!chooser.value) return; row.cardId = chooser.value; row.versionId = defaultVersion(index.get(chooser.value)); row.status = 'ready'; row.message = '已选择卡牌与默认版本'; refreshPreview(); }); actions.append(chooser);
+      }
+      const skip = input('', 'checkbox'); skip.checked = Boolean(row.skipped); skip.addEventListener('change', () => { row.skipped = skip.checked; refreshPreview(); }); const skipLabel = el('label', 'deck-check-label'); skipLabel.append(skip, el('span', '', '跳过此行')); actions.append(skipLabel);
+      line.append(title, edit, actions);
+      return line;
+    }
     function refreshPreview() {
       preview.replaceChildren();
       if (jsonPreview) {
@@ -379,31 +463,26 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         commitButton.disabled = false; return;
       }
       if (!textRows) return;
-      const ready = textRows.filter(row => row.status === 'ready' && !row.skipped).length; const unresolved = textRows.filter(row => row.status !== 'ready' && !row.skipped).length; const skipped = textRows.filter(row => row.skipped).length;
-      preview.append(el('h3', '', `${ready} 行可导入 · ${unresolved} 行待处理 · ${skipped} 行明确跳过`));
+      const ambiguous = [], otherPending = [], completed = [];
+      let ready = 0, skipped = 0;
       for (const row of textRows) {
-        const line = el('div', `deck-import-row${row.status !== 'ready' && !row.skipped ? ' has-error' : ''}`);
-        const title = el('div', 'deck-import-row-heading'); title.append(el('strong', '', `第 ${row.line} 行 · ${zoneNames[row.zone]}`), el('span', '', row.skipped ? '已跳过' : row.message));
-        const edit = input(row.raw); edit.setAttribute('aria-label', `修正第 ${row.line} 行`);
-        const actions = el('div', 'deck-actions');
-        actions.append(button('应用修正', async () => {
-          const revision = previewRevision, correction = row.pendingCorrection = (row.pendingCorrection || 0) + 1;
-          try {
-            const text = `[${row.zone}]\n${edit.value}`;
-            const result = resolveDeckText ? await resolveDeckText(text) : parseDeckText(text, cards);
-            if (revision !== previewRevision || row.pendingCorrection !== correction || !openModals.has(current)) return;
-            if (result.cards) setCards(result.cards);
-            if (result.rows.length !== 1) throw new Error('每个修正项必须包含一行牌表内容');
-            Object.assign(row, { ...result.rows[0], line: row.line, skipped: false }); refreshPreview();
-          } catch (err) { if (revision === previewRevision && openModals.has(current)) notifyError(err, error); }
-        }));
-        if (row.status === 'version-missing') actions.append(button('使用默认版本', () => { row.versionId = defaultVersion(index.get(row.cardId)); row.status = 'ready'; row.message = '已明确使用默认版本'; refreshPreview(); }));
-        if (row.status === 'ambiguous') {
-          const chooser = select([['', '选择卡牌'], ...row.candidates.map(id => { const card = index.get(id); return [id, `${card.zhName || card.name} · ${card.name} · ${id.slice(0, 8)}`]; })], '');
-          chooser.setAttribute('aria-label', `解决第 ${row.line} 行牌名歧义`); chooser.addEventListener('change', () => { if (!chooser.value) return; row.cardId = chooser.value; row.versionId = defaultVersion(index.get(chooser.value)); row.status = 'ready'; row.message = '已选择卡牌与默认版本'; refreshPreview(); }); actions.append(chooser);
-        }
-        const skip = input('', 'checkbox'); skip.checked = Boolean(row.skipped); skip.addEventListener('change', () => { row.skipped = skip.checked; refreshPreview(); }); const skipLabel = el('label', 'deck-check-label'); skipLabel.append(skip, el('span', '', '跳过此行')); actions.append(skipLabel);
-        line.append(title, edit, actions); preview.append(line);
+        if (row.skipped) { completed.push(row); skipped++; }
+        else if (row.status === 'ready') { completed.push(row); ready++; }
+        else if (row.status === 'ambiguous') ambiguous.push(row);
+        else otherPending.push(row);
+      }
+      const unresolved = ambiguous.length + otherPending.length;
+      preview.append(el('h3', '', `${ready} 行可导入 · ${unresolved} 行待处理 · ${skipped} 行明确跳过`));
+      for (const row of [...ambiguous, ...otherPending]) preview.append(importRow(row));
+      const wasOpen = completedRows?.open ?? false;
+      completedRows = null;
+      if (completed.length) {
+        completedRows = el('details', 'deck-import-completed');
+        completedRows.open = wasOpen;
+        const summary = [ready && `已匹配 ${ready} 行`, skipped && `已跳过 ${skipped} 行`].filter(Boolean).join(' · ');
+        completedRows.append(el('summary', '', summary));
+        for (const row of completed) completedRows.append(importRow(row));
+        preview.append(completedRows);
       }
       commitButton.disabled = unresolved > 0 || ready === 0;
     }
@@ -428,7 +507,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
           if (!nextRows.length) throw new Error('没有可导入的牌表行');
         }
         if (revision !== previewRevision || !openModals.has(current)) return;
-        jsonPreview = nextJSON; textRows = nextRows;
+        jsonPreview = nextJSON; textRows = nextRows; completedRows = null;
         refreshPreview();
       } catch (err) {
         if (revision !== previewRevision || !openModals.has(current)) return;

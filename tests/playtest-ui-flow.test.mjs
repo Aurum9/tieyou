@@ -126,6 +126,8 @@ test('playing shows battlefield above hand and four side piles; menu movement le
   const f = fixture(), before = f.map.get('edh.deck-library.v1'); start(f); keep(f);
   const table = byClass(f.container, 'pt-table')[0]; assert.equal(table.children[0].getAttribute('data-drop-zone'), 'battlefield');
   assert.equal(byClass(f.container, 'pt-hand').length, 1);
+  assert.equal(byClass(f.container, 'pt-hand-column')[0].children[1].className, 'pt-controls');
+  assert.equal(all(table.children[0], node => node.getAttribute('data-hand-scroll') !== null).length, 1);
   assert.deepEqual(byClass(f.container, 'pt-zone-pile').map(n => n.getAttribute('data-drop-zone')), ['library-top', 'graveyard', 'exile', 'command']);
   const id = saved(f).zones.hand[0]; play(f, id); assert.ok(saved(f).zones.battlefield.includes(id));
   assert.equal(byClass(f.container, 'pt-dialog').length, 0);
@@ -243,6 +245,7 @@ test('dragging reorders the hand and swaps or frees fixed battlefield slots', ()
   assert.equal(tile(f, ring).parentNode, boardSlot(f, 'lower', 1));
   assert.equal(tile(f, creature).parentNode, boardSlot(f, 'upper', 0));
   play(f, land);
+  assert.ok(Number(tile(f, land).parentNode.style.zIndex) > Number(tile(f, ring).parentNode.style.zIndex));
   drag(f, land, byClass(tile(f, ring), 'pt-card-hit')[0]);
   assert.equal(tile(f, land).parentNode, boardSlot(f, 'lower', 1));
   assert.equal(tile(f, ring).parentNode, boardSlot(f, 'lower', 0));
@@ -260,7 +263,7 @@ test('peek drag reorders only the selected cards and supports all five destinati
   const [a, b, c, d, e, ...unseen] = saved(f).zones.library;
   const menu = libraryMenu(f);
   labelled(menu, '查看前几张牌').value = '5'; form(menu, 'pt-library-peek-form').dispatch('submit');
-  const visible = () => byClass(f.container, 'pt-peek-list')[0]?.children.map(n => n.getAttribute('data-piece-id'));
+  const visible = () => byClass(byClass(f.container, 'pt-peek-list')[0], 'pt-card').map(n => n.getAttribute('data-piece-id'));
   assert.deepEqual(visible(), [a, b, c, d, e]);
   drag(f, a, tile(f, c), 175);
   assert.deepEqual(visible(), [b, c, a, d, e]);
@@ -273,13 +276,77 @@ test('peek drag reorders only the selected cards and supports all five destinati
   drag(f, d, f.container.querySelector('[data-drop-zone="exile"]'));
   assert.deepEqual(visible(), [e]);
   drag(f, e, f.container.querySelector('[data-drop-zone="library-bottom"]'));
-  assert.equal(visible(), undefined);
+  assert.deepEqual(visible(), []);
+  assert.equal(tile(f, e).parentNode, byClass(f.container, 'pt-peek-bottom')[0]);
   const { zones, battlefieldPositions } = saved(f);
   assert.equal(zones.graveyard.at(-1), b);
   assert.equal(zones.hand.at(-1), c);
   assert.deepEqual(battlefieldPositions[a], { row: 'lower', slot: 2 });
   assert.equal(zones.exile.at(-1), d);
   assert.deepEqual(zones.library, [...unseen, e]);
+  drag(f, e, byClass(f.container, 'pt-peek-list')[0]);
+  assert.deepEqual(visible(), [e]);
+  assert.deepEqual(saved(f).zones.library, [e, ...unseen]);
+  drag(f, e, byClass(f.container, 'pt-peek-bottom')[0]);
+  drag(f, e, f.container.querySelector('[data-drop-zone="hand"]'));
+  assert.equal(saved(f).zones.hand.at(-1), e);
+  assert.deepEqual(saved(f).zones.library, unseen);
+});
+
+test('commander pile plays a single remaining card or opens a choice for partners', () => {
+  const f = fixture({ entries: [entry('chief', 1, 'commander'), entry('transform', 1, 'commander'), entry('forest')] });
+  start(f); keep(f);
+  const [first, second] = saved(f).zones.command;
+  play(f, second);
+  const tray = byClass(f.container, 'pt-zone-dialog')[0];
+  assert.deepEqual(byClass(tray, 'pt-card').map(n => n.getAttribute('data-piece-id')), [first, second]);
+  byClass(tray, 'pt-card-hit')[1].dispatch('click');
+  assert.deepEqual(saved(f).zones.command, [first]);
+  assert.equal(byClass(f.container, 'pt-dialog').length, 0);
+  play(f, first);
+  assert.deepEqual(saved(f).zones.command, []);
+  assert.deepEqual(saved(f).zones.battlefield, [second, first]);
+});
+
+test('token shortcuts prefer battlefield, then hand and graveyard, and select without creating', async t => {
+  const f = fixture({ entries: [entry('forest'), entry('ring'), entry('transform'), entry('chief', 1, 'commander')] });
+  const template = (id, zhName, creature = false) => ({
+    id, name: id, zhName, typeLine: creature ? 'Token Creature — Bear' : 'Token Artifact',
+    ...(creature ? { power: '2', toughness: '2' } : {}),
+  });
+  const tokens = Object.fromEntries([
+    { ...template('treasure', '珍宝'), image: forestImage, zhText: '牺牲此衍生物。' },
+    template('bear', '熊', true), template('clue', '线索'), template('food', '食品'), template('elephant', '象'),
+    ...Array.from({ length: 13 }, (_, i) => template(`extra-${i}`, `额外 ${i}`)),
+  ].map(token => [token.id, token]));
+  const byCard = {
+    ring: ['treasure', 'bear'], transform: ['bear', 'clue'],
+    forest: ['food', ...Object.keys(tokens).filter(id => id.startsWith('extra-'))], chief: ['elephant'],
+  };
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => ({ version: 1, tokens, byCard }) }));
+  start(f); keep(f);
+  const ids = Object.fromEntries(Object.values(saved(f).pieces).map(piece => [piece.cardId, piece.id]));
+  play(f, ids.ring);
+  move(f, ids.forest, 'graveyard');
+  button(f.container, '＋ 衍生物').dispatch('click');
+  await new Promise(resolve => setImmediate(resolve));
+  const picker = form(f.container, 'pt-token-picker');
+  const shortcuts = byClass(picker, 'pt-token-quick')[0].children;
+  const select = labelled(picker, '选择衍生物');
+  assert.equal(shortcuts.length, 15);
+  assert.deepEqual(shortcuts.slice(0, 4).map(node => node.textContent), ['珍宝', '2/2 熊', '线索', '食品']);
+  assert.ok(select.children.some(option => option.value === 'elephant'));
+  assert.ok(!shortcuts.some(node => node.value === 'elephant'));
+  shortcuts[0].dispatch('click');
+  assert.equal(select.value, 'treasure');
+  assert.deepEqual(saved(f).zones.battlefield, [ids.ring]);
+  labelled(picker, '衍生物数量').value = '2';
+  picker.dispatch('submit');
+  const spawned = Object.values(saved(f).pieces).filter(piece => piece.token);
+  assert.equal(spawned.length, 2);
+  assert.equal(spawned[0].image, forestImage);
+  const detail = openCard(f, spawned[0].id);
+  assert.equal(byClass(detail, 'pt-preview-text')[0].textContent, '牺牲此衍生物。');
 });
 
 test('Escape closes a non-modal zone tray while an active drag gets the first chance to cancel', () => {

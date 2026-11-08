@@ -8,4 +8,6 @@
 
 英文卡牌字段、印刷版本与功能标签来自 [Scryfall](https://scryfall.com/docs/api/bulk-data)。各快照日期和下载链接见 manifest.json。牌图通过 Scryfall 原始图片地址展示。万智牌卡牌文字、名称与图像的相关权利属于 Wizards of the Coast 及其权利人。
 
+试牌衍生物索引 `playtest-tokens.json` 使用相同快照与许可。它根据 Scryfall 的衍生物关联筛选牌面，合并规则相同的印刷版本，并匹配 `magic-cards-zhs` 的名称、类别及规则文字。原译文来源随衍生物保存。
+
 本次对报告列明的少量牌面进行了 AI 语义复核与纠错，状态标为 ai-reviewed；未进行全库人工译文审核。上游原有 AI 译文保留来源及各自的复核状态。

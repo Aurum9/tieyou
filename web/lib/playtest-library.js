@@ -1,10 +1,5 @@
 import { normalizeText } from './search.js';
 
-const PEEK_DESTINATIONS = [
-  ['library-bottom', '牌库底'], ['hand', '手牌'], ['battlefield', '战场'],
-  ['graveyard', '坟场'], ['exile', '放逐区'],
-];
-
 function el(tag, className = '', text) {
   const element = document.createElement(tag);
   element.className = className;
@@ -65,8 +60,9 @@ function libraryMenu({ ids, showTop, onShowTop, onView, onShuffle, onPeek }) {
   return panel;
 }
 
-function peekShelf({ ids, cardTile, cleanupList, onClose }) {
+function peekShelf({ ids, bottomId, cardTile, cleanupList, onClose }) {
   const panel = el('section', 'pt-library-peek');
+  panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-label', '查看牌库顶');
   const heading = el('header', 'pt-dialog-heading');
   heading.append(el('h2', '', `牌库顶 · ${ids.length} 张`), button('关闭', onClose));
@@ -76,15 +72,17 @@ function peekShelf({ ids, cardTile, cleanupList, onClose }) {
     tile.setAttribute('data-drop-zone', 'library-reorder');
     list.append(tile);
   }
-  if (!ids.length) list.append(el('p', 'pt-empty', '0 张'));
-
-  const destinations = el('div', 'pt-peek-destinations');
-  for (const [zone, label] of PEEK_DESTINATIONS) {
-    const destination = el('span', zone === 'library-bottom' ? 'pt-peek-destination pt-peek-bottom' : 'pt-peek-destination', label);
-    destination.setAttribute('data-drop-zone', zone);
-    destinations.append(destination);
+  if (!ids.length) {
+    list.setAttribute('data-drop-zone', 'library-peek');
+    list.append(el('p', 'pt-empty', '0 张'));
   }
-  panel.append(heading, list, destinations);
+  const bottom = el('section', 'pt-peek-bottom');
+  bottom.setAttribute('data-drop-zone', 'library-bottom');
+  bottom.setAttribute('aria-label', '牌库底');
+  bottom.append(el('h3', '', '牌库底'));
+  bottom.append(bottomId ? cardTile(bottomId, { cleanupList, compact: true }) : el('div', 'pt-pile-empty'));
+  const body = el('div', 'pt-peek-body'); body.append(list, bottom);
+  panel.append(heading, body);
   return panel;
 }
 

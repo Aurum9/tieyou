@@ -75,3 +75,56 @@
   .deck-import-row .deck-actions>.deck-check-label{padding:0 4px}
   .deck-empty{padding:36px 18px}
 }
+
+.deck-check-jump {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: .18em;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.deck-check-jump:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.deck-entry-card,.deck-entry-issues {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.deck-entry-issue {
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: #f4e7d1;
+  color: #774a2c;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.deck-entry.is-highlighted {
+  border-color: #b27b3e;
+  background: #fff5dd;
+  box-shadow: inset 0 0 0 1px #b27b3e;
+}
+.deck-import-completed {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+}
+.deck-import-completed > summary {
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+@media(max-width: 600px) {
+  .deck-check-jump,.deck-import-completed > summary {
+    min-height: 44px;
+  }
+}

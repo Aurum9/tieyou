@@ -2,6 +2,7 @@ import { PlaytestSession, PLAYTEST_DEFAULTS, PLAYTEST_ZONES, PLAYTEST_BATTLEFIEL
 import { PlaytestStorage } from './playtest-storage.js';
 import { attachCardGestures } from './playtest-gestures.js';
 import { createLibraryPanel } from './playtest-library.js';
+import { createTokenPicker } from './playtest-token-picker.js';
 import { getVersion } from './decks.js';
 
 const ZONES = { hand: '手牌', battlefield: '战场', graveyard: '坟场', exile: '放逐区', command: '统帅区', library: '牌库', stack: '堆叠' };
@@ -17,24 +18,40 @@ function download(raw, name) { const url = URL.createObjectURL(new Blob([raw], {
 export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify = () => {} }) {
   const index = new Map(cards.map(card => [card.id, card])), storage = new PlaytestStorage();
   let deck = null, session = null, savedSession = null, screen = 'setup', bottomIds = [], saveError = '', recoveryError = '', recoveryRaw = null;
-  let layer = null, dialog = null, previousFocus = null, focusOrigin = null, counterName = '+1/+1', libraryQuery = '', peekIds = null;
+  let layer = null, dialog = null, previousFocus = null, focusOrigin = null, counterName = '+1/+1', libraryQuery = '', peek = null;
+  let boardLayer = 1;
+  const boardOrder = new Map();
   let gestures = [], dialogGestures = [];
   const clean = list => { for (const cleanup of list.splice(0)) cleanup(); };
   const state = () => session.state;
   const zoneOf = (s, id) => PLAYTEST_ZONES.find(zone => s.zones[zone].includes(id));
-  function nameOf(piece) { const card = index.get(piece.cardId), face = card?.faces?.[piece.inverted && card.layout === 'flip' ? 1 : piece.face]; return face?.zhName || face?.name || piece.name; }
-  function imageOf(piece) { const card = index.get(piece.cardId), version = getVersion(card, piece.versionId); return version?.faceImages?.[piece.face] || (piece.face ? card?.faces?.[piece.face]?.image : version?.image) || card?.faces?.[piece.face]?.image || card?.image; }
+  const cardOf = piece => piece.token ? piece : index.get(piece.cardId);
+  function nameOf(piece) { const card = cardOf(piece), face = card?.faces?.[piece.inverted && card.layout === 'flip' ? 1 : piece.face]; return face?.zhName || face?.name || piece.name; }
+  function imageOf(piece) { const card = cardOf(piece), version = getVersion(card, piece.versionId); return version?.faceImages?.[piece.face] || (piece.face ? card?.faces?.[piece.face]?.image : version?.image) || card?.faces?.[piece.face]?.image || card?.image; }
   function save() { try { storage.save(deck.id, session.export()); saveError = ''; } catch (error) { saveError = error.message; onNotify(error.message, 'error'); } }
-  function act(action, { dismiss = false } = {}) {
-    try { session.dispatch(action); }
+  function act(action, { dismiss = false, restoreToPeek = false } = {}) {
+    const previousBoard = action.type === 'token' ? new Set(state().zones.battlefield) : null;
+    let s;
+    try { s = session.dispatch(action); }
     catch (error) { onNotify(error.message, 'error'); return false; }
-    bottomIds = bottomIds.filter(id => state().zones.hand.includes(id));
-    if (action.type === 'shuffle') peekIds = null;
-    if (peekIds) {
-      const remaining = new Set(state().zones.library);
-      if (action.type === 'move' && action.to === 'library') remaining.delete(action.id);
-      peekIds = peekIds.filter(id => remaining.has(id));
-      if (!peekIds.length) peekIds = null;
+    bottomIds = bottomIds.filter(id => s.zones.hand.includes(id));
+    for (const id of boardOrder.keys()) if (!s.battlefieldPositions[id]) boardOrder.delete(id);
+    if (s.battlefieldPositions[action.id]) boardOrder.set(action.id, ++boardLayer);
+    if (previousBoard) for (const id of s.zones.battlefield) {
+      if (!previousBoard.has(id)) boardOrder.set(id, ++boardLayer);
+    }
+    if (action.type === 'shuffle') peek = null;
+    if (peek) {
+      const remaining = new Set(s.zones.library);
+      for (const ids of [peek.ids, peek.bottom]) {
+        for (const id of ids) if (!remaining.has(id)) ids.delete(id);
+      }
+      if (action.type === 'move' && action.to === 'library') {
+        peek.ids.delete(action.id);
+        if (action.position === 'bottom' && remaining.has(action.id)) peek.bottom.add(action.id);
+        else peek.bottom.delete(action.id);
+      }
+      if (restoreToPeek) { peek.bottom.delete(action.id); peek.ids.add(action.id); }
     }
     if (dismiss) closeDialog({ restoreFocus: false });
     save(); render(); return true;
@@ -56,8 +73,12 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   }
   function closeOverlays(options) {
     closeDialog(options);
-    peekIds = null;
+    peek = null;
     container.querySelector('.pt-library-peek')?.remove();
+  }
+  function closePeek() {
+    peek = null; render();
+    container.querySelector('[data-library-title]')?.focus({ preventScroll: true });
   }
   function openLayer(next) {
     previousFocus = document.activeElement;
@@ -67,15 +88,20 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   function showCard(id) { counterName = '+1/+1'; openLayer({ kind: 'card', id }); }
   function moveCard(id, destination, { target, x } = {}) {
     const s = state();
+    if (destination === 'library-peek') {
+      if (!peek?.bottom.has(id)) return false;
+      return act({ type: 'move', id, to: 'library', position: 'top' }, { restoreToPeek: true });
+    }
     if (destination === 'hand-reorder' || destination === 'library-reorder') {
       const zone = destination === 'hand-reorder' ? 'hand' : 'library';
       const anchor = target?.getAttribute('data-piece-id');
       if (!anchor || anchor === id) return false;
-      if (zone === 'library' && (!peekIds?.includes(id) || !peekIds.includes(anchor))) return false;
+      const restoreToPeek = zone === 'library' && peek?.bottom.has(id);
+      if (zone === 'library' && (!peek?.ids.has(anchor) || !(peek.ids.has(id) || restoreToPeek))) return false;
       if (!s.zones[zone].includes(id)) return moveCard(id, zone);
       const rect = target.getBoundingClientRect();
       const key = x < rect.left + rect.width / 2 ? 'beforeId' : 'afterId';
-      return act({ type: 'reorder', id, [key]: anchor });
+      return act({ type: 'reorder', id, [key]: anchor }, { restoreToPeek });
     }
     if (destination === 'battlefield-slot' || destination === 'battlefield-row') {
       const row = target.getAttribute('data-row'), slot = target.getAttribute('data-slot');
@@ -98,7 +124,11 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
     const n = el('div', 'pt-save-error'); n.setAttribute('role', 'alert');
     n.append(el('span', '', saveError), button('重试保存', () => { save(); render(); })); container.append(n);
   }
-  function begin(next) { closeOverlays(); session = next; screen = 'table'; bottomIds = []; save(); render(); window.scrollTo?.({ top: 0, behavior: 'instant' }); }
+  function begin(next) {
+    closeOverlays();
+    if (session !== next) { boardOrder.clear(); boardLayer = 1; }
+    session = next; screen = 'table'; bottomIds = []; save(); render(); window.scrollTo?.({ top: 0, behavior: 'instant' });
+  }
   function renderSetup() {
     const form = el('form', 'pt-setup'), defaults = session?.state.settings || PLAYTEST_DEFAULTS;
     const first = check('先手抓牌', defaults.drawFirstTurn); form.append(first.label);
@@ -139,7 +169,9 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
     if (!opening && zone === 'hand') card.setAttribute('data-drop-zone', 'hand-reorder');
     const selectBottom = opening && s.bottomRequired;
     const playFromHand = !opening && zone === 'hand';
-    const actionable = selectBottom || playFromHand || board;
+    const playCommander = !opening && zone === 'command';
+    const openCommand = playCommander && compact && s.zones.command.length > 1;
+    const actionable = selectBottom || playFromHand || board || playCommander;
     const hit = actionable ? button('', () => {
       if (selectBottom) {
         const position = bottomIds.indexOf(piece.id);
@@ -148,15 +180,17 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
         else return;
         render();
       } else if (board) act({ type: 'tap', id: piece.id });
+      else if (openCommand) openLayer({ kind: 'zone', zone: 'command' });
       else moveCard(piece.id, 'battlefield');
     }, 'pt-card-hit') : el('div', 'pt-card-hit');
-    if (actionable) hit.setAttribute('aria-label', `${selectBottom ? '选择沉底：' : board ? (piece.tapped ? '重置：' : '横置：') : '打出：'}${name}`);
+    if (actionable) hit.setAttribute('aria-label', openCommand ? '查看统帅区' : `${selectBottom ? '选择沉底：' : board ? (piece.tapped ? '重置：' : '横置：') : '打出：'}${name}`);
     if (selectBottom) hit.setAttribute('aria-pressed', String(selected >= 0));
     const visual = el('span', 'pt-card-visual'); visual.append(cardFace(piece)); hit.append(visual, el('strong', 'pt-card-name', name));
     if (selected >= 0) hit.append(el('span', 'pt-bottom-badge', selected + 1));
     const counters = el('span', 'pt-card-counters');
     for (const [type, amount] of Object.entries(piece.counters)) counters.append(el('span', '', `${type} ${amount}`));
-    if (piece.token && (piece.power || piece.toughness)) counters.append(el('span', '', `${piece.power || '?'}/${piece.toughness || '?'}`));
+    const tokenFace = piece.token ? piece.faces?.[piece.face] || piece : null;
+    if (tokenFace && (tokenFace.power || tokenFace.toughness)) counters.append(el('span', '', `${tokenFace.power || '?'}/${tokenFace.toughness || '?'}`));
     if (piece.tapped) counters.append(el('span', 'pt-tapped-label', '横置'));
     hit.append(counters); card.append(hit);
     if (!opening || !s.bottomRequired) {
@@ -182,17 +216,22 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   function renderControls(s) {
     const bar = el('div', 'pt-controls'), life = el('div', 'pt-life'); life.append(el('span', 'pt-stat-label', '生命'), el('strong', '', s.life));
     for (const delta of [-5, -1, 1, 5]) { const b = button(delta > 0 ? `+${delta}` : `${delta}`, () => act({ type: 'life', delta }), 'pt-step'); b.setAttribute('aria-label', `生命${delta > 0 ? '增加' : '减少'}${Math.abs(delta)}`); life.append(b); }
-    const turn = el('div', 'pt-turn'); turn.append(el('strong', '', `第 ${s.turn} 回合`), button('下一回合', () => act({ type: 'nextTurn' })));
-    const draw = el('form', 'pt-draw-form'), count = number(1, 1, 1000, '抓牌张数'), submit = button('抓牌', () => {}, 'button button-primary'); submit.type = 'submit'; draw.append(count, submit); draw.addEventListener('submit', e => { e.preventDefault(); act({ type: 'draw', count: Number(count.value) }); });
+    const turn = el('div', 'pt-turn'), actions = el('div', 'pt-turn-actions');
+    const next = button('下一回合', () => act({ type: 'nextTurn' }), 'button button-primary pt-turn-button');
+    const draw = el('form', 'pt-draw-form'), count = number(1, 1, 1000, '抓牌张数'), submit = button('抓牌', () => {}, 'button button-primary pt-turn-button');
+    submit.type = 'submit'; draw.append(submit, count);
+    draw.addEventListener('submit', e => { e.preventDefault(); act({ type: 'draw', count: Number(count.value) }); });
+    actions.append(next, draw); turn.append(el('strong', '', `第 ${s.turn} 回合`), actions);
     const tools = el('div', 'pt-actions');
     tools.append(button('＋ 衍生物', () => openLayer({ kind: 'tokens' })));
     if (s.zones.stack.length) tools.append(button(`堆叠 ${s.zones.stack.length}`, () => openLayer({ kind: 'zone', zone: 'stack' })));
-    bar.append(life, turn, draw, tools); container.append(bar);
+    bar.append(life, turn, tools); return bar;
   }
   function renderBattlefield(s) {
     const battlefield = el('section', 'pt-battlefield'); battlefield.setAttribute('data-drop-zone', 'battlefield'); battlefield.setAttribute('aria-label', '战场');
     battlefield.append(el('h2', 'pt-zone-title', `战场 · ${s.zones.battlefield.length}`));
     const rows = el('div', 'pt-battlefield-rows');
+    rows.setAttribute('data-hand-scroll', ''); rows.setAttribute('data-scroll-key', 'battlefield');
     const positions = Object.fromEntries(PLAYTEST_BATTLEFIELD_ROWS.map(row => [row, new Map()]));
     for (const id of s.zones.battlefield) {
       const { row, slot } = s.battlefieldPositions[id];
@@ -201,16 +240,17 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
     for (const row of PLAYTEST_BATTLEFIELD_ROWS) {
       const section = el('div', 'pt-battlefield-row'), grid = el('div', 'pt-battlefield-cards');
       section.setAttribute('data-drop-zone', 'battlefield-row'); section.setAttribute('data-row', row);
-      grid.setAttribute('data-hand-scroll', ''); grid.setAttribute('data-scroll-key', `battlefield-${row}`);
-      const label = row === 'upper' ? '上排' : '地／法术力神器';
       const slots = positions[row], count = Math.min(PLAYTEST_BATTLEFIELD_SLOTS, Math.max(4, Math.max(-1, ...slots.keys()) + 2));
       for (let slot = 0; slot < count; slot++) {
         const id = slots.get(slot), cell = el('div', `pt-board-slot${id ? '' : ' is-empty'}`);
         cell.setAttribute('data-drop-zone', 'battlefield-slot'); cell.setAttribute('data-row', row); cell.setAttribute('data-slot', slot);
-        if (id) cell.append(tile(s.pieces[id], s, 'battlefield', { horizontal: true }));
+        if (id) {
+          cell.style.zIndex = String(boardOrder.get(id) || 1);
+          cell.append(tile(s.pieces[id], s, 'battlefield', { horizontal: true }));
+        }
         grid.append(cell);
       }
-      section.append(el('h3', 'pt-row-title', label), grid); rows.append(section);
+      section.append(grid); rows.append(section);
     }
     battlefield.append(rows);
     return battlefield;
@@ -230,12 +270,12 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   }
   function renderBoard(s) {
     const table = el('div', 'pt-table'); table.append(renderBattlefield(s));
-    if (peekIds) {
-      const visible = new Set(peekIds);
+    if (peek) {
+      const bottomId = s.zones.library.at(-1);
       table.append(createLibraryPanel({
-        mode: 'peek', ids: s.zones.library.filter(id => visible.has(id)), cleanupList: gestures,
+        mode: 'peek', ids: s.zones.library.filter(id => peek.ids.has(id)), bottomId: peek.bottom.has(bottomId) ? bottomId : null, cleanupList: gestures,
         cardTile: (id, options) => tile(s.pieces[id], s, 'library', options),
-        onClose: () => { peekIds = null; render(); container.querySelector('[data-library-title]')?.focus({ preventScroll: true }); },
+        onClose: closePeek,
       }));
     }
     const lower = el('div', 'pt-lower-table'), hand = el('section', 'pt-hand'); hand.setAttribute('data-drop-zone', 'hand'); hand.setAttribute('aria-label', '手牌'); hand.append(el('h2', 'pt-zone-title', `手牌 · ${s.zones.hand.length}`), strip(s, 'hand'));
@@ -248,11 +288,12 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
       else { const empty = button('', () => openLayer({ kind: 'zone', zone }), 'pt-pile-empty'); empty.setAttribute('aria-label', `查看${ZONES[zone]}`); pile.append(empty); }
       piles.append(pile);
     }
-    lower.append(hand, piles); table.append(lower); container.append(table);
+    const handColumn = el('div', 'pt-hand-column'); handColumn.append(hand, renderControls(s));
+    lower.append(handColumn, piles); table.append(lower); container.append(table);
   }
   function renderCardMenu(s, parent, id) {
     const piece = s.pieces[id]; if (!piece) return;
-    const card = index.get(piece.cardId), from = zoneOf(s, id), actions = el('div', 'pt-menu-actions');
+    const card = cardOf(piece), from = zoneOf(s, id), actions = el('div', 'pt-menu-actions');
     const preview = el('div', 'pt-card-preview'), image = el('div', `pt-preview-image${piece.inverted ? ' is-inverted' : ''}`);
     image.append(cardFace(piece, { large: true }));
     const rules = el('div', 'pt-preview-rules');
@@ -312,7 +353,7 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
       onShowTop: value => act({ type: 'showLibraryTop', value }),
       onShuffle: () => act({ type: 'shuffle' }, { dismiss: true }),
       onPeek: count => {
-        peekIds = s.zones.library.slice(0, count);
+        peek = { ids: new Set(s.zones.library.slice(0, count)), bottom: new Set() };
         closeDialog({ restoreFocus: false }); render();
         const shelf = container.querySelector('.pt-library-peek');
         shelf?.querySelector('button')?.focus({ preventScroll: true });
@@ -323,7 +364,10 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   function renderTokenForm(parent) {
     const form = el('form', 'pt-token-form'), name = input('衍生物'), type = input('生物 — 衍生物'), power = input('1'), toughness = input('1'), quantity = number(1, 1, 50), create = button('创建', () => {}, 'button button-primary'); create.type = 'submit'; name.maxLength = 100; type.maxLength = 200; power.maxLength = toughness.maxLength = 20;
     form.append(field('名称', name), field('类别', type), field('力量', power), field('防御力', toughness), field('数量', quantity), create);
-    form.addEventListener('submit', e => { e.preventDefault(); layer = null; act({ type: 'token', name: name.value, typeLine: type.value, power: power.value, toughness: toughness.value, quantity: Number(quantity.value) }); }); parent.append(form);
+    form.addEventListener('submit', e => { e.preventDefault(); act({ type: 'token', name: name.value, typeLine: type.value, power: power.value, toughness: toughness.value, quantity: Number(quantity.value) }, { dismiss: true }); });
+    const custom = el('details', 'pt-token-custom');
+    custom.append(el('summary', '', '自定义衍生物'), form);
+    parent.append(createTokenPicker(state(), (template, quantity) => act({ type: 'token', template, quantity }, { dismiss: true })), custom);
   }
   function renderDialog() {
     disposeDialog(); if (!layer || !session) return;
@@ -350,7 +394,7 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
     const scrolls = new Map(Array.from(container.querySelectorAll?.('[data-scroll-key]') || [], n => [n.getAttribute('data-scroll-key'), [n.scrollLeft, n.scrollTop]]));
     disposeDialog(); clean(gestures); container.replaceChildren(); header();
     if (screen === 'setup') renderSetup();
-    else { const s = state(); if (s.phase === 'opening') renderOpening(s); else { renderControls(s); renderBoard(s); } renderSaveError(); }
+    else { const s = state(); if (s.phase === 'opening') renderOpening(s); else renderBoard(s); renderSaveError(); }
     renderDialog();
     if (focusKey && dialog) {
       const controls = Array.from(dialog.querySelectorAll('button,input,select'));
@@ -363,13 +407,14 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   function open(nextDeck) {
     closeOverlays({ restoreFocus: false }); clean(gestures);
     const previous = session; deck = JSON.parse(JSON.stringify(nextDeck)); savedSession = previous?.state.deck.id === deck.id ? previous : null; session = savedSession; screen = 'setup'; bottomIds = []; libraryQuery = ''; saveError = ''; recoveryError = ''; recoveryRaw = null;
+    if (!savedSession) { boardOrder.clear(); boardLayer = 1; }
     if (!savedSession) { try { const data = storage.load(deck.id); if (data) savedSession = PlaytestSession.restore(data, cards); } catch (error) { recoveryError = error.message; try { recoveryRaw = storage.raw(deck.id); } catch { /* Retain the recovery error. */ } } }
     render();
   }
   const onKeyDown = event => {
     if (event.key !== 'Escape' || document.body?.classList?.contains('pt-drag-active')) return;
     if (layer?.kind === 'zone' || layer?.kind === 'library') { event.preventDefault(); closeDialog(); }
-    else if (!layer && peekIds) { event.preventDefault(); closeOverlays(); render(); container.querySelector('[data-library-title]')?.focus({ preventScroll: true }); }
+    else if (!layer && peek) { event.preventDefault(); closePeek(); }
   };
   document.addEventListener?.('keydown', onKeyDown);
   return { open, closeOverlays, destroy() { closeOverlays({ restoreFocus: false }); clean(gestures); document.removeEventListener?.('keydown', onKeyDown); container.replaceChildren(); session = null; } };

@@ -5,7 +5,14 @@ import { initDeckUI } from '../web/lib/deck-ui.js';
 
 // These flow tests exercise the UI callbacks without requiring a browser runtime.
 class Element {
-  constructor(tag) { this.tagName = tag; this.children = []; this.attributes = {}; this.events = {}; this.className = ''; this.value = ''; this._text = ''; this.classList = { toggle: () => {} }; }
+  constructor(tag) {
+    this.tagName = tag; this.children = []; this.attributes = {}; this.events = {}; this.className = ''; this.value = ''; this._text = '';
+    this.classList = {
+      add: name => { this.className = [...new Set([...this.className.split(' '), name])].join(' ').trim(); },
+      remove: name => { this.className = this.className.split(' ').filter(part => part !== name).join(' '); },
+      toggle: (name, value) => { if (value) this.classList.add(name); else this.classList.remove(name); },
+    };
+  }
   set textContent(text) { this._text = String(text); this.replaceChildren(); }
   get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
   append(...children) { for (const child of children) { child.parentNode = this; this.children.push(child); } }
@@ -17,6 +24,7 @@ class Element {
   async dispatchAsync(name) { const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, target: this }; for (const handler of this.events[name] || []) await handler(event); return event; }
   querySelectorAll(selector) { return all(this, node => selector.startsWith('.') && node.className.split(' ').includes(selector.slice(1))); }
   focus() { document.activeElement = this; }
+  scrollIntoView(options) { this.scrolledIntoView = options; }
   get isConnected() { return this === document.body || Boolean(this.parentNode?.isConnected); }
 }
 function all(root, predicate) { return root.children.flatMap(node => [...(predicate(node) ? [node] : []), ...all(node, predicate)]); }
@@ -63,6 +71,33 @@ test('deck checks disappear when clear and show a specific issue after the card 
   assert.equal(checks.length, 1);
   assert.match(checks[0].textContent, /正式卡组共 99 张，EDH 需要含统帅共 100 张/);
   assert.doesNotMatch(checks[0].textContent, /人工核对|未发现问题|草稿保存/);
+});
+
+test('card issues identify and highlight every affected printing and jump to the first row', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const initialCards = [
+    { id: 'one', name: 'Spell', typeLine: 'Instant', versions: [{ id: 'one-v' }, { id: 'two-v' }] },
+    { id: 'other', name: 'Other', typeLine: 'Creature', versions: [{ id: 'other-v' }] },
+  ];
+  const state = fixture({ initiallyLoaded: true, initialCards, prepareStore(store, deck) {
+    store.save({ ...deck, entries: ['one-v', 'two-v', 'other-v'].map((versionId, i) => ({
+      id: `entry-${i}`, cardId: i === 2 ? 'other' : 'one', versionId, quantity: 1, zone: 'main', categories: [], notes: '',
+    })) });
+  } });
+  await state.ui.openDeck(state.first.id);
+  const byClass = name => all(state.container, node => node.className.split(' ').includes(name));
+  const duplicates = byClass('deck-entry').filter(row => row.textContent.includes('重复'));
+  assert.equal(duplicates.length, 2);
+  assert.equal(byClass('deck-entry-issue').every(badge => badge.textContent === '重复'), true);
+  const jumps = byClass('deck-check-jump');
+  assert.equal(jumps.length, 1);
+  assert.match(jumps[0].textContent, /所有版本合计/);
+  jumps[0].dispatch('click');
+  assert.deepEqual(byClass('is-highlighted'), duplicates);
+  assert.equal(document.activeElement, duplicates[0]);
+  assert.deepEqual(duplicates[0].scrolledIntoView, { block: 'center' });
+  t.mock.timers.tick(1800);
+  assert.equal(byClass('is-highlighted').length, 0);
 });
 
 test('unsupported commander checks do not add generic manual-review disclaimers', async () => {
@@ -204,6 +239,37 @@ test('remote text import opens immediately and resolves only the submitted text 
   button(document.body, '确认新增导入').dispatch('click');
   const imported = state.ui.listDecks().find(deck => deck.name === '导入的卡组');
   assert.equal(imported.entries[0].cardId, 'elf-2'); assert.equal(imported.entries[0].quantity, 2); assert.equal(state.loads, 0);
+});
+
+test('import pins ambiguities above other unresolved lines and folds matched rows without choosing for the user', async () => {
+  const initialCards = [
+    { id: 'a', name: 'First', zhName: '重名', versions: [{ id: 'a-v' }] },
+    { id: 'b', name: 'Second', zhName: '重名', versions: [{ id: 'b-v' }] },
+    { id: 'c', name: 'Ready', zhName: '已匹配牌', versions: [{ id: 'c-v' }] },
+  ];
+  const state = fixture({ initialCards, providers: {
+    resolveDeckText: async text => ({ ...parseDeckText(text, initialCards), cards: initialCards }),
+  } });
+  await button(state.container, '导入牌表').dispatchAsync('click');
+  importSource().value = '1 已匹配牌\n1 不存在\n2 重名';
+  await button(document.body, '检查并预览').dispatchAsync('click');
+  const [preview] = all(document.body, node => node.className === 'deck-import-preview');
+  const directRows = () => preview.children.filter(node => node.className.includes('deck-import-row'));
+  assert.deepEqual(directRows().map(row => row.children[0].textContent.match(/第 \d 行/)[0]), ['第 3 行', '第 2 行']);
+  const completed = () => preview.children.find(node => node.tagName === 'details');
+  assert.equal(completed().open, false);
+  assert.equal(completed().children[0].textContent, '已匹配 1 行');
+  const [choice] = all(preview, node => node.attributes['aria-label'] === '解决第 3 行牌名歧义');
+  assert.equal(choice.value, '');
+  assert.equal(button(document.body, '确认新增导入').disabled, true);
+  choice.value = 'b'; choice.dispatch('change');
+  assert.equal(directRows().length, 1);
+  assert.equal(completed().children[0].textContent, '已匹配 2 行');
+  const [skip] = all(directRows()[0], node => node.type === 'checkbox');
+  skip.checked = true; skip.dispatch('change');
+  assert.equal(button(document.body, '确认新增导入').disabled, false);
+  button(document.body, '确认新增导入').dispatch('click');
+  assert.deepEqual(state.ui.listDecks().find(deck => deck.name === '导入的卡组').entries.map(entry => [entry.cardId, entry.quantity]), [['c', 1], ['b', 2]]);
 });
 
 test('JSON import hydrates referenced identities and exact printings before validating the backup', async () => {

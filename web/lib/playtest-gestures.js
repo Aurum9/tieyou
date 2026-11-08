@@ -54,7 +54,9 @@ export function attachCardGestures(element, { id, zone, axis = 'free', onDrop = 
     active.mode = 'drag'; clearHold(); capture(); suppressClick = true;
     element.classList?.remove('pt-card-held'); element.classList?.add('pt-card-dragging'); doc?.body?.classList?.add('pt-drag-active');
     const rect = element.getBoundingClientRect?.() || { left: active.startX, top: active.startY, width: 110, height: 154 };
-    active.offsetX = Math.min(Math.max(0, active.startX - rect.left), rect.width);
+    active.offsetX = element.classList?.contains?.('pt-card-board')
+      ? active.startX - rect.left
+      : Math.min(Math.max(0, active.startX - rect.left), rect.width);
     active.offsetY = Math.min(Math.max(0, active.startY - rect.top), rect.height);
     ghost = element.cloneNode?.(true) || null;
     if (ghost) {

@@ -36,7 +36,7 @@ if (!['127.0.0.1', 'localhost', '::1'].includes(host)) throw new Error('Local pr
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.md': 'text/plain; charset=utf-8' };
 const worker = createWorker({ async serveAsset(pathname, request) {
   // Source-only card dumps are never served, including in development.
-  if (pathname.startsWith('/data/') && !['/data/tag-vocabulary.json', '/data/coverage-report.md', '/data/DATA-LICENSE.md'].includes(pathname)) return new Response(null, { status: 404 });
+  if (pathname.startsWith('/data/') && !['/data/tag-vocabulary.json', '/data/playtest-tokens.json', '/data/coverage-report.md', '/data/DATA-LICENSE.md'].includes(pathname)) return new Response(null, { status: 404 });
   const path = resolve(root, '.' + pathname);
   if (path !== root && !path.startsWith(root + sep)) return new Response(null, { status: 403 });
   try {

@@ -12,6 +12,35 @@ const record = value => value !== null && typeof value === 'object' && !Array.is
 const uid = () => globalThis.crypto?.randomUUID?.() || `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 function str(value, label, max = 200) { if (typeof value !== 'string' || !value.trim() || value.length > max) fail(`${label}格式不正确`); return value; }
 function int(value, label, min, max) { if (!Number.isSafeInteger(value) || value < min || value > max) fail(`${label}须为 ${min}–${max} 的整数`); return value; }
+const TOKEN_FACE_FIELDS = { zhName: 200, zhTypeLine: 200, oracleText: 4000, zhText: 4000, translationSource: 200, image: 500, power: 20, toughness: 20 };
+function tokenFace(value) {
+  if (!record(value)) fail('衍生物牌面无效');
+  const face = { name: str(value.name, '衍生物名称'), typeLine: str(value.typeLine, '衍生物类别') };
+  for (const [key, limit] of Object.entries(TOKEN_FACE_FIELDS)) {
+    if (value[key] === undefined) continue;
+    if (typeof value[key] !== 'string' || value[key].length > limit) fail('衍生物牌面无效');
+    face[key] = value[key];
+  }
+  if (face.image && !/^https:\/\/[^/\s]+(?:\/|$)/i.test(face.image)) fail('衍生物牌图地址无效');
+  if (value.colors !== undefined) {
+    if (!Array.isArray(value.colors) || value.colors.length > 5) fail('衍生物颜色无效');
+    const colors = [...value.colors];
+    if (colors.some(color => !['W', 'U', 'B', 'R', 'G'].includes(color)) || new Set(colors).size !== colors.length) fail('衍生物颜色无效');
+    face.colors = colors;
+  }
+  return face;
+}
+function tokenFromTemplate(template) {
+  const { name: tokenName, ...face } = tokenFace(template);
+  const result = { ...face, tokenName, name: face.zhName || tokenName, tokenTemplateId: str(template.id, '衍生物模板 ID') };
+  if (template.printingId !== undefined) result.printingId = str(template.printingId, '衍生物版本 ID');
+  if (template.layout !== undefined || template.faces !== undefined) {
+    if (template.layout !== 'double_faced_token' || !Array.isArray(template.faces) || template.faces.length !== 2) fail('双面衍生物数据无效');
+    result.layout = template.layout;
+    result.faces = Array.from(template.faces, tokenFace);
+  }
+  return result;
+}
 function settingsFor(value = {}) {
   if (!record(value)) fail('测试设置格式不正确');
   const result = { ...PLAYTEST_DEFAULTS, ...value };
@@ -164,19 +193,23 @@ export class PlaytestSession {
       log(state, `开始第 ${state.turn} 回合`); draw(state, 1); return;
     }
     if (type === 'token') {
-      const name = str(action.name?.trim(), '衍生物名称', 100), quantity = int(action.quantity ?? 1, '衍生物数量', 1, 50);
+      const quantity = int(action.quantity ?? 1, '衍生物数量', 1, 50);
       if (Object.keys(state.pieces).length + quantity > 1200) fail('测试牌张与衍生物总数已达上限');
-      const typeLine = String(action.typeLine || '生物 — 衍生物').slice(0, 200), power = String(action.power ?? '').slice(0, 20), toughness = String(action.toughness ?? '').slice(0, 20);
+      const details = action.template === undefined ? {
+        name: str(action.name?.trim(), '衍生物名称', 100), typeLine: String(action.typeLine || '生物 — 衍生物').slice(0, 200),
+        power: String(action.power ?? '').slice(0, 20), toughness: String(action.toughness ?? '').slice(0, 20),
+      } : tokenFromTemplate(action.template);
       for (let i = 0; i < quantity; i++) {
         const id = uid();
-        state.pieces[id] = { id, cardId: null, versionId: null, name, typeLine, power, toughness, tapped: false, inverted: false, face: 0, counters: {}, token: true };
-        placeOnBattlefield(state, id); state.zones.battlefield.push(id);
+        const piece = { id, cardId: null, versionId: null, ...details, tapped: false, inverted: false, face: 0, counters: {}, token: true };
+        state.pieces[id] = piece;
+        placeOnBattlefield(state, id, piece); state.zones.battlefield.push(id);
       }
-      log(state, `创建 ${quantity} 个${name}衍生物`); return;
+      log(state, `创建 ${quantity} 个${details.name}衍生物`); return;
     }
     const id = str(action.id, '测试牌 ID'), piece = state.pieces[id];
     if (!piece) fail('找不到这张测试牌');
-    const from = locate(state, id), card = this.#index.get(piece.cardId), face = card?.faces?.[piece.face] || card;
+    const from = locate(state, id), card = piece.token && piece.tokenTemplateId ? piece : this.#index.get(piece.cardId), face = card?.faces?.[piece.face] || card;
     if (type === 'move') {
       move(state, id, action.to, action.position, { row: action.row, slot: action.slot, card });
       log(state, from === 'battlefield' && action.to === from ? `${piece.name}：调整战场位置` : `${piece.name}：${ZONE_NAMES[from]} → ${ZONE_NAMES[action.to]}${action.to === 'library' ? (action.position === 'top' ? '顶' : '底') : ''}`);
@@ -241,7 +274,13 @@ export class PlaytestSession {
       if (record(piece) && !Object.hasOwn(piece, 'inverted')) piece.inverted = false;
       if (!record(piece) || piece.id !== id || typeof piece.tapped !== 'boolean' || typeof piece.inverted !== 'boolean' || typeof piece.token !== 'boolean' || !record(piece.counters)) fail('测试牌状态损坏');
       str(piece.name, '测试牌名称'); int(piece.face, '牌面', 0, 20);
-      if (piece.token) { if (piece.cardId !== null || piece.versionId !== null || piece.face !== 0 || piece.inverted) fail('衍生物数据损坏'); }
+      if (piece.token) {
+        if (piece.cardId !== null || piece.versionId !== null || piece.inverted) fail('衍生物数据损坏');
+        if (Object.hasOwn(piece, 'tokenTemplateId')) {
+          const template = tokenFromTemplate({ ...piece, id: piece.tokenTemplateId, name: piece.tokenName });
+          if (piece.face >= (template.faces?.length || 1)) fail('衍生物牌面无效');
+        } else if (piece.face !== 0) fail('衍生物数据损坏');
+      }
       else {
         const card = this.#index.get(piece.cardId); if (!card || piece.face >= (card.faces?.length || 1)) fail('测试牌定义或牌面缺失');
         if (piece.inverted && card.layout !== 'flip') fail('倒转牌状态无效');

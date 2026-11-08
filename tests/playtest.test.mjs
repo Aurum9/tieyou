@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { PlaytestSession, PLAYTEST_ZONES } from '../web/lib/playtest.js';
 
 const cards = [
@@ -88,6 +89,51 @@ test('manual movement accepts every zone and clears battlefield state across zon
 });
 test('counter validation forbids negatives and prototype keys; zero removes a counter', () => { const s = playing(), id = find(s, 'chief'); s.dispatch({ type: 'move', id, to: 'battlefield' }); s.dispatch({ type: 'counter', id, name: '+1/+1', delta: 1 }); const before = s.state; for (const action of [{ type: 'counter', id, name: '+1/+1', delta: -2 }, { type: 'counter', id, name: '__proto__', delta: 1 }]) assert.throws(() => s.dispatch(action)); assert.deepEqual(s.state, before); s.dispatch({ type: 'counter', id, name: '+1/+1', delta: -1 }); assert.deepEqual(s.state.pieces[id].counters, {}); });
 test('tokens have independent states, may be removed and undo restores them; originals cannot be removed', () => { const s = playing(); s.dispatch({ type: 'token', name: '士兵', power: '1', toughness: '1', quantity: 2 }); const [a, b] = s.state.zones.battlefield; s.dispatch({ type: 'tap', id: a }); assert.equal(s.state.pieces[b].tapped, false); const before = s.state; assert.throws(() => s.dispatch({ type: 'removeToken', id: find(s, 'chief') })); assert.deepEqual(s.state, before); s.dispatch({ type: 'removeToken', id: a }); assert.equal(s.state.pieces[a], undefined); s.undo(); assert.deepEqual(s.state, before); conserved(s, 24); });
+test('template tokens retain their rules, image and stats in progress independently of the source index', () => {
+  const s = playing();
+  const template = { id: 'soldier', printingId: 't-print', name: 'Soldier', zhName: '士兵', typeLine: 'Token Creature — Soldier',
+    zhTypeLine: '衍生生物～士兵', oracleText: 'Vigilance', zhText: '警戒', translationSource: 'MTGZH', image: 'https://example.com/token.jpg',
+    power: '2', toughness: '2', colors: ['W'] };
+  s.dispatch({ type: 'token', template, quantity: 2 });
+  const [a, b] = s.state.zones.battlefield;
+  template.zhText = '其他规则'; template.colors[0] = 'B';
+  s.dispatch({ type: 'counter', id: a, name: '+1/+1', delta: 1 });
+  const restored = PlaytestSession.restore(s.export(), cards);
+  assert.deepEqual(restored.state, s.state);
+  const piece = restored.state.pieces[a];
+  assert.equal(piece.name, '士兵'); assert.equal(piece.tokenName, 'Soldier'); assert.equal(piece.tokenTemplateId, 'soldier');
+  assert.equal(piece.cardId, null); assert.equal(piece.printingId, 't-print'); assert.equal(piece.zhText, '警戒');
+  assert.equal(piece.image, 'https://example.com/token.jpg'); assert.equal(piece.power, '2'); assert.deepEqual(piece.colors, ['W']);
+  assert.deepEqual(restored.state.pieces[b].counters, {});
+  assert.throws(() => s.dispatch({ type: 'token', template: { ...template, image: 'javascript:alert(1)' } }), /牌图地址/);
+  const corrupt = s.export(); corrupt.state.pieces[a].face = 1;
+  assert.throws(() => PlaytestSession.restore(corrupt, cards), /衍生物牌面/);
+  conserved(s, 24);
+});
+
+test('the real token index distinguishes same-name variants and restores a transformed Incubator', () => {
+  const data = JSON.parse(readFileSync(new URL('../web/data/playtest-tokens.json', import.meta.url), 'utf8'));
+  assert.equal(data.version, 1);
+  assert.ok(Object.values(data.byCard).every(ids => new Set(ids).size === ids.length && ids.every(id => Object.hasOwn(data.tokens, id))));
+  const forCard = id => data.byCard[id].map(key => data.tokens[key]);
+  const manufactor = forCard('f36d1d8b-8303-44a9-ab56-531931641ea2');
+  assert.deepEqual(new Set(manufactor.map(token => token.zhName)), new Set(['珍宝', '线索', '食品']));
+  assert.ok(manufactor.every(token => token.zhText && /^https:\/\/cards\.scryfall\.io\//.test(token.image)));
+  const wurms = forCard('d1a60f44-7696-49ee-91fb-cab5b3102962');
+  assert.deepEqual(new Set(wurms.map(token => token.zhText)), new Set(['死触', '系命']));
+  assert.ok(wurms.every(token => token.name === 'Wurm' && token.power === '3' && token.toughness === '3'));
+  assert.deepEqual(forCard('0a0a051c-59ed-4286-b842-a34da7ef15d5').map(token => token.name), ['Cursed']);
+  const insect = forCard('aa854d50-444c-49d9-bfb1-5476b33c1c0b').find(token => token.name === 'Insect');
+  assert.deepEqual([insect.power, insect.toughness, insect.colors], ['1', '1', ['G']]);
+  const s = playing(), incubator = Object.values(data.tokens).find(token => token.name === 'Incubator');
+  s.dispatch({ type: 'token', template: incubator });
+  const id = s.state.zones.battlefield[0];
+  s.dispatch({ type: 'flip', id });
+  const restored = PlaytestSession.restore(s.export(), cards).state.pieces[id];
+  assert.equal(restored.face, 1);
+  assert.equal(restored.faces[restored.face].name, 'Phyrexian');
+  assert.equal(restored.faces[restored.face].power, '0');
+});
 test('unrecognized, malformed and out-of-bounds actions preserve state and history', () => { const s = playing(), id = find(s, 'chief'), before = s.state; for (const a of [null, { type: 'bogus', id }, { type: 'draw', count: -1 }, { type: 'life', delta: NaN }, { type: 'move', id, to: 'nowhere' }, { type: 'tap', id }, { type: 'flip', id }, { type: 'token', name: '', quantity: 1 }]) assert.throws(() => s.dispatch(a)); assert.deepEqual(s.state, before); });
 test('export/restore preserves zones, life, current snapshot, undo and redo without sharing references', () => { const s = playing(); s.dispatch({ type: 'life', delta: -5 }); s.dispatch({ type: 'draw', count: 2 }); s.undo(); const data = s.export(), restored = PlaytestSession.restore(data, cards); assert.deepEqual(restored.state, s.state); assert.equal(restored.canRedo, true); restored.redo(); s.redo(); assert.deepEqual(restored.state, s.state); data.state.life = 1; assert.notEqual(restored.state.life, 1); });
 test('legacy progress defaults missing inversion flags and migrates fixed turn behavior', () => {
