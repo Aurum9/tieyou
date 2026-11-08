@@ -231,6 +231,24 @@ test('clicking the card back draws and the optional top display follows the curr
   assert.ok(labelled(f.container, '抓一张牌：树林'));
 });
 
+test('dragging the library back or revealed top moves just that card', () => {
+  const f = fixture(); start(f); keep(f);
+  const { library, hand } = saved(f).zones;
+  const [first, second, ...rest] = library;
+  const back = labelled(f.container, '抓一张牌');
+  drag(f, first, f.container.querySelector('[data-drop-zone="graveyard"]'));
+  back.dispatch('click');
+  assert.deepEqual(saved(f).zones.graveyard, [first]);
+  assert.deepEqual(saved(f).zones.hand, hand);
+  const reveal = libraryMenu(f).querySelector('input');
+  reveal.checked = true; reveal.dispatch('change');
+  button(f.container, '关闭').dispatch('click');
+  assert.ok(labelled(f.container, '抓一张牌：树林'));
+  drag(f, second, f.container.querySelector('[data-drop-zone="exile"]'));
+  assert.deepEqual(saved(f).zones.exile, [second]);
+  assert.deepEqual(saved(f).zones.library, rest);
+});
+
 test('dragging reorders the hand and swaps or frees fixed battlefield slots', () => {
   const f = fixture({ entries: [entry('forest', 3), entry('ring'), entry('transform')] }); start(f); keep(f);
   const [first, second, ...rest] = saved(f).zones.hand;
@@ -268,6 +286,13 @@ test('peek drag reorders only the selected cards and supports all five destinati
   drag(f, a, tile(f, c), 175);
   assert.deepEqual(visible(), [b, c, a, d, e]);
   assert.deepEqual(saved(f).zones.library, [b, c, a, d, e, ...unseen]);
+
+  drag(f, e, byClass(f.container, 'pt-peek-bottom')[0]);
+  drag(f, a, tile(f, d), 175);
+  drag(f, e, byClass(f.container, 'pt-peek-list')[0]);
+  assert.deepEqual(visible(), [b, c, d, a, e]);
+  assert.deepEqual(saved(f).zones.library, [b, c, d, a, e, ...unseen]);
+  drag(f, a, tile(f, d));
 
   drag(f, b, f.container.querySelector('[data-drop-zone="graveyard"]'));
   assert.deepEqual(visible(), [c, a, d, e]);

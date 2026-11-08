@@ -89,7 +89,11 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   function moveCard(id, destination, { target, x } = {}) {
     const s = state();
     if (destination === 'library-peek') {
-      if (!peek?.bottom.has(id)) return false;
+      const restoreToPeek = peek?.bottom.has(id);
+      if (!restoreToPeek && !peek?.ids.has(id)) return false;
+      const afterId = s.zones.library.findLast(cardId => peek.ids.has(cardId));
+      if (afterId === id) return false;
+      if (afterId) return act({ type: 'reorder', id, afterId }, { restoreToPeek });
       return act({ type: 'move', id, to: 'library', position: 'top' }, { restoreToPeek: true });
     }
     if (destination === 'hand-reorder' || destination === 'library-reorder') {
@@ -260,9 +264,15 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
     pile.setAttribute('aria-label', '牌库'); pile.setAttribute('data-drop-zone', 'library-top');
     const title = button(`牌库 ${s.zones.library.length}`, () => openLayer({ kind: 'library', mode: 'menu' }), 'pt-pile-label');
     title.setAttribute('data-library-title', ''); title.setAttribute('aria-haspopup', 'dialog');
-    const piece = s.showLibraryTop ? s.pieces[s.zones.library[0]] : null;
-    const back = button('', () => act({ type: 'draw', count: 1 }), `pt-library-back${piece ? ' is-revealed' : ''}`);
-    back.setAttribute('aria-label', piece ? `抓一张牌：${nameOf(piece)}` : '抓一张牌'); back.disabled = !s.zones.library.length;
+    const topId = s.zones.library[0], piece = s.showLibraryTop ? s.pieces[topId] : null;
+    const back = button('', () => {
+      if (back.isConnected) act({ type: 'draw', count: 1 });
+    }, `pt-library-back${piece ? ' is-revealed' : ''}`);
+    back.setAttribute('aria-label', piece ? `抓一张牌：${nameOf(piece)}` : '抓一张牌'); back.disabled = !topId;
+    if (topId) {
+      back.setAttribute('data-piece-id', topId);
+      gestures.push(attachCardGestures(back, { id: topId, zone: 'library-top', onDrop: moveCard }));
+    }
     const front = el('span', 'pt-library-back-face');
     if (piece) front.append(cardFace(piece));
     back.append(front); pile.append(title, back);

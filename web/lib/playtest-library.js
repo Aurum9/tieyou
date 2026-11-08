@@ -72,16 +72,15 @@ function peekShelf({ ids, bottomId, cardTile, cleanupList, onClose }) {
     tile.setAttribute('data-drop-zone', 'library-reorder');
     list.append(tile);
   }
-  if (!ids.length) {
-    list.setAttribute('data-drop-zone', 'library-peek');
-    list.append(el('p', 'pt-empty', '0 张'));
-  }
+  if (!ids.length) list.append(el('p', 'pt-empty', '0 张'));
   const bottom = el('section', 'pt-peek-bottom');
   bottom.setAttribute('data-drop-zone', 'library-bottom');
   bottom.setAttribute('aria-label', '牌库底');
   bottom.append(el('h3', '', '牌库底'));
   bottom.append(bottomId ? cardTile(bottomId, { cleanupList, compact: true }) : el('div', 'pt-pile-empty'));
-  const body = el('div', 'pt-peek-body'); body.append(list, bottom);
+  const body = el('div', 'pt-peek-body');
+  body.setAttribute('data-drop-zone', 'library-peek');
+  body.append(list, bottom);
   panel.append(heading, body);
   return panel;
 }
