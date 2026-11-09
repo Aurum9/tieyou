@@ -1,34 +1,10 @@
-let catalogRequest;
-
-function tokenCatalog() {
-  catalogRequest ??= fetch('/data/playtest-tokens.json').then(async response => {
-    if (!response.ok) throw new Error('衍生物牌库加载失败');
-    const data = await response.json();
-    if (data.version !== 1 || !data.tokens || !data.byCard) throw new Error('衍生物牌库格式无效');
-    return data;
-  }).catch(error => {
-    catalogRequest = undefined;
-    throw error;
-  });
-  return catalogRequest;
-}
+import { linkedTokens, loadTokenCatalog, tokenLabel } from './playtest-token-catalog.js';
 
 function el(tag, className = '', text) {
   const node = document.createElement(tag);
   node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
-}
-
-function linkedTokens(catalog, cardIds) {
-  return [...new Set(cardIds.flatMap(id => catalog.byCard[id] || []))]
-    .map(id => catalog.tokens[id]).filter(Boolean);
-}
-
-function tokenLabel(token) {
-  const name = token.zhName || token.name;
-  return /\bCreature\b/.test(token.typeLine.split('—')[0]) && token.power && token.toughness
-    ? `${token.power}/${token.toughness} ${name}` : name;
 }
 
 export function createTokenPicker(state, onSpawn) {
@@ -60,7 +36,7 @@ export function createTokenPicker(state, onSpawn) {
   actions.append(quantityLabel, submit);
   form.append(label, quick, actions);
 
-  tokenCatalog().then(catalog => {
+  loadTokenCatalog().then(catalog => {
     if (!form.isConnected) return;
     const deckTokens = linkedTokens(catalog, state.deck.entries.map(entry => entry.cardId));
     const options = new Map(deckTokens.map(token => [token.id, token]));

@@ -1,4 +1,5 @@
 import { DeckStore, defaultVersion, getVersion, findCardCandidates, getCommanderIdentity, validateDeck, parseDeckText, rowToEntry, exportDeckText, exportDeckBackup, parseDeckBackup } from './decks.js';
+import { createDeckAnalysis } from './deck-analysis-ui.js';
 
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
 const entryIssueLabels = {
@@ -52,6 +53,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   let openingError = null;
   let openRequest = 0;
   let selectedId = null;
+  let analysisOpen = false;
   let groupBy = 'type';
   const identitySearchPreferences = new Map();
   const searchDrafts = new Map();
@@ -90,7 +92,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   async function openDeck(id) {
     if (!store.get(id)) { onNotify('卡组已不存在，请重新选择', 'error'); return false; }
     const request = ++openRequest;
-    openingId = id; openingError = null; render();
+    openingId = id; openingError = null; analysisOpen = false; render();
     try {
       await ensureCards(store.get(id));
       if (request !== openRequest) return false;
@@ -164,7 +166,14 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   function renderEditor(deck) {
     const back = button('← 卡组库', showLibrary); container.append(back);
     const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('h1', '', deck.name));
-    const actions = el('div', 'deck-actions'); actions.append(button('手动测试 ↗', () => { const fresh = store.get(deck.id); if (fresh) onPlaytest(fresh); else onNotify('卡组已不存在，请重新选择', 'error'); }, 'button button-primary'), button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
+    const actions = el('div', 'deck-actions');
+    const analyze = button('卡组分析', () => {
+      analysisOpen = true;
+      render();
+      container.querySelector('.deck-analysis-heading')?.querySelector('button')?.focus();
+    });
+    analyze.setAttribute('data-deck-analysis', '');
+    actions.append(analyze, button('手动测试 ↗', () => { const fresh = store.get(deck.id); if (fresh) onPlaytest(fresh); else onNotify('卡组已不存在，请重新选择', 'error'); }, 'button button-primary'), button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
     header.append(title, actions); container.append(header, status());
     const metadata = el('details', 'deck-metadata'); metadata.append(el('summary', '', '编辑名称与说明'));
     const name = input(deck.name); name.maxLength = 200; const description = el('textarea', 'deck-input'); description.value = deck.description; description.rows = 2;
@@ -537,9 +546,19 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       return;
     }
     const deck = selectedId ? store.get(selectedId) : null;
-    if (deck) renderEditor(deck); else { selectedId = null; renderLibrary(); }
+    if (deck && analysisOpen) {
+      container.append(createDeckAnalysis({
+        deck, cards, onInspect,
+        onBack: () => {
+          analysisOpen = false;
+          render();
+          container.querySelector('[data-deck-analysis]')?.focus();
+        },
+      }));
+    } else if (deck) renderEditor(deck);
+    else { selectedId = null; renderLibrary(); }
   }
-  function showLibrary() { ++openRequest; openingId = null; openingError = null; selectedId = null; render(); }
+  function showLibrary() { ++openRequest; openingId = null; openingError = null; selectedId = null; analysisOpen = false; render(); }
   render();
   return { render, addCard, quickAddCard, showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, destroy: () => { ++openRequest; for (const current of [...openModals]) current.close(); container.replaceChildren(); } };
 }

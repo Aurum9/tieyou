@@ -1,0 +1,426 @@
+.deck-analysis {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 1180px;
+  min-width: 0;
+  margin: 22px auto 36px;
+  padding-inline: 24px;
+}
+
+.deck-analysis-heading,
+.deck-analysis-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.deck-analysis-heading h1 {
+  margin: 0;
+  font-size: clamp(25px, 3vw, 36px);
+  line-height: 1.2;
+  letter-spacing: -.035em;
+  overflow-wrap: anywhere;
+}
+
+.deck-analysis-card-heading {
+  margin-bottom: 12px;
+}
+
+.deck-analysis-card h2 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.deck-analysis-card-heading .deck-check-label {
+  min-height: 36px;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.deck-analysis-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 126px), 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.deck-analysis-kpi,
+.deck-analysis-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.deck-analysis-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 13px 15px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.deck-analysis-kpi strong {
+  color: var(--accent);
+  font-size: 23px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+.deck-analysis-card {
+  padding: 16px;
+}
+
+.deck-analysis-card.is-wide {
+  grid-column: 1 / -1;
+}
+
+.deck-analysis [data-mana="W"] { --mana-fill: #e4d9b3; --mana-edge: #a49774; }
+.deck-analysis [data-mana="U"] { --mana-fill: #4b8eb6; --mana-edge: #397497; }
+.deck-analysis [data-mana="B"] { --mana-fill: #60566b; --mana-edge: #51485a; }
+.deck-analysis [data-mana="R"] { --mana-fill: #bf6458; --mana-edge: #a85246; }
+.deck-analysis [data-mana="G"] { --mana-fill: #5a8d66; --mana-edge: #477551; }
+.deck-analysis [data-mana="C"] { --mana-fill: #a0a7aa; --mana-edge: #7c8489; }
+.deck-analysis [data-mana="M"] { --mana-fill: #c69c4d; --mana-edge: #a98138; }
+
+.deck-analysis-curve {
+  display: grid;
+  grid-template-columns: repeat(var(--bins, 8), minmax(0, 1fr));
+  gap: clamp(2px, 1vw, 10px);
+  min-width: 0;
+}
+
+.deck-analysis-bin {
+  display: grid;
+  grid-template-rows: auto clamp(132px, 18vw, 196px) auto;
+  justify-items: center;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 4px 1px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.deck-analysis-bin-count,
+.deck-analysis-bar-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-analysis-bin-track {
+  display: flex;
+  flex-direction: column-reverse;
+  width: min(84%, 44px);
+  min-width: 0;
+  overflow: hidden;
+  border-bottom: 1px solid #c9d5ca;
+  background: repeating-linear-gradient(to top, #e8ede6 0 1px, transparent 1px 25%);
+}
+
+.deck-analysis-bin-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.deck-analysis-segment {
+  display: block;
+  flex: 0 0 var(--share, 0%);
+  width: 100%;
+}
+
+.deck-analysis-segment,
+.deck-analysis-bar-fill,
+.deck-analysis-swatch {
+  background: var(--mana-fill, #4c8065);
+  box-shadow: inset 0 0 0 1px var(--mana-edge, #426e56);
+}
+
+.deck-analysis-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 8px;
+}
+
+.deck-analysis-legend > * {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.deck-analysis-legend > button {
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 7px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.deck-analysis-swatch {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.deck-analysis-bars {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.deck-analysis-bars.is-scrollable {
+  max-height: 22rem;
+  overflow-y: auto;
+  padding-inline: 2px;
+}
+
+.deck-analysis-bar {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 38%) minmax(1.5rem, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.deck-analysis-bar-label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.deck-analysis-tag-slug {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.deck-analysis-bar-track {
+  display: block;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #edf0e9;
+}
+
+.deck-analysis-bar-fill {
+  display: block;
+  width: var(--share, 0%);
+  height: 100%;
+  border-radius: inherit;
+}
+
+.deck-analysis-drilldown {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  scroll-margin-top: 90px;
+}
+
+.deck-analysis-drilldown:empty {
+  display: none;
+}
+
+.deck-analysis-drilldown h3 {
+  margin: 0 0 5px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.deck-analysis-card-list,
+.deck-analysis-token-list {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deck-analysis-card-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.deck-analysis-card-list li > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.deck-analysis-entry-count,
+.deck-analysis-token-label small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.deck-analysis-entry-count {
+  flex-shrink: 0;
+}
+
+.deck-analysis-token-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 185px), 1fr));
+  gap: 8px;
+}
+
+.deck-analysis-token {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 7px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+button.deck-analysis-token {
+  cursor: pointer;
+}
+
+.deck-analysis-token-image {
+  display: block;
+  flex: none;
+  width: 43px;
+  aspect-ratio: 488 / 680;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.deck-analysis-token-label small {
+  display: block;
+}
+
+.deck-analysis-token-rules {
+  margin: 6px 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.deck-analysis-tag-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px 10px;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.deck-analysis-tag-tools .deck-input {
+  flex: 0 1 360px;
+  min-width: 0;
+}
+
+.deck-analysis-empty,
+.deck-analysis-note {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.deck-analysis :where(.deck-analysis-bin, .deck-analysis-bar, .deck-analysis-legend > button, button.deck-analysis-token)[aria-pressed="true"],
+.deck-analysis :where(.deck-analysis-bin, .deck-analysis-bar, .deck-analysis-legend > button, button.deck-analysis-token):hover:enabled {
+  border-color: #c5d3c7;
+  background: #eff4eb;
+}
+
+.deck-analysis :where(.deck-analysis-bin, .deck-analysis-bar, .deck-analysis-legend > button):disabled {
+  cursor: default;
+}
+
+.deck-analysis :where(button, select, input):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+@media (max-width: 700px) {
+  .deck-analysis {
+    gap: 12px;
+    margin-block: 14px 28px;
+    padding-inline: 0;
+  }
+
+  .deck-analysis-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .deck-analysis-card,
+  .deck-analysis-kpi {
+    padding: 12px;
+  }
+
+  .deck-analysis-kpi strong {
+    font-size: 21px;
+  }
+
+  .deck-analysis-bin-count,
+  .deck-analysis-bin-label {
+    font-size: 11px;
+  }
+
+  .deck-analysis-bar,
+  .deck-analysis-card-list li > button,
+  .deck-analysis-legend > button {
+    min-height: 44px;
+  }
+
+  .deck-analysis-tag-tools .deck-input {
+    flex: 1 1 150px;
+  }
+}
