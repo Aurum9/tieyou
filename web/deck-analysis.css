@@ -476,6 +476,26 @@ button.deck-analysis-token {
   line-height: 1.4;
 }
 
+.deck-probability-early-mana {
+  grid-column: 1 / -1;
+}
+
+.deck-probability-early-mana-metrics:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+}
+
+.deck-probability-early-mana-metrics h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.deck-probability-early-mana details p {
+  margin: 4px 0 0;
+}
+
 .deck-probability-result {
   display: flex;
   flex-wrap: wrap;
@@ -576,7 +596,8 @@ button.deck-analysis-token {
 }
 
 @media (max-width: 780px) {
-  .deck-probability-grid {
+  .deck-probability-grid,
+  .deck-probability-early-mana-metrics:not([hidden]) {
     grid-template-columns: minmax(0, 1fr);
   }
 

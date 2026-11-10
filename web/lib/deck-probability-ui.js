@@ -1,9 +1,11 @@
 import { getDeckProbabilityInputs } from './deck-probability-inputs.js';
 import { openingLandStats, openingHitProbability, consecutiveLandProbabilities } from './deck-probability.js';
+import { classifyEarlyManaCard } from './deck-early-mana-cards.js';
 import { normalizeText } from './search.js';
 
 const percent = new Intl.NumberFormat('zh-CN', { style: 'percent', maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const decimal = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
+const estimatePercent = new Intl.NumberFormat('zh-CN', { style: 'percent', maximumFractionDigits: 1 });
 const OPENING_HAND = 7;
 const MAX_HAND = 20;
 
@@ -42,7 +44,7 @@ function output(label) {
   return { row, element: value };
 }
 
-function renderBars(list, rows) {
+function renderBars(list, rows, format = formatProbability) {
   list.replaceChildren(...rows.map(({ label, probability }) => {
     const row = el('li', 'deck-probability-row');
     const track = el('span', 'deck-probability-track');
@@ -50,9 +52,97 @@ function renderBars(list, rows) {
     const fill = el('span', 'deck-analysis-bar-fill');
     fill.style.setProperty('--share', `${probability * 100}%`);
     track.append(fill);
-    row.append(el('span', '', label), track, el('strong', '', formatProbability(probability)));
+    row.append(el('span', '', label), track, el('strong', '', format(probability)));
     return row;
   }));
+}
+
+function createEarlyManaSection(deck, cards, targets, unknownCount) {
+  const section = probabilityItem('前两回合加速');
+  section.classList.add('deck-probability-early-mana');
+  const metrics = el('div', 'deck-probability-early-mana-metrics');
+  const setup = el('ul', 'deck-probability-bars');
+  const available = el('ul', 'deck-probability-bars');
+  for (const [label, list] of [['能启动加速', setup], ['当回合可用法术力', available]]) {
+    const group = el('div');
+    list.setAttribute('aria-label', label);
+    group.append(el('h4', '', label), list);
+    metrics.append(group);
+  }
+  const status = el('p', 'deck-analysis-note');
+  status.setAttribute('role', 'status');
+  const details = el('details', 'deck-analysis-note');
+  const summary = el('summary');
+  const excluded = el('p');
+  details.append(summary, excluded);
+  details.hidden = true;
+  section.append(metrics, status, details);
+
+  const byId = new Map(cards.map(card => [card.id, card]));
+  const commanderColors = [...new Set(deck.entries.filter(entry => entry.zone === 'commander')
+    .flatMap(entry => byId.get(entry.cardId)?.colorIdentity || []))];
+  const profiles = new Map();
+  let worker, timer;
+
+  function refresh(handSize, drawFirstTurn, includeModalLands) {
+    clearTimeout(timer);
+    worker?.terminate();
+    worker = undefined;
+    setup.replaceChildren();
+    available.replaceChildren();
+    metrics.hidden = true;
+    details.hidden = true;
+    status.textContent = handSize === null ? '' : '正在估算…';
+    if (handSize === null) return;
+
+    timer = setTimeout(() => {
+      if (!section.isConnected) return;
+      if (!profiles.has(includeModalLands)) {
+        profiles.set(includeModalLands, targets.map(target => ({
+          ...classifyEarlyManaCard(byId.get(target.id), { commanderColors, includeModalLands }),
+          quantity: target.count,
+          name: target.name,
+        })));
+      }
+      const entries = profiles.get(includeModalLands);
+      const partial = entries.filter(entry => entry.excluded?.land || entry.excluded?.ramp);
+      details.hidden = !partial.length;
+      summary.textContent = `${partial.reduce((sum, entry) => sum + entry.quantity, 0)} 张牌的效果未完整计入`;
+      excluded.textContent = partial.map(entry => entry.name).join('、');
+      const simulationDeck = entries.map(({ landOptions, ramp, quantity }) => ({ landOptions, ramp, quantity }));
+      if (unknownCount) simulationDeck.push({ landOptions: [], ramp: null, quantity: unknownCount });
+
+      try {
+        const current = new Worker(new URL('./deck-early-mana-worker.js', import.meta.url), { type: 'module' });
+        worker = current;
+        const finish = (data) => {
+          if (worker !== current) return;
+          current.terminate();
+          worker = undefined;
+          if (!data) {
+            status.textContent = '加速概率估算失败';
+            return;
+          }
+          renderBars(setup, data.turns.map(({ turn, setupProbability }) => ({
+            label: `到第 ${turn} 回合`, probability: setupProbability,
+          })), estimatePercent.format);
+          renderBars(available, data.turns.map(({ turn, threshold, probability }) => ({
+            label: `第 ${turn} 回合 · 可用 ≥${threshold} 费`, probability,
+          })), estimatePercent.format);
+          metrics.hidden = false;
+          status.textContent = `扣除加速费用后计算可用法术力 · ${data.trials.toLocaleString('zh-CN')} 局抽样`;
+        };
+        current.onmessage = event => finish(event.data);
+        current.onerror = () => finish();
+        current.postMessage({ cards: simulationDeck, options: { handSize, drawFirstTurn } });
+      } catch {
+        worker?.terminate();
+        worker = undefined;
+        status.textContent = '加速概率估算失败';
+      }
+    }, 120);
+  }
+  return { section, refresh };
 }
 
 function createTargetPicker(targets, onChange) {
@@ -123,7 +213,7 @@ export function createDeckProbability(deck, cards) {
   section.id = 'deck-probability';
   section.tabIndex = -1;
   const heading = el('div', 'deck-analysis-card-heading');
-  const title = el('h2', '', '起手与下地概率');
+  const title = el('h2', '', '起手与法术力概率');
   title.id = 'deck-probability-heading';
   heading.append(title);
   section.setAttribute('aria-labelledby', title.id);
@@ -158,6 +248,7 @@ export function createDeckProbability(deck, cards) {
   const byTurn = el('ul', 'deck-probability-bars');
   byTurn.setAttribute('aria-label', '每回合连续下地概率');
   streak.append(el('p', 'deck-analysis-note', '从第 1 回合起每回合都下地'), byTurn);
+  const earlyMana = createEarlyManaSection(deck, cards, targets, unknownCount);
 
   function requestedHandSize() {
     const size = Number(hand.value);
@@ -177,6 +268,7 @@ export function createDeckProbability(deck, cards) {
 
   function refresh() {
     const size = requestedHandSize();
+    earlyMana.refresh(size, firstTurn.input.checked, modal.input.checked);
     if (size === null) {
       scope.textContent = `起手张数需为 1–${MAX_HAND} 的整数。`;
       expectation.element.value = '—';
@@ -200,7 +292,7 @@ export function createDeckProbability(deck, cards) {
   firstTurn.input.addEventListener('change', refresh);
   modal.input.addEventListener('change', refresh);
   const grid = el('div', 'deck-probability-grid');
-  grid.append(opening, picker, streak);
+  grid.append(opening, picker, streak, earlyMana.section);
   section.append(settings, scope);
   if (unknownCount) section.append(el('p', 'deck-analysis-note', `${unknownCount} 张主牌缺少卡牌数据，地牌概率按已识别的地牌计算。`));
   section.append(grid);
