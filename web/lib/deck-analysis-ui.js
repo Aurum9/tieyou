@@ -2,6 +2,7 @@ import { analyzeDeckMana } from './deck-analysis.js';
 import { analyzeDeckRelated, loadTagVocabulary, loadTokenCatalog } from './deck-analysis-related.js';
 import { getVersion } from './decks.js';
 import { normalizeText } from './search.js';
+import { createDeckProbability } from './deck-probability-ui.js';
 
 const COLOR_LABELS = { W: '白色', U: '蓝色', B: '黑色', R: '红色', G: '绿色', M: '多色', C: '无色' };
 const LAND_LABELS = {
@@ -248,7 +249,13 @@ export function createDeckAnalysis({ deck, cards, onBack, onInspect }) {
   const heading = el('header', 'deck-analysis-heading');
   const title = el('div');
   title.append(el('h1', '', '卡组分析'), el('p', 'deck-analysis-note', `${deck.name} · 主牌 ${stats.counts.main} 张 · 统帅 ${stats.counts.commander} 张`));
-  heading.append(title, button('← 返回牌表', onBack));
+  const probability = createDeckProbability(deck, cards);
+  const actions = el('div', 'deck-actions');
+  actions.append(button('查看概率 ↓', () => {
+    probability.focus({ preventScroll: true });
+    probability.scrollIntoView({ block: 'start' });
+  }), button('← 返回牌表', onBack));
+  heading.append(title, actions);
   const kpis = el('div', 'deck-analysis-kpis');
   for (const [label, value] of [
     ['地牌', stats.counts.lands],
@@ -271,7 +278,7 @@ export function createDeckAnalysis({ deck, cards, onBack, onInspect }) {
   const tagBody = el('div'), tokenBody = el('div');
   tags.section.append(tagBody);
   tokens.section.append(tokenBody);
-  grid.append(tags.section, tokens.section);
+  grid.append(tags.section, tokens.section, probability);
   root.append(heading, kpis);
   if (stats.counts.unknown) root.append(el('p', 'deck-analysis-note', `${stats.counts.unknown} 张牌缺少卡牌数据。`));
   root.append(grid);
