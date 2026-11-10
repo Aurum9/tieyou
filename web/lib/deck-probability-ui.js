@@ -1,12 +1,10 @@
 import { getDeckProbabilityInputs } from './deck-probability-inputs.js';
-import { openingLandStats, openingHitProbability, consecutiveLandProbabilities } from './deck-probability.js';
+import { openingLandStats, consecutiveLandProbabilities, mulliganLandStats, MULLIGAN_OPENING_HAND as OPENING_HAND } from './deck-probability.js';
 import { classifyEarlyManaCard } from './deck-early-mana-cards.js';
-import { normalizeText } from './search.js';
 
 const percent = new Intl.NumberFormat('zh-CN', { style: 'percent', maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const decimal = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
 const estimatePercent = new Intl.NumberFormat('zh-CN', { style: 'percent', maximumFractionDigits: 1 });
-const OPENING_HAND = 7;
 const MAX_HAND = 20;
 
 function el(tag, className, text) {
@@ -58,7 +56,7 @@ function renderBars(list, rows, format = formatProbability) {
 }
 
 function createEarlyManaSection(deck, cards, targets, unknownCount) {
-  const section = probabilityItem('前两回合加速');
+  const section = probabilityItem('前期加速');
   section.classList.add('deck-probability-early-mana');
   const metrics = el('div', 'deck-probability-early-mana-metrics');
   const setup = el('ul', 'deck-probability-bars');
@@ -84,7 +82,7 @@ function createEarlyManaSection(deck, cards, targets, unknownCount) {
   const profiles = new Map();
   let worker, timer;
 
-  function refresh(handSize, drawFirstTurn, includeModalLands) {
+  function refresh(handSize, drawFirstTurn, includeModalLands, mulligan) {
     clearTimeout(timer);
     worker?.terminate();
     worker = undefined;
@@ -109,8 +107,10 @@ function createEarlyManaSection(deck, cards, targets, unknownCount) {
       details.hidden = !partial.length;
       summary.textContent = `${partial.reduce((sum, entry) => sum + entry.quantity, 0)} 张牌的效果未完整计入`;
       excluded.textContent = partial.map(entry => entry.name).join('、');
-      const simulationDeck = entries.map(({ landOptions, ramp, quantity }) => ({ landOptions, ramp, quantity }));
-      if (unknownCount) simulationDeck.push({ landOptions: [], ramp: null, quantity: unknownCount });
+      const simulationDeck = entries.map(({ landOptions, ramp, quantity, earlyManaLand }) => ({
+        landOptions, ramp, quantity, isLandForMulligan: Boolean(earlyManaLand),
+      }));
+      if (unknownCount) simulationDeck.push({ landOptions: [], ramp: null, quantity: unknownCount, isLandForMulligan: false });
 
       try {
         const current = new Worker(new URL('./deck-early-mana-worker.js', import.meta.url), { type: 'module' });
@@ -123,18 +123,19 @@ function createEarlyManaSection(deck, cards, targets, unknownCount) {
             status.textContent = '加速概率估算失败';
             return;
           }
-          renderBars(setup, data.turns.map(({ turn, setupProbability }) => ({
+          renderBars(setup, data.turns.filter(({ setupProbability }) => Number.isFinite(setupProbability)).map(({ turn, setupProbability }) => ({
             label: `到第 ${turn} 回合`, probability: setupProbability,
           })), estimatePercent.format);
           renderBars(available, data.turns.map(({ turn, threshold, probability }) => ({
             label: `第 ${turn} 回合 · 可用 ≥${threshold} 费`, probability,
           })), estimatePercent.format);
           metrics.hidden = false;
-          status.textContent = `扣除加速费用后计算可用法术力 · ${data.trials.toLocaleString('zh-CN')} 局抽样`;
+          const limit = data.limitedTrials ? ` · ${data.limitedTrials.toLocaleString('zh-CN')} 局按已找到的出牌顺序保守估算` : '';
+          status.textContent = `扣除加速费用后计算可用法术力 · ${data.trials.toLocaleString('zh-CN')} 局抽样${limit}`;
         };
         current.onmessage = event => finish(event.data);
         current.onerror = () => finish();
-        current.postMessage({ cards: simulationDeck, options: { handSize, drawFirstTurn } });
+        current.postMessage({ cards: simulationDeck, options: { handSize, drawFirstTurn, mulligan } });
       } catch {
         worker?.terminate();
         worker = undefined;
@@ -145,66 +146,65 @@ function createEarlyManaSection(deck, cards, targets, unknownCount) {
   return { section, refresh };
 }
 
-function createTargetPicker(targets, onChange) {
-  const section = probabilityItem('起手命中');
-  const result = output('至少抓到一张已选牌');
-  const query = el('input', 'deck-input deck-probability-target-query');
-  query.type = 'search';
-  query.placeholder = '搜索主牌';
-  query.setAttribute('aria-label', '搜索起手目标牌');
-  const chips = el('div', 'deck-probability-selected');
-  const list = el('div', 'deck-probability-target-list');
-  list.setAttribute('role', 'group');
-  list.setAttribute('aria-label', '起手目标牌');
-  const selected = new Set();
-  const lookup = targets.map(target => ({
-    ...target, search: [target.name, ...target.aliases].map(normalizeText),
-  }));
-
-  function update() {
-    const chosen = lookup.filter(target => selected.has(target.id));
-    chips.replaceChildren(...chosen.map(target => {
-      const remove = el('button', 'button button-quiet', `${target.name} ×`);
-      remove.type = 'button';
-      remove.setAttribute('aria-label', `取消选择 ${target.name}`);
-      remove.addEventListener('click', () => {
-        selected.delete(target.id);
-        renderList();
-        update();
-        query.focus();
-      });
-      return remove;
-    }));
-    chips.hidden = chosen.length === 0;
-    onChange(chosen.reduce((sum, target) => sum + target.count, 0), result.element);
+function createMulliganSettings() {
+  const fields = el('fieldset', 'deck-probability-mulligan-settings');
+  fields.append(el('legend', '', '调度策略'));
+  const landField = el('fieldset', 'deck-probability-land-choices');
+  landField.append(el('legend', '', '保留地牌张数'));
+  const choices = Array.from({ length: 6 }, (_, index) => {
+    const lands = index + 1;
+    const choice = checkbox(`${lands} 张`, lands >= 2 && lands <= 4);
+    landField.append(choice.field);
+    return { lands, input: choice.input };
+  });
+  const minimum = el('select', 'deck-input');
+  for (const size of [7, 6, 5]) {
+    const option = el('option', '', `${size} 张`);
+    option.value = String(size);
+    minimum.append(option);
   }
+  minimum.value = '6';
+  const minimumField = el('label', 'deck-probability-hand-size');
+  minimumField.append(el('span', '', '最低手牌'), minimum);
+  const note = el('p', 'deck-analysis-note');
+  note.setAttribute('role', 'status');
+  fields.append(landField, minimumField, note);
+  return { fields, choices, minimum, note };
+}
 
-  function renderList() {
-    const term = normalizeText(query.value || '');
-    const matches = lookup.filter(target => target.search.some(text => text.includes(term)));
-    if (!matches.length) {
-      list.replaceChildren(el('p', 'deck-analysis-empty', '没有匹配的主牌'));
-      return;
-    }
-    list.replaceChildren(...matches.map(target => {
-      const control = checkbox(target.name, selected.has(target.id));
-      control.field.classList.add('deck-probability-target');
-      control.field.append(el('small', '', `×${target.count}`));
-      control.input.setAttribute('aria-label', target.name);
-      control.input.addEventListener('change', () => {
-        if (control.input.checked) selected.add(target.id);
-        else selected.delete(target.id);
-        update();
-      });
-      return control.field;
-    }));
+function createMulliganResult() {
+  const section = probabilityItem('调度后保留手牌');
+  section.classList.add('deck-probability-mulligan-result');
+  section.hidden = true;
+  const expectation = output('平均地牌数');
+  const metrics = el('div', 'deck-probability-mulligan-metrics');
+  const handSizes = el('ul', 'deck-probability-bars');
+  const lands = el('ul', 'deck-probability-bars');
+  for (const [label, list] of [['保留手牌张数', handSizes], ['地牌张数分布', lands]]) {
+    const group = el('div');
+    list.setAttribute('aria-label', label);
+    group.append(el('h4', '', label), list);
+    metrics.append(group);
   }
+  section.append(expectation.row, metrics);
+  return { section, expectation, handSizes, lands };
+}
 
-  query.addEventListener('input', renderList);
-  renderList();
-  chips.hidden = true;
-  section.append(result.row, query, chips, list);
-  return section;
+function createLandComparison() {
+  const table = el('table', 'deck-probability-comparison');
+  table.setAttribute('aria-label', '连续下地概率比较');
+  table.hidden = true;
+  const head = el('thead');
+  const row = el('tr');
+  for (const label of ['回合', '无调度', '按调度策略']) {
+    const cell = el('th', '', label);
+    cell.scope = 'col';
+    row.append(cell);
+  }
+  head.append(row);
+  const body = el('tbody');
+  table.append(head, body);
+  return { table, body };
 }
 
 export function createDeckProbability(deck, cards) {
@@ -233,67 +233,101 @@ export function createDeckProbability(deck, cards) {
   handField.append(el('span', '', '起手张数'), hand);
   const firstTurn = checkbox('首回合抓牌', true);
   const modal = checkbox(`咒语／地双面牌也算地（${modalLandCount} 张）`, false);
+  const strategy = checkbox('按调度策略', false);
+  const mulliganSettings = createMulliganSettings();
   const settings = el('div', 'deck-probability-settings');
   settings.append(handField, firstTurn.field);
   if (modalLandCount) settings.append(modal.field);
+  settings.append(strategy.field);
 
   const scope = el('p', 'deck-analysis-note');
-  const opening = probabilityItem('起手地牌');
+  const opening = probabilityItem('无调度起手地牌');
   const expectation = output('平均地牌数');
   const distribution = el('ul', 'deck-probability-bars');
-  distribution.setAttribute('aria-label', '起手地牌张数分布');
+  distribution.setAttribute('aria-label', '无调度起手地牌张数分布');
   opening.append(expectation.row, distribution);
 
   const streak = probabilityItem('连续下地');
   const byTurn = el('ul', 'deck-probability-bars');
   byTurn.setAttribute('aria-label', '每回合连续下地概率');
-  streak.append(el('p', 'deck-analysis-note', '从第 1 回合起每回合都下地'), byTurn);
+  const comparison = createLandComparison();
+  streak.append(el('p', 'deck-analysis-note', '从第 1 回合起每回合都下地'), byTurn, comparison.table);
+  const mulliganResult = createMulliganResult();
   const earlyMana = createEarlyManaSection(deck, cards, targets, unknownCount);
 
   function requestedHandSize() {
+    if (strategy.input.checked) return OPENING_HAND;
     const size = Number(hand.value);
     return Number.isInteger(size) && size >= 1 && size <= MAX_HAND ? size : null;
   }
-  let selectedCopies = 0, hitOutput;
-  function updateHit() {
-    const size = requestedHandSize();
-    if (!hitOutput) return;
-    hitOutput.value = size && selectedCopies ? formatProbability(openingHitProbability(deckSize, selectedCopies, size)) : '—';
-  }
-  const picker = createTargetPicker(targets, (copies, node) => {
-    selectedCopies = copies;
-    hitOutput = node;
-    updateHit();
-  });
 
+  let customHandSize = hand.value;
   function refresh() {
+    const active = strategy.input.checked;
+    mulliganSettings.fields.hidden = !active;
+    mulliganSettings.fields.disabled = !active;
+    const keepLandCounts = mulliganSettings.choices.filter(({ input }) => input.checked).map(({ lands }) => lands);
+    const mulligan = active && keepLandCounts.length ? {
+      keepLandCounts, minimumHandSize: Number(mulliganSettings.minimum.value),
+    } : null;
+    mulliganSettings.note.textContent = mulligan
+      ? '首次调度免费 · 到最低手牌张数时保留'
+      : '请选择至少一种保留地牌张数';
+    mulliganResult.section.hidden = !mulligan;
+    comparison.table.hidden = !mulligan;
+    byTurn.hidden = Boolean(mulligan);
     const size = requestedHandSize();
-    earlyMana.refresh(size, firstTurn.input.checked, modal.input.checked);
+    const drawFirstTurn = firstTurn.input.checked;
+    earlyMana.refresh(active && !mulligan ? null : size, drawFirstTurn, modal.input.checked, mulligan);
     if (size === null) {
       scope.textContent = `起手张数需为 1–${MAX_HAND} 的整数。`;
       expectation.element.value = '—';
       distribution.replaceChildren();
       byTurn.replaceChildren();
-      updateHit();
       return;
     }
     const lands = landCount + (modal.input.checked ? modalLandCount : 0);
     const stats = openingLandStats(deckSize, lands, size);
     expectation.element.value = `${decimal.format(stats.expected)} 张`;
     const shortHand = stats.handSize < size ? ` · 实际抽 ${stats.handSize} 张` : '';
-    scope.textContent = `牌库 ${deckSize} 张 · 地牌 ${lands} 张${shortHand} · 无调度，按自然抓牌计算`;
+    scope.textContent = `牌库 ${deckSize} 张 · 地牌 ${lands} 张${shortHand} · 按自然抓牌计算`;
     renderBars(distribution, stats.distribution.map(({ lands, probability }) => ({ label: `${lands} 张`, probability })));
-    const turns = consecutiveLandProbabilities(deckSize, lands, { handSize: size, drawFirstTurn: firstTurn.input.checked });
-    renderBars(byTurn, turns.map(({ turn, probability }) => ({ label: `到第 ${turn} 回合`, probability })));
-    updateHit();
+    const turns = consecutiveLandProbabilities(deckSize, lands, { handSize: size, drawFirstTurn });
+    if (!mulligan) {
+      renderBars(byTurn, turns.map(({ turn, probability }) => ({ label: `到第 ${turn} 回合`, probability })));
+      return;
+    }
+    const kept = mulliganLandStats(deckSize, lands, { ...mulligan, drawFirstTurn });
+    mulliganResult.expectation.element.value = `${decimal.format(kept.expected)} 张`;
+    renderBars(mulliganResult.handSizes, kept.handSizes.map(({ handSize, probability }) => ({ label: `${handSize} 张`, probability })));
+    renderBars(mulliganResult.lands, kept.distribution.map(({ lands, probability }) => ({ label: `${lands} 张`, probability })));
+    comparison.body.replaceChildren(...turns.map(({ turn, probability }, index) => {
+      const row = el('tr');
+      const label = el('th', '', `第 ${turn} 回合`);
+      label.scope = 'row';
+      row.append(label, el('td', '', formatProbability(probability)), el('td', '', formatProbability(kept.turns[index].probability)));
+      return row;
+    }));
   }
 
+  strategy.input.addEventListener('change', () => {
+    if (strategy.input.checked) {
+      customHandSize = hand.value;
+      hand.value = String(OPENING_HAND);
+    } else {
+      hand.value = customHandSize;
+    }
+    hand.disabled = strategy.input.checked;
+    refresh();
+  });
   hand.addEventListener('input', refresh);
   firstTurn.input.addEventListener('change', refresh);
   modal.input.addEventListener('change', refresh);
+  for (const { input } of mulliganSettings.choices) input.addEventListener('change', refresh);
+  mulliganSettings.minimum.addEventListener('change', refresh);
   const grid = el('div', 'deck-probability-grid');
-  grid.append(opening, picker, streak, earlyMana.section);
-  section.append(settings, scope);
+  grid.append(opening, streak, mulliganResult.section, earlyMana.section);
+  section.append(settings, mulliganSettings.fields, scope);
   if (unknownCount) section.append(el('p', 'deck-analysis-note', `${unknownCount} 张主牌缺少卡牌数据，地牌概率按已识别的地牌计算。`));
   section.append(grid);
   refresh();

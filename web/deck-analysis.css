@@ -452,13 +452,51 @@ button.deck-analysis-token {
   font-size: 13px;
 }
 
-.deck-probability :where(.deck-probability-target, .deck-check-label) input[type="checkbox"] {
+.deck-probability .deck-check-label input[type="checkbox"] {
   flex-shrink: 0;
+}
+
+.deck-probability-mulligan-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  min-width: 0;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.deck-probability-mulligan-settings legend {
+  padding-inline: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.deck-probability-land-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.deck-probability-land-choices .deck-check-label {
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.deck-probability-mulligan-settings > .deck-analysis-note {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 .deck-probability-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-block: 12px;
 }
@@ -476,17 +514,18 @@ button.deck-analysis-token {
   line-height: 1.4;
 }
 
-.deck-probability-early-mana {
+.deck-probability-early-mana,
+.deck-probability-mulligan-result {
   grid-column: 1 / -1;
 }
 
-.deck-probability-early-mana-metrics:not([hidden]) {
+:is(.deck-probability-early-mana-metrics, .deck-probability-mulligan-metrics):not([hidden]) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 24px;
 }
 
-.deck-probability-early-mana-metrics h4 {
+:is(.deck-probability-early-mana-metrics, .deck-probability-mulligan-metrics) h4 {
   margin: 0 0 6px;
   font-size: 12px;
   color: var(--muted);
@@ -543,65 +582,39 @@ button.deck-analysis-token {
   background: #edf0e9;
 }
 
-.deck-probability-target-list {
-  max-height: 158px;
-  overflow-y: auto;
-  margin-top: 6px;
-}
-
-.deck-probability-target {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 4px 6px;
-  border-radius: 5px;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-
-.deck-probability-target:hover,
-.deck-probability-target:focus-within {
-  background: #eff4eb;
-}
-
-.deck-probability-selected {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-block: 8px;
-}
-
-.deck-probability-selected:empty {
-  display: none;
-}
-
-.deck-probability-selected button {
-  min-width: 0;
-  max-width: 100%;
-  min-height: 30px;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #eff4eb;
-  color: var(--ink);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.deck-probability-target-query {
+.deck-probability-comparison {
   width: 100%;
-  min-width: 0;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-probability-comparison :is(th, td) {
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.deck-probability-comparison th:first-child {
+  text-align: left;
+}
+
+.deck-probability-comparison tbody th {
+  font-weight: 400;
+}
+
+.deck-probability-comparison tbody td:last-child {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 @media (max-width: 780px) {
   .deck-probability-grid,
-  .deck-probability-early-mana-metrics:not([hidden]) {
+  :is(.deck-probability-early-mana-metrics, .deck-probability-mulligan-metrics):not([hidden]) {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .deck-probability-target,
+  .deck-probability-land-choices .deck-check-label,
   .deck-probability-settings .deck-check-label {
     min-height: 44px;
   }

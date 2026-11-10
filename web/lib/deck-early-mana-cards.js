@@ -135,5 +135,5 @@ export function classifyEarlyManaCard(card, { commanderColors = [], includeModal
   if (!ramp && spell && (card.tags || []).some(tag => TAGS.has(typeof tag === 'string' ? tag : tag?.slug || tag?.name))) {
     excluded.ramp = '加速条件未建模';
   }
-  return { landOptions, ramp, excluded };
+  return { landOptions, ramp, excluded, earlyManaLand: landFaces.some(face => typesOf(face).land) };
 }

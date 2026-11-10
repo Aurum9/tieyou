@@ -14,12 +14,16 @@ const tomb = card('Land', '', '{T}: Add {C}{C}. This land deals 2 damage to you.
 const ritual = card('Instant', '{B}', 'Add {B}{B}.');
 const talisman = { ...card('Artifact', '', 'Suspend 3—{1}\n{T}: Add {C}{C}.'), tags: ['ramp'] };
 
-function estimate(cards, options = {}) {
+function estimateTurns(cards, options = {}) {
   const profiles = cards.map(({ quantity, ...source }) => ({
     ...classifyEarlyManaCard(source, { commanderColors: ['G'] }), quantity,
   }));
   return earlyManaProbabilities(profiles, { handSize: 7, drawFirstTurn: false, trials: 8, ...options })
-    .turns.map(({ setupProbability, probability }) => [setupProbability, probability]);
+    .turns;
+}
+
+function estimate(cards, options = {}) {
+  return estimateTurns(cards, options).slice(0, 2).map(({ setupProbability, probability }) => [setupProbability, probability]);
 }
 
 test('two-turn estimates distinguish establishing an accelerator from having extra mana to spend', () => {
@@ -41,4 +45,27 @@ test('two-turn estimates require the right color, timing, and an available mana 
   assert.deepEqual(estimate([forest, talisman]), [[0, 0], [0, 0]]);
   assert.ok(classifyEarlyManaCard(talisman).excluded.ramp);
   assert.deepEqual(estimate([tomb], { handSize: 0, drawFirstTurn: true }), [[1, 1], [1, 0]]);
+});
+
+test('turn three measures four spendable mana with the same cards and earlier setup', () => {
+  const threeForests = { ...forest, quantity: 3 };
+  assert.deepEqual(estimateTurns([threeForests, elf])[2], { turn: 3, threshold: 4, probability: 1 });
+  assert.equal(estimateTurns([forest, elf])[2].probability, 0);
+  assert.equal(estimateTurns([tomb], { handSize: 0 })[2].probability, 0);
+  assert.equal(estimateTurns([{ ...tomb, quantity: 2 }], { handSize: 0 })[2].probability, 1);
+});
+
+test('paid London mulligans preserve a ramp spell if possible and draw bottomed copies in order', () => {
+  const ring = card('Artifact', '{1}', '{T}: Add {C}{C}.');
+  const filler = card('Sorcery', '{4}', 'Draw a card.', 3);
+  const keepRamp = { keepLandCounts: [4], minimumHandSize: 6 };
+  assert.deepEqual(estimate([{ ...forest, quantity: 3 }, ring, filler], { mulligan: keepRamp }), [[1, 1], [1, 1]]);
+
+  const shortDeck = [{ ...forest, quantity: 5 }, tomb];
+  const mulligan = { keepLandCounts: [5], minimumHandSize: 5 };
+  const rows = estimateTurns(shortDeck, { mulligan, trials: 40 });
+  assert.ok(rows[0].probability > 0 && rows[0].probability < 1);
+  assert.equal(rows[1].probability, 1);
+  assert.equal(rows[2].probability, 1);
+  assert.deepEqual(estimate(shortDeck, { mulligan, drawFirstTurn: true }), [[1, 1], [1, 1]]);
 });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  consecutiveLandProbabilities, openingHitProbability, openingLandStats,
+  chooseMulliganLandCount, consecutiveLandProbabilities, mulliganLandStats, openingHitProbability, openingLandStats,
 } from '../web/lib/deck-probability.js';
 
 function choose(n, k) {
@@ -71,4 +71,33 @@ test('empty and short libraries, duplicate quantities and input limits stay well
   assert.throws(() => openingLandStats(2, 3), RangeError);
   assert.throws(() => openingHitProbability(99, 1, 1.5), RangeError);
   assert.throws(() => consecutiveLandProbabilities(99, 36, { turns: 1001 }), RangeError);
+});
+
+test('the free London redraw improves the odds without reducing the hand size', () => {
+  const stats = openingLandStats(99, 36);
+  const keep = stats.distribution.filter(({ lands }) => [2, 3, 4].includes(lands))
+    .reduce((total, row) => total + row.probability, 0);
+  const free = mulliganLandStats(99, 36, { minimumHandSize: 7 });
+  close(free.handSizes[0].probability, 1);
+  assert.equal(free.handSizes.length, 1);
+  const keptInRange = free.distribution.filter(({ lands }) => [2, 3, 4].includes(lands))
+    .reduce((total, row) => total + row.probability, 0);
+  close(keptInRange, 1 - (1 - keep) ** 2);
+
+  const paid = mulliganLandStats(99, 36);
+  close(paid.handSizes[1].probability, (1 - keep) ** 2);
+  assert.ok(paid.turns[3].probability > free.turns[3].probability);
+  assert.ok(paid.turns.every((row, index) => index === 0 || row.probability <= paid.turns[index - 1].probability));
+});
+
+test('a paid redraw accepts reachable land counts after bottoming, and only draws the bottomed card after the top', () => {
+  assert.deepEqual(chooseMulliganLandCount(3, 7, 1, [2]), { lands: 2, acceptable: true });
+  assert.deepEqual(chooseMulliganLandCount(3, 7, 1, [4]), { lands: 3, acceptable: false });
+  const options = { keepLandCounts: [3], minimumHandSize: 6 };
+  const paid = mulliganLandStats(7, 4, { ...options, turns: 5 });
+  assert.deepEqual(paid.handSizes, [{ handSize: 7, probability: 0 }, { handSize: 6, probability: 1 }]);
+  close(paid.distribution[3].probability, 1);
+  assert.deepEqual(paid.turns.map(row => row.probability), [1, 1, 1, 1, 0]);
+  const flooded = mulliganLandStats(7, 7, { keepLandCounts: [2, 3, 4], minimumHandSize: 5 });
+  close(flooded.distribution[5].probability, 1);
 });

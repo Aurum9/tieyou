@@ -1,4 +1,5 @@
 const MAX_STEPS = 1000;
+export const MULLIGAN_OPENING_HAND = 7;
 
 function checkCount(value, max, label) {
   if (!Number.isSafeInteger(value) || value < 0 || value > max) {
@@ -83,4 +84,85 @@ export function consecutiveLandProbabilities(deckSize, landCount, { handSize = 7
     results.push({ turn, probability });
   }
   return results;
+}
+
+export function maximumMulliganAttempts(drawnCards, minimumHandSize) {
+  return 2 + Math.max(0, drawnCards - minimumHandSize);
+}
+
+export function chooseMulliganLandCount(drawnLands, drawnCards, bottomCount, keepLandCounts) {
+  const fewest = Math.max(0, drawnLands - bottomCount);
+  const most = Math.min(drawnLands, drawnCards - bottomCount);
+  const closest = Math.max(fewest, Math.min(3, most));
+  let accepted = null;
+  for (let lands = most; lands >= fewest; lands--) {
+    if (keepLandCounts.includes(lands) && (accepted === null || Math.abs(lands - 3) < Math.abs(accepted - 3))) {
+      accepted = lands;
+    }
+  }
+  return { lands: accepted ?? closest, acceptable: accepted !== null };
+}
+
+export function mulliganLandStats(deckSize, landCount, {
+  keepLandCounts = [2, 3, 4], minimumHandSize = 6, drawFirstTurn = true, turns = 5,
+} = {}) {
+  const drawnCards = openingSize(deckSize, landCount, MULLIGAN_OPENING_HAND);
+  checkCount(turns, MAX_STEPS, '回合数');
+  if (![5, 6, 7].includes(minimumHandSize)) throw new RangeError('最低保留张数须为 5、6 或 7');
+  if (!Array.isArray(keepLandCounts) || keepLandCounts.some(count => ![1, 2, 3, 4, 5, 6].includes(count))) {
+    throw new RangeError('保留地牌张数须在 1–6 之间');
+  }
+  if (typeof drawFirstTurn !== 'boolean') throw new TypeError('首回合抓牌设置须为布尔值');
+
+  const opening = openingMasses(deckSize, landCount, drawnCards);
+  const distribution = Array.from({ length: drawnCards + 1 }, (_, lands) => ({ lands, probability: 0 }));
+  const results = Array.from({ length: turns }, (_, index) => ({ turn: index + 1, probability: 0 }));
+  const handSizes = new Map();
+  const topSize = deckSize - drawnCards;
+  const attempts = maximumMulliganAttempts(drawnCards, minimumHandSize);
+  let remaining = 1;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const bottomCount = Math.max(0, attempt - 1);
+    const handSize = drawnCards - bottomCount;
+    let retry = 0;
+    const keptHandSize = handSizes.get(handSize) ?? { handSize, probability: 0 };
+    handSizes.set(handSize, keptHandSize);
+    for (const [drawnLands, probability] of opening.entries()) {
+      const weight = probability * remaining;
+      if (!weight) continue;
+      const { lands, acceptable } = chooseMulliganLandCount(drawnLands, drawnCards, bottomCount, keepLandCounts);
+      if (!acceptable && attempt < attempts - 1) {
+        retry += weight;
+        continue;
+      }
+      distribution[lands].probability += weight;
+      keptHandSize.probability += weight;
+
+      // The random cards above the bottomed hand contain none of the seven just seen.
+      const topAndHandLands = landCount - drawnLands + lands;
+      let masses = Array(lands + 1).fill(0);
+      masses[lands] = weight;
+      let drawn = 0;
+      for (const result of results) {
+        if ((result.turn > 1 || drawFirstTurn) && drawn < topSize + bottomCount) {
+          masses = drawn < topSize
+            ? draw(masses, topSize - drawn, topAndHandLands)
+            : draw(masses, topSize + bottomCount - drawn, landCount);
+          drawn++;
+        }
+        masses.fill(0, 0, result.turn);
+        const success = masses.reduce((sum, mass) => sum + mass, 0);
+        if (!success) break;
+        result.probability += success;
+      }
+    }
+    remaining = retry;
+  }
+  return {
+    distribution,
+    handSizes: [...handSizes.values()],
+    expected: distribution.reduce((sum, row) => sum + row.lands * row.probability, 0),
+    turns: results.map(row => ({ ...row, probability: Math.min(1, row.probability) })),
+  };
 }
