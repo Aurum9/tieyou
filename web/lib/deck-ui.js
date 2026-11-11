@@ -1,8 +1,13 @@
 import { DeckStore, defaultVersion, getVersion, findCardCandidates, getCommanderIdentity, validateDeck, parseDeckText, rowToEntry, exportDeckText, exportDeckBackup, parseDeckBackup } from './decks.js';
 import { createDeckAnalysis } from './deck-analysis-ui.js';
+import { getDeckCategories, getDeckEntryCategory, groupDeckEntries } from './deck-editor-groups.js';
+import { applyDeckCardColor, createDeckCardImage } from './deck-editor-views.js';
+import { createDeckEditorDrag } from './deck-editor-drag.js';
 import { normalizeText } from './search.js';
 
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
+const editorZones = { commander: '指挥官', main: '主牌', considering: '备牌' };
+const deckViews = [['text', '文本'], ['cards', '卡图'], ['stack', '叠放']];
 const entryIssueLabels = {
   duplicate: '重复',
   quantity: '数量无效',
@@ -47,7 +52,7 @@ function modal(title, { wide = false, onClose } = {}) {
   return { panel, close, overlay };
 }
 
-export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, loadDeckCards, loadCardsByIds, findCandidates, resolveDeckText, loadCardDetails, onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {} }) {
+export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, loadDeckCards, loadCardsByIds, findCandidates, resolveDeckText, loadCardDetails, renderManaCost = value => el('span', '', value), onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {} }) {
   let index = new Map(cards.map(card => [card.id, card]));
   let loadingCards = null;
   let openingId = null;
@@ -56,6 +61,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   let selectedId = null;
   let analysisOpen = false;
   let groupBy = 'type';
+  let viewMode = 'text';
+  let editorDrag;
   let disposeAddSearch;
   const identitySearchPreferences = new Map();
   const searchDrafts = new Map();
@@ -163,8 +170,67 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }
   }
   function saveEntry(entryId, changes, errorTarget) {
-    return run(() => { const deck = store.get(selectedId); const entry = deck.entries.find(item => item.id === entryId); Object.assign(entry, changes); return store.save(deck); }, { errorTarget });
+    return run(() => {
+      const deck = store.get(selectedId);
+      const entry = deck?.entries.find(item => item.id === entryId);
+      if (!entry) throw new Error('这张牌已移出卡组');
+      Object.assign(entry, changes);
+      return store.save(deck);
+    }, { errorTarget });
   }
+
+  function moveEntry(entryId, destination) {
+    const deck = store.get(selectedId);
+    const entry = deck?.entries.find(item => item.id === entryId);
+    if (!entry) return;
+    if (Object.hasOwn(destination, 'category')) {
+      const names = getDeckCategories(deck);
+      const next = destination.category;
+      if (next === getDeckEntryCategory(entry) || (next !== null && !names.includes(next))) return;
+      run(() => {
+        deck.customCategories = names;
+        entry.categories = next === null ? [] : [next];
+        return store.save(deck);
+      });
+    } else if (Object.hasOwn(editorZones, destination.zone) && entry.zone !== destination.zone) {
+      saveEntry(entryId, { zone: destination.zone });
+    }
+  }
+
+  function editCategory(deckId, previous = null, remove = false) {
+    const current = dialog(remove ? '删除分类' : previous === null ? '新建分类' : '分类改名');
+    const form = el('form', 'deck-stack');
+    const name = input(previous || ''); name.maxLength = 100;
+    const error = el('p', 'deck-form-error'); error.hidden = true;
+    const submit = button(remove ? '删除分类' : '保存分类', () => {}, remove ? 'button deck-danger' : 'button button-primary');
+    submit.type = 'submit';
+    if (remove) form.append(el('p', '', `「${previous}」中的牌将移到未分类。`));
+    else form.append(field('分类名称', name));
+    form.append(error, submit);
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      const saved = run(() => {
+        const deck = store.get(deckId);
+        if (!deck) throw new Error('卡组已不存在');
+        const names = getDeckCategories(deck);
+        if (previous !== null && !names.includes(previous)) throw new Error('分类已不存在');
+        const next = remove ? null : name.value.trim();
+        if (!remove && (!next || next === '未分类')) throw new Error('请输入其他分类名称');
+        if (next !== previous && names.includes(next)) throw new Error('已有同名分类');
+        deck.customCategories = previous === null ? [...names, next] : names.map(category => category === previous ? next : category).filter(Boolean);
+        if (previous !== null && next !== previous) {
+          for (const entry of deck.entries) {
+            if (getDeckEntryCategory(entry) === previous) entry.categories = next === null ? [] : [next, ...entry.categories.slice(1)];
+          }
+        }
+        return store.save(deck);
+      }, { refresh: false, errorTarget: error });
+      if (saved) { current.close(); render(); }
+    });
+    current.panel.append(form);
+    if (!remove) queueMicrotask(() => name.focus());
+  }
+
   function renderEditor(deck) {
     const back = button('← 卡组库', showLibrary); container.append(back);
     const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('h1', '', deck.name));
@@ -226,57 +292,111 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       checks.append(list); container.append(checks);
     }
     renderAddSearch(deck);
-    const listHeader = el('div', 'deck-list-heading'); listHeader.append(el('h2', '', '卡组牌表'));
-    const grouping = select([['type', '按卡牌类型'], ['mana', '按法术力值'], ['category', '按个人分类']], groupBy); grouping.setAttribute('aria-label', '牌表整理方式'); grouping.addEventListener('change', () => { groupBy = grouping.value; render(); }); listHeader.append(grouping); container.append(listHeader);
-    if (!deck.entries.length) { const empty = el('div', 'deck-empty deck-empty-small'); empty.append(el('h3', '', '暂无卡牌')); container.append(empty); }
-    for (const zone of ['commander', 'main', 'considering']) {
-      const entries = deck.entries.filter(entry => entry.zone === zone); if (!entries.length) continue;
-      const section = el('section', 'deck-zone'); const total = entries.reduce((sum, entry) => sum + entry.quantity, 0); section.append(el('h2', 'deck-zone-title', `${zoneNames[zone]} · ${total}`));
-      const groups = new Map();
-      for (const entry of entries) {
-        const card = index.get(entry.cardId);
-        let key = '未分类';
-        if (groupBy === 'mana') key = `法术力值 ${card?.manaValue ?? '未知'}`;
-        else if (groupBy === 'category') key = entry.categories.length ? entry.categories.join(' / ') : '未分类';
-        else key = card ? shortType(card) : '当前卡库缺失';
-        if (!groups.has(key)) groups.set(key, []); groups.get(key).push(entry);
-      }
-      for (const [key, entries] of [...groups].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN', { numeric: true }))) {
-        section.append(el('h3', 'deck-group-title', `${key} · ${entries.reduce((sum, entry) => sum + entry.quantity, 0)}`));
-        const rows = el('div', 'deck-entries');
-        for (const entry of entries.sort((a, b) => (index.get(a.cardId)?.name || a.cardId).localeCompare(index.get(b.cardId)?.name || b.cardId))) {
-          const row = entryRow(entry, entryIssues.get(entry.id));
+    renderDeckBoard(deck, entryIssues, entryRows);
+  }
+
+  function renderDeckBoard(deck, entryIssues, entryRows) {
+    const byCategory = groupBy === 'category';
+    const categoryNames = getDeckCategories(deck);
+    const listHeader = el('div', 'deck-list-heading deck-editor-toolbar');
+    const controls = el('div', 'deck-editor-controls');
+    const views = el('div', 'deck-editor-views'); views.setAttribute('role', 'group'); views.setAttribute('aria-label', '牌表视图');
+    for (const [mode, label] of deckViews) {
+      const option = button(label, () => {
+        if (viewMode === mode) return;
+        viewMode = mode; render();
+        container.querySelector?.(`[data-deck-view-mode="${mode}"]`)?.focus({ preventScroll: true });
+      }, 'deck-editor-view-button');
+      option.setAttribute('aria-pressed', String(viewMode === mode));
+      option.setAttribute('data-deck-view-mode', mode);
+      views.append(option);
+    }
+    const grouping = select([['type', '按卡牌类型'], ['mana', '按法术力值'], ['color', '按卡牌颜色'], ['category', '按个人分类']], groupBy);
+    grouping.setAttribute('aria-label', '牌表整理方式');
+    grouping.addEventListener('change', () => {
+      groupBy = grouping.value; render();
+      container.querySelector?.('[aria-label="牌表整理方式"]')?.focus({ preventScroll: true });
+    });
+    controls.append(views, grouping);
+    if (byCategory) controls.append(button('＋ 新建分类', () => editCategory(deck.id)));
+    listHeader.append(el('h2', '', '卡组牌表'), controls);
+    container.append(listHeader);
+
+    const board = el('div', `deck-editor-board deck-editor-view-${viewMode}${byCategory ? ' is-category' : ''}`);
+    if (viewMode === 'text') editorDrag = createDeckEditorDrag(board, { onMove: moveEntry });
+    const count = entries => entries.reduce((sum, entry) => sum + entry.quantity, 0);
+
+    function appendGroups(section, entries) {
+      for (const group of groupDeckEntries(entries, index, groupBy, categoryNames)) {
+        const lane = el('section', 'deck-editor-group');
+        const heading = el('div', 'deck-editor-group-title');
+        heading.append(el('h3', 'deck-group-title', `${group.label} · ${count(group.entries)}`));
+        if (byCategory && group.key !== null) {
+          const actions = el('div', 'deck-editor-category-actions');
+          const rename = button('改名', () => editCategory(deck.id, group.key));
+          const remove = button('删除', () => editCategory(deck.id, group.key, true));
+          rename.setAttribute('aria-label', `改名分类 ${group.label}`);
+          remove.setAttribute('aria-label', `删除分类 ${group.label}`);
+          actions.append(rename, remove); heading.append(actions);
+        }
+        if (byCategory) editorDrag?.registerTarget(heading, { category: group.key });
+        const rows = el('div', 'deck-editor-group-entries');
+        const ordered = [...group.entries].sort((a, b) => (index.get(a.cardId)?.name || a.cardId).localeCompare(index.get(b.cardId)?.name || b.cardId));
+        for (const entry of ordered) {
+          const row = entryRow(entry, entryIssues.get(entry.id), categoryNames);
           if (entryIssues.has(entry.id)) entryRows.set(entry.id, row);
           rows.append(row);
         }
-        section.append(rows);
+        lane.append(heading, rows); section.append(lane);
       }
-      container.append(section);
     }
+
+    if (byCategory) {
+      const section = el('div', 'deck-editor-zone deck-editor-category-zone');
+      appendGroups(section, deck.entries);
+      board.append(section);
+    } else {
+      for (const [zone, label] of Object.entries(editorZones)) {
+        const entries = deck.entries.filter(entry => entry.zone === zone);
+        const section = el('section', `deck-editor-zone${entries.length ? '' : ' is-empty'}`);
+        const heading = el('h3', 'deck-zone-title deck-editor-zone-heading', `${label} · ${count(entries)}`);
+        editorDrag?.registerTarget(heading, { zone });
+        section.append(heading); appendGroups(section, entries); board.append(section);
+      }
+    }
+    if (!deck.entries.length && !byCategory) board.append(el('p', 'deck-empty deck-empty-small', '暂无卡牌'));
+    container.append(board);
   }
-  function shortType(card) {
-    const type = card.faces?.[0]?.typeLine || card.typeLine || '';
-    for (const [english, chinese] of [['Creature', '生物'], ['Land', '地'], ['Planeswalker', '鹏洛客'], ['Instant', '瞬间'], ['Sorcery', '法术'], ['Artifact', '神器'], ['Enchantment', '结界'], ['Battle', '战役']]) if (type.includes(english)) return chinese;
-    return '其他';
-  }
-  function entryRow(entry, issues = []) {
+
+  function entryRow(entry, issues = [], categoryNames) {
     const card = index.get(entry.cardId); const wrapper = el('article', 'deck-entry'); const row = el('div', 'deck-entry-main');
-    const title = el('div', 'deck-entry-title');
-    const titleLine = el('div', 'deck-entry-card');
-    titleLine.append(button(card?.zhName || card?.name || `缺失卡牌 ${entry.cardId}`, () => card && onInspect(card), 'deck-card-link'));
+    const name = card?.zhName || card?.name || `缺失卡牌 ${entry.cardId}`;
+    const version = card ? getVersion(card, entry.versionId) : null;
+    const inspect = () => card && onInspect(card, version);
+    wrapper.setAttribute('data-entry-id', entry.id);
+    applyDeckCardColor(wrapper, card);
+    const title = el('div', 'deck-entry-card');
+    const inspectButton = button(name, inspect, 'deck-card-link deck-entry-name');
+    inspectButton.title = name;
+    title.append(inspectButton);
+    if (card?.name && card.name !== name) {
+      const english = el('span', 'deck-entry-english', card.name); english.title = card.name; title.append(english);
+    }
+    let badges;
     if (issues.length) {
       wrapper.tabIndex = -1;
-      const badges = el('div', 'deck-entry-issues');
+      badges = el('div', 'deck-entry-issues');
       for (const issue of issues) {
         const badge = el('span', 'deck-entry-issue', entryIssueLabels[issue.code] || issue.message);
         badge.title = issue.message;
         badges.append(badge);
       }
-      titleLine.append(badges);
+      if (viewMode === 'text') title.append(badges);
     }
-    title.append(titleLine, el('small', 'deck-muted', card ? `${card.name} ${card.manaCost || ''}` : '请保留 JSON 备份并更新卡库'));
-    const quantity = quantityInput(entry.quantity); quantity.addEventListener('change', () => saveEntry(entry.id, { quantity: Number(quantity.value) }));
-    const zone = select(Object.entries(zoneNames), entry.zone); zone.setAttribute('aria-label', '牌张分区'); zone.addEventListener('change', () => saveEntry(entry.id, { zone: zone.value }));
+    const quantity = quantityInput(entry.quantity); quantity.classList.add('deck-entry-quantity');
+    quantity.addEventListener('change', () => saveEntry(entry.id, { quantity: Number(quantity.value) }));
+    const zone = select(Object.entries(editorZones), entry.zone); zone.setAttribute('aria-label', '牌张分区');
+    zone.addEventListener('change', () => moveEntry(entry.id, { zone: zone.value }));
     const versions = card?.versions?.length ? card.versions.map(version => [version.id, printingName(version)]) : [[entry.versionId, '默认版本']];
     if (!versions.some(([id]) => id === entry.versionId)) versions.unshift([entry.versionId, '当前版本缺失']);
     if (loadCardDetails && card && !card.versionsComplete) versions.push(['__load_versions__', '加载其他版本…']);
@@ -298,11 +418,36 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     };
     printing.addEventListener('focus', completeVersions);
     printing.addEventListener('change', () => { if (printing.value === '__load_versions__') { printing.value = entry.versionId; void completeVersions(); } else saveEntry(entry.id, { versionId: printing.value }); });
-    const remove = button('移除', () => run(() => { const deck = store.get(selectedId); deck.entries = deck.entries.filter(item => item.id !== entry.id); return store.save(deck); })); remove.setAttribute('aria-label', `移除 ${card?.zhName || card?.name || '卡牌'}`);
-    row.append(title, quantity, zone, printing, remove); wrapper.append(row);
-    const details = el('details', 'deck-entry-details'); details.append(el('summary', '', entry.categories.length || entry.notes ? `分类 / 备注${entry.categories.length ? ` · ${entry.categories.join('、')}` : ''}` : '分类 / 备注'));
-    const categories = input(entry.categories.join('，')); categories.placeholder = '例如：加速，核心，待替换'; const notes = el('textarea', 'deck-input'); notes.value = entry.notes; notes.rows = 2;
-    details.append(field('个人分类（逗号分隔）', categories), field('备注', notes), button('保存分类与备注', () => saveEntry(entry.id, { categories: categories.value.split(/[,，]/).map(item => item.trim()).filter(Boolean), notes: notes.value }), 'button button-quiet')); wrapper.append(details); return wrapper;
+    const remove = button('移除', () => run(() => { const deck = store.get(selectedId); deck.entries = deck.entries.filter(item => item.id !== entry.id); return store.save(deck); }), 'button deck-danger');
+    remove.setAttribute('aria-label', `移除 ${name}`);
+    const actions = el('details', 'deck-entry-actions');
+    const trigger = el('summary', 'deck-entry-menu-trigger', '…');
+    trigger.setAttribute('aria-label', `操作 ${name}`); trigger.title = '卡牌操作';
+    const menu = el('div', 'deck-entry-menu');
+    menu.append(field('分区', zone), field('印刷版本', printing));
+    if (groupBy === 'category') {
+      const categories = select([['', '未分类'], ...categoryNames.map(label => [label, label])], getDeckEntryCategory(entry) || '');
+      categories.setAttribute('aria-label', '移动到分类');
+      categories.addEventListener('change', () => moveEntry(entry.id, { category: categories.value || null }));
+      menu.append(field('个人分类', categories));
+    }
+    menu.append(remove); actions.append(trigger, menu);
+
+    if (viewMode === 'text') {
+      const handle = button('⋮', () => {}, 'deck-drag-handle'); handle.tabIndex = -1;
+      handle.title = '拖动卡牌'; handle.setAttribute('aria-label', `拖动 ${name}`);
+      editorDrag?.registerHandle(handle, entry.id);
+      const mana = el('div', 'deck-entry-mana');
+      if (card?.manaCost) mana.append(renderManaCost(card.manaCost));
+      row.append(handle, quantity, title, mana, actions);
+    } else {
+      wrapper.append(createDeckCardImage({ card, version, name, onInspect: inspect }));
+      row.append(quantity);
+      if (badges) row.append(badges);
+      row.append(actions);
+    }
+    wrapper.append(row);
+    return wrapper;
   }
   function renderAddSearch(deck) {
     const section = el('section', 'deck-add-section'); section.append(el('h2', '', '添加卡牌'));
@@ -485,7 +630,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const error = el('p', 'deck-form-error'); error.hidden = true;
     const refresh = () => { try { output.value = format.value === 'json' ? exportDeckBackup(decks) : exportDeckText(decks[0], cards, { chinese: format.value === 'zh' }); error.hidden = true; } catch (err) { notifyError(err, error); output.value = ''; } }; format.addEventListener('change', refresh); refresh();
     const actions = el('div', 'deck-actions'); actions.append(button('下载文件', () => { if (!output.value) return; download(output.value, `${safeFilename(deck?.name || '全部卡组备份')}.${format.value === 'json' ? 'json' : 'txt'}`, format.value === 'json' ? 'application/json' : 'text/plain'); }, 'button button-primary'), button('复制内容', async () => { try { await navigator.clipboard.writeText(output.value); onNotify('导出内容已复制', 'success'); } catch { output.focus(); output.select(); onNotify('请使用系统复制操作复制已选中的内容', 'info'); } }));
-    current.panel.append(el('p', 'deck-muted', `共 ${decks.length} 套卡组。JSON 保留版本、分区、分类和备注。文本保留数量、牌名、分区与版本。`), field('格式', format), output, error, actions);
+    current.panel.append(el('p', 'deck-muted', `共 ${decks.length} 套卡组。JSON 保留版本、分区和自定义分类。文本保留数量、牌名、分区与版本。`), field('格式', format), output, error, actions);
   }
   async function importDialog() {
     const current = dialog('导入牌表与备份', { wide: true });
@@ -607,6 +752,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     current.panel.append(field('输入格式', format), nameField, field('选择本地文件（可选）', file), hint, source, error, actions, preview);
   }
   function render() {
+    editorDrag?.dispose();
+    editorDrag = undefined;
     disposeAddSearch?.();
     disposeAddSearch = undefined;
     container.replaceChildren();
@@ -632,5 +779,12 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   }
   function showLibrary() { ++openRequest; openingId = null; openingError = null; selectedId = null; analysisOpen = false; render(); }
   render();
-  return { render, addCard, quickAddCard, showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, destroy: () => { ++openRequest; disposeAddSearch?.(); disposeAddSearch = undefined; for (const current of [...openModals]) current.close(); container.replaceChildren(); } };
+  function destroy() {
+    ++openRequest;
+    editorDrag?.dispose(); editorDrag = undefined;
+    disposeAddSearch?.(); disposeAddSearch = undefined;
+    for (const current of [...openModals]) current.close();
+    container.replaceChildren();
+  }
+  return { render, addCard, quickAddCard, showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, cancelEditorDrag: () => editorDrag?.cancel(), destroy };
 }

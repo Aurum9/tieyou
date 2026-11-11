@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DeckStore, STORAGE_KEY, createDeck, newId, defaultVersion, parseDeckText, exportDeckText, exportDeckBackup, parseDeckBackup, validateDeck, findCardCandidates, getCommanderIdentity } from '../web/lib/decks.js';
+import { getDeckCategories, getDeckEntryCategory, groupDeckEntries } from '../web/lib/deck-editor-groups.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -110,6 +111,60 @@ test('JSON backup is lossless, restores safely as a new independent deck', () =>
   assert.notEqual(restored.id, original.id); assert.notEqual(restored.entries[0].id, original.entries[0].id);
   assert.deepEqual(restored.entries.map(({ id, ...entry }) => entry), original.entries.map(({ id, ...entry }) => entry));
   assert.equal(restored.description, original.description); assert.ok(store.get(existing.id));
+});
+
+test('custom categories retain empty groups across reload, copying and JSON backup', () => {
+  const storage = memoryStorage();
+  const store = new DeckStore({ storage });
+  const original = store.create('分类牌表');
+  original.customCategories = [' 资源 ', '资源', '去除'];
+  original.entries = [entry(ring, { categories: ['资源'], notes: '备注' })];
+  store.save(original);
+  const reloaded = new DeckStore({ storage });
+  const saved = reloaded.get(original.id);
+  assert.deepEqual(saved.customCategories, ['资源', '去除']);
+  const copy = reloaded.copy(original.id);
+  const [imported] = reloaded.importBackup(exportDeckBackup([saved]), { cards });
+  for (const duplicate of [copy, imported]) {
+    assert.deepEqual(duplicate.customCategories, saved.customCategories);
+    assert.equal(duplicate.entries[0].notes, '备注');
+  }
+  const legacy = JSON.parse(exportDeckBackup([saved]));
+  delete legacy.decks[0].customCategories;
+  assert.deepEqual(parseDeckBackup(legacy, cards).decks[0].customCategories, []);
+  assert.deepEqual(parseDeckBackup(legacy, cards).decks[0].entries, saved.entries);
+});
+
+test('category grouping includes legacy labels, empty groups and the uncategorized destination', () => {
+  const primary = entry(ring, { categories: ['加速'] });
+  const legacy = entry(forest, { categories: [' 地 ', '备用'], notes: '保留' });
+  const uncategorized = entry(blue);
+  const entries = [primary, legacy, uncategorized];
+  const customCategories = ['加速', '去除'];
+  assert.equal(getDeckEntryCategory(legacy), '地');
+  assert.deepEqual(getDeckCategories({ entries, customCategories }), ['加速', '去除', '地']);
+  assert.deepEqual(groupDeckEntries(entries, new Map(), 'category', customCategories), [
+    { key: null, label: '未分类', entries: [uncategorized] },
+    { key: '加速', label: '加速', entries: [primary] },
+    { key: '去除', label: '去除', entries: [] },
+    { key: '地', label: '地', entries: [legacy] },
+  ]);
+  assert.deepEqual(legacy.categories, [' 地 ', '备用']);
+});
+
+test('deck grouping uses front types, numeric mana values and actual card colors', () => {
+  const index = new Map([
+    [forest.id, { ...forest, manaValue: 0, colors: [] }],
+    [blue.id, { ...blue, manaValue: 10, colors: ['U'] }],
+    [multi.id, { ...multi, manaValue: 2.5, colors: ['G', 'U', 'G'] }],
+  ]);
+  const entries = [entry(blue), entry(multi), entry(forest), entry(ring)];
+  const keys = mode => groupDeckEntries(entries, index, mode).map(group => group.key);
+  assert.deepEqual(keys('mana'), [0, 2.5, 10, 'unknown']);
+  assert.deepEqual(keys('color'), ['U', 'C', 'UG', 'unknown']);
+  const types = groupDeckEntries(entries, index, 'type');
+  assert.equal(types.find(group => group.key === 'creature').entries[0].cardId, multi.id);
+  assert.equal(types.find(group => group.key === 'land').entries[0].cardId, forest.id);
 });
 
 test('a bad record in a multi-deck backup prevents all imports atomically', () => {

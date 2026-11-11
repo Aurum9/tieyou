@@ -14,7 +14,7 @@ function str(value, label, max = 10000, allowEmpty = true) {
 }
 export function createDeck(name = '未命名卡组') {
   const timestamp = now();
-  return { id: newId(), name: str(name.trim(), '卡组名称', 200, false), description: '', createdAt: timestamp, updatedAt: timestamp, entries: [] };
+  return { id: newId(), name: str(name.trim(), '卡组名称', 200, false), description: '', createdAt: timestamp, updatedAt: timestamp, customCategories: [], entries: [] };
 }
 function cardIndex(cards) { return new Map((cards || []).map(card => [card.id, card])); }
 export function defaultVersion(card) {
@@ -26,10 +26,13 @@ export function defaultVersion(card) {
 export function getVersion(card, versionId) { return card?.versions?.find(version => version.id === versionId); }
 function validateRecord(deck, cards) {
   if (!deck || typeof deck !== 'object' || Array.isArray(deck)) fail('卡组结构不正确');
+  const customCategories = deck.customCategories ?? [];
+  if (!Array.isArray(customCategories)) fail('个人分类格式不正确');
   const record = {
     id: str(deck.id, '卡组 ID', 200, false), name: str(deck.name, '卡组名称', 200, false),
     description: str(deck.description ?? '', '卡组说明'),
-    createdAt: str(deck.createdAt, '创建时间', 100, false), updatedAt: str(deck.updatedAt, '修改时间', 100, false), entries: []
+    createdAt: str(deck.createdAt, '创建时间', 100, false), updatedAt: str(deck.updatedAt, '修改时间', 100, false),
+    customCategories: [...new Set(customCategories.map(category => str(category, '个人分类', 100, false).trim()))], entries: []
   };
   if (!Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.updatedAt))) fail('卡组时间格式不正确');
   if (!Array.isArray(deck.entries) || deck.entries.length > 10000) fail('卡组条目格式不正确或超过上限');

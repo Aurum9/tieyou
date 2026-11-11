@@ -383,6 +383,7 @@ function showAdvancedFilters() {
 
 function switchView(view) {
   if (currentView === 'catalog' && view !== 'catalog') cancelCatalogSearch();
+  if (currentView === 'decks' && view !== 'decks') deckUI?.cancelEditorDrag();
   if (view !== 'playtest') playtestRevision++;
   if (view !== 'playtest') playtestUI?.closeOverlays({ restoreFocus: false });
   closeFilters();
@@ -407,7 +408,7 @@ function switchView(view) {
 function initializeDeckWorkspace() {
   try {
     if (deckUI) deckUI.setCards(allCards);
-    else deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify,
+    else deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify, renderManaCost: manaCost,
       loadDeckCards: async deck => {
         await Promise.all([loadCardsByIds(deck.entries.map(entry => entry.cardId), { versions: deck.entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) }), ensureMetadata()]);
         return allCards;
