@@ -1,5 +1,6 @@
 import { DeckStore, defaultVersion, getVersion, findCardCandidates, getCommanderIdentity, validateDeck, parseDeckText, rowToEntry, exportDeckText, exportDeckBackup, parseDeckBackup } from './decks.js';
 import { createDeckAnalysis } from './deck-analysis-ui.js';
+import { normalizeText } from './search.js';
 
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
 const entryIssueLabels = {
@@ -55,6 +56,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   let selectedId = null;
   let analysisOpen = false;
   let groupBy = 'type';
+  let disposeAddSearch;
   const identitySearchPreferences = new Map();
   const searchDrafts = new Map();
   const openModals = new Set();
@@ -306,7 +308,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const section = el('section', 'deck-add-section'); section.append(el('h2', '', '添加卡牌'));
     const draft = searchDrafts.get(deck.id) || { query: '' }; searchDrafts.set(deck.id, draft);
     const form = el('form', 'deck-add-form'); const query = input(draft.query); query.placeholder = '中文 / 英文牌名，或系列＋编号（如 cmm 396）'; query.setAttribute('aria-label', '搜索要加入的卡牌'); query.autocomplete = 'off';
-    const advanced = button('高级搜索 ↗', () => onOpenCatalog({ deckId: deck.id, query: query.value.trim(), restrictIdentity: restrictIdentity.checked }));
+    const advanced = button('高级搜索 ↗', () => {
+      if (activeRequest) results.replaceChildren();
+      cancelSuggestions();
+      return onOpenCatalog({ deckId: deck.id, query: query.value.trim(), restrictIdentity: restrictIdentity.checked });
+    });
     form.append(query, advanced); section.append(form);
     const commanderIdentity = getCommanderIdentity(deck, cards);
     const restrictIdentity = input('', 'checkbox'); restrictIdentity.checked = commanderIdentity !== null && identitySearchPreferences.get(deck.id) !== false; restrictIdentity.disabled = commanderIdentity === null;
@@ -316,9 +322,17 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       section.append(identityLabel);
     }
     const results = el('div', 'deck-add-results'); section.append(results);
-    let candidateRequest = 0;
-    function renderCandidates(result, request) {
-      if (request !== candidateRequest || !query.isConnected) return;
+    let candidateRequest = 0, suggestionTimer, scheduledKey, activeRequest, displayedKey;
+    const isCurrent = request => request === candidateRequest && query.isConnected && !container.hidden;
+    function cancelSuggestions() {
+      clearTimeout(suggestionTimer);
+      scheduledKey = undefined;
+      ++candidateRequest;
+      activeRequest?.controller.abort();
+      activeRequest = undefined;
+    }
+    function renderCandidates(result, request, normalizedQuery) {
+      if (!isCurrent(request)) return;
       results.replaceChildren();
       const allCandidates = Array.isArray(result) ? result : result.cards;
       setCards(allCandidates);
@@ -326,7 +340,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       if (!candidates.length) { results.append(el('p', 'deck-muted', restrictIdentity.checked ? '主将标识色范围内无匹配卡牌' : '无匹配卡牌')); return; }
       const total = result.total ?? allCandidates.length;
       if (total > 8) results.append(el('p', 'deck-muted', `显示前 8 项 · 共 ${total} 项匹配`));
-      const printingQuery = query.value.trim().toLowerCase().match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
+      const printingQuery = normalizedQuery.match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
       for (const card of candidates) {
         const row = el('div', 'deck-search-result'); const name = el('div'); name.append(button(card.zhName || card.name, () => onInspect(card), 'deck-card-link'), el('small', 'deck-muted', card.name));
         const version = printingQuery ? card.versions?.find(item => item.set.toLowerCase() === printingQuery[1] && String(item.collectorNumber).toLowerCase() === printingQuery[2]) : null;
@@ -341,29 +355,85 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         }, 'button button-quiet')); results.append(row);
       }
     }
-    function showCandidates() {
-      const request = ++candidateRequest;
+    function showCandidates({ debounce = false, submitted = false } = {}) {
+      const text = query.value.trim();
+      const normalized = normalizeText(text);
+      const colorIdentity = restrictIdentity.checked ? commanderIdentity : null;
+      const key = JSON.stringify([normalized, colorIdentity]);
+      if (key === displayedKey || key === activeRequest?.key || (debounce && key === scheduledKey)) return;
+      cancelSuggestions();
+      displayedKey = undefined;
       results.replaceChildren();
-      if (!query.value.trim()) return;
-      const options = { colorIdentity: restrictIdentity.checked ? commanderIdentity : null, limit: 8 };
-      if (!findCandidates) { renderCandidates(findCardCandidates(query.value, cards, options), request); return; }
-      const pending = el('p', 'deck-muted', '搜索中…'); pending.setAttribute('role', 'status'); results.append(pending);
-      const text = query.value;
-      Promise.resolve().then(() => findCandidates(text, options)).then(result => renderCandidates(result, request)).catch(error => {
-        if (request !== candidateRequest || !query.isConnected) return;
-        results.replaceChildren(el('p', 'deck-form-error', error.message || '搜索失败，请重试'));
-      });
+      const request = candidateRequest;
+      if (!normalized || !isCurrent(request)) return;
+      if (findCandidates && draft.completed?.key === key) {
+        renderCandidates(draft.completed.result, request, normalized);
+        displayedKey = key;
+        return;
+      }
+      if (findCandidates && !submitted && /^[a-z0-9]$/.test(normalized)) return;
+      const search = () => {
+        scheduledKey = undefined;
+        if (!isCurrent(request)) return;
+        const options = { colorIdentity, limit: 8 };
+        if (!findCandidates) {
+          renderCandidates(findCardCandidates(text, cards, options), request, normalized);
+          return;
+        }
+        const controller = new AbortController();
+        const active = { key, controller };
+        activeRequest = active;
+        const pending = el('p', 'deck-muted', '搜索中…');
+        pending.setAttribute('role', 'status');
+        results.append(pending);
+        Promise.resolve().then(() => {
+          if (isCurrent(request)) return findCandidates(text, { ...options, signal: controller.signal });
+        }).then(result => {
+          if (!isCurrent(request)) return;
+          renderCandidates(result, request, normalized);
+          draft.completed = { key, result };
+          displayedKey = key;
+        }).catch(error => {
+          if (!isCurrent(request) || error?.name === 'AbortError') return;
+          results.replaceChildren(el('p', 'deck-form-error', error?.message || '搜索失败'), button('重试搜索', () => showCandidates({ submitted: true })));
+        }).finally(() => {
+          if (activeRequest === active) activeRequest = undefined;
+        });
+      };
+      if (debounce) {
+        scheduledKey = key;
+        suggestionTimer = setTimeout(search, findCandidates ? 300 : 200);
+      } else search();
     }
-    let suggestionTimer;
-    query.addEventListener('input', () => {
-      draft.query = query.value; clearTimeout(suggestionTimer); ++candidateRequest; results.replaceChildren();
-      suggestionTimer = setTimeout(() => { if (query.isConnected) showCandidates(); }, 200);
+    query.addEventListener('input', event => {
+      draft.query = query.value;
+      if (findCandidates && event.isComposing) {
+        cancelSuggestions();
+        displayedKey = undefined;
+        results.replaceChildren();
+        return;
+      }
+      showCandidates({ debounce: true });
     });
-    query.addEventListener('change', () => { draft.query = query.value; clearTimeout(suggestionTimer); showCandidates(); });
-    form.addEventListener('submit', event => { event.preventDefault(); draft.query = query.value; clearTimeout(suggestionTimer); showCandidates(); });
-    restrictIdentity.addEventListener('change', () => { identitySearchPreferences.set(deck.id, restrictIdentity.checked); if (query.value.trim()) showCandidates(); });
+    query.addEventListener('compositionend', () => {
+      if (!findCandidates) return;
+      draft.query = query.value;
+      showCandidates({ debounce: true });
+    });
+    query.addEventListener('change', () => {
+      if (draft.query === query.value) return;
+      draft.query = query.value;
+      showCandidates();
+    });
+    form.addEventListener('submit', event => { event.preventDefault(); draft.query = query.value; showCandidates({ submitted: true }); });
+    restrictIdentity.addEventListener('change', () => { identitySearchPreferences.set(deck.id, restrictIdentity.checked); showCandidates(); });
+    const visibilityObserver = findCandidates && typeof MutationObserver !== 'undefined' ? new MutationObserver(() => {
+      if (container.hidden) cancelSuggestions();
+    }) : null;
+    visibilityObserver?.observe(container, { attributes: true, attributeFilter: ['hidden'] });
+    disposeAddSearch = () => { visibilityObserver?.disconnect(); cancelSuggestions(); };
     container.append(section);
-    showCandidates();
+    showCandidates({ debounce: Boolean(findCandidates) });
   }
   function quickAddCard(card, version, deckId = selectedId) {
     if (!deckId || !store.get(deckId)) { onNotify('目标卡组已不存在，请重新选择卡组', 'error'); return false; }
@@ -537,6 +607,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     current.panel.append(field('输入格式', format), nameField, field('选择本地文件（可选）', file), hint, source, error, actions, preview);
   }
   function render() {
+    disposeAddSearch?.();
+    disposeAddSearch = undefined;
     container.replaceChildren();
     if (openingId) {
       const pendingId = openingId;
@@ -560,5 +632,5 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   }
   function showLibrary() { ++openRequest; openingId = null; openingError = null; selectedId = null; analysisOpen = false; render(); }
   render();
-  return { render, addCard, quickAddCard, showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, destroy: () => { ++openRequest; for (const current of [...openModals]) current.close(); container.replaceChildren(); } };
+  return { render, addCard, quickAddCard, showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, destroy: () => { ++openRequest; disposeAddSearch?.(); disposeAddSearch = undefined; for (const current of [...openModals]) current.close(); container.replaceChildren(); } };
 }

@@ -197,13 +197,13 @@ export function createCatalogService(db) {
     return { cards, missingIds: distinctIds(ids).filter(id => !found.has(id)), missingVersions: (options.versions || []).filter(row => !found.get(row.cardId)?.versions.some(version => version.id === row.versionId)) };
   }
   async function detail(id) { return { card: (await hydrateCards([id], { full: true }))[0] || null }; }
-  async function search({ q = '', query, sort = 'name', commanderOnly = false, offset = 0, limit = 48 } = {}) {
+  async function search({ q = '', query, sort = 'name', commanderOnly = false, offset = 0, limit = 48 } = {}, requestedSnapshot = null) {
     if (query !== undefined) q = query;
     try {
       offset = checkedPage(offset, 0, 1_000_000); limit = checkedPage(limit, 48, 100);
       if (!limit) throw new QueryError('每页至少显示一张牌');
       const compiled = compileCatalogQuery(q, { sort, commanderOnly });
-      const version = await activeVersion(db);
+      const version = requestedSnapshot || await activeVersion(db);
       if (compiled.tagPosition !== null && !await db.prepare('SELECT 1 AS found FROM catalog_tags WHERE version=? LIMIT 1').bind(version).first()) throw new QueryError('当前卡库尚未载入功能标签', compiled.tagPosition);
       // An independent scalar keeps the snapshot boundary indexable before scanning cards.
       const values = [...compiled.params, version], versionRef = `(SELECT json_extract(j,'$[${values.length - 1}]') FROM qp)`;
@@ -230,12 +230,53 @@ export function createCatalogService(db) {
     if (!normalized) return { cards: [], total: 0, error: null };
     limit = checkedPage(limit, 8, 50); if (!limit) throw new QueryError('候选数量无效');
     if (identity !== null && (!Array.isArray(identity) || identity.some(color => !/^[WUBRG]$/i.test(color)))) throw new QueryError('标识色无效');
-    const scope = identity === null ? '' : ` AND ci<=${identity.length ? identity.join('') : '无色'}`;
-    const quote = value => '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    const version = await activeVersion(db);
+    const identityMask = identity === null ? null : mask(identity);
     const printing = normalized.match(/^([a-z0-9]+)\s*[:/#\s]\s*([a-z0-9★*\-]+)$/i);
-    if (printing) { const result = await search({ q: `set:${quote(printing[1])} cn:${quote(printing[2])}${scope}`, limit }); if (result.total) return result; }
-    const exact = await search({ q: `name=${quote(normalized)}${scope}`, limit });
-    return exact.total ? exact : search({ q: `name:${quote(normalized)}${scope}`, limit });
+    if (printing) {
+      const [, set, collectorNumber] = printing;
+      // Two-word card names also fit the printing syntax. Check the printing index before running a full printing search.
+      const exists = await db.prepare(`
+        SELECT 1 FROM catalog_printings p
+        CROSS JOIN catalog_cards c ON c.version=p.version AND c.id=p.card_id
+        WHERE p.version=?1 AND p.set_code=?2 AND p.collector_number=?3
+          AND (?4 IS NULL OR (c.identity_mask & ?4)=c.identity_mask)
+        LIMIT 1
+      `).bind(version, set, collectorNumber, identityMask).first();
+      if (exists) {
+        const scope = identity === null ? '' : ` AND ci<=${identity.length ? identity.join('') : '无色'}`;
+        return search({ q: `set:"${set}" cn:"${collectorNumber}"${scope}`, limit }, version);
+      }
+    }
+    // A prefix bounds the number of FTS terms. The full substring check removes false positives.
+    const recall = ftsQuery([...normalized].slice(0, 32).join(''), 'name');
+    const found = rows(await db.prepare(`
+      WITH matches AS MATERIALIZED (
+        SELECT c.rowid, c.id, c.name_rank,
+          instr(char(10)||c.name_text||char(10), char(10)||?2||char(10))>0 AS is_exact
+        FROM catalog_fts
+        CROSS JOIN catalog_cards c ON c.rowid=catalog_fts.rowid
+        WHERE catalog_fts MATCH ?1 AND c.version=?3
+          AND (?4 IS NULL OR (c.identity_mask & ?4)=c.identity_mask)
+          AND instr(c.name_text, ?2)>0
+      ), stats AS (
+        SELECT count(*) AS partial_total, sum(is_exact) AS exact_total FROM matches
+      ), page AS (
+        SELECT matches.rowid, matches.id, matches.name_rank,
+          CASE WHEN stats.exact_total>0 THEN stats.exact_total ELSE stats.partial_total END AS total
+        FROM matches CROSS JOIN stats
+        WHERE matches.is_exact=(stats.exact_total>0)
+        ORDER BY matches.name_rank, matches.id LIMIT ?5
+      )
+      SELECT page.total, c.summary_json, p.payload_json
+      FROM page
+      JOIN catalog_cards c ON c.rowid=page.rowid
+      LEFT JOIN catalog_printings p ON p.version=c.version AND p.card_id=c.id AND p.id=c.default_version_id
+      ORDER BY page.name_rank, page.id
+    `).bind(recall, normalized, version, identityMask, limit).all());
+    const cards = found.map(row => withVersions(JSON.parse(row.summary_json), row.payload_json ? [JSON.parse(row.payload_json)] : []));
+    const total = found[0]?.total ?? 0;
+    return { cards, total, offset: 0, hasMore: cards.length < total, error: null, datasetVersion: version };
   }
   async function resolveText(text) {
     const parsed = parseDeckText(text, []), names = [...new Set(parsed.rows.map(row => normalizeText(row.name)).filter(Boolean))];

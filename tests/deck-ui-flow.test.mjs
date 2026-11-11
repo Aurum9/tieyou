@@ -194,7 +194,8 @@ test('remote editor hydration asks for each selected deck and accepts an empty d
   assert.equal(state.ui.getSelectedDeckId(), state.second.id); assert.ok(queryInput(state.container));
 });
 
-test('remote mini-search ignores stale responses and hydrates only the chosen card before direct add', async () => {
+test('remote mini-search aborts stale requests and keeps the current results after direct add', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const first = deferred(), second = deferred(), searches = [], batches = [];
   let state;
   state = fixture({ providers: {
@@ -205,14 +206,53 @@ test('remote mini-search ignores stale responses and hydrates only the chosen ca
   await state.ui.openDeck(state.first.id);
   const query = queryInput(state.container); query.value = 'Elf 0'; query.dispatch('change'); await settle();
   query.value = 'Elf 1'; query.dispatch('change'); await settle();
+  assert.equal(searches[0].options.signal.aborted, true);
+  const form = all(state.container, node => node.className === 'deck-add-form')[0];
+  query.dispatch('change'); form.dispatch('submit'); await settle();
+  assert.equal(searches.length, 2);
   second.resolve({ cards: [state.cards[1]], total: 1 }); await settle();
   first.resolve({ cards: [state.cards[0]], total: 1 }); await settle();
   assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 1);
   assert.ok(button(state.container, '精灵1')); assert.equal(button(state.container, '精灵0'), undefined);
   await button(state.container, '＋ 加入').dispatchAsync('click');
+  t.mock.timers.tick(300); await settle();
+  assert.equal(searches.length, 2); assert.ok(button(state.container, '精灵1'));
   assert.deepEqual(batches, [{ ids: ['elf-1'], options: { versions: [{ cardId: 'elf-1', versionId: 'v-1' }] } }]);
   assert.equal(state.ui.getDeck(state.first.id).entries[0].cardId, 'elf-1');
   assert.equal(state.ui.getDeck(state.first.id).entries[0].zone, 'main'); assert.equal(state.loads, 0);
+});
+
+test('remote mini-search waits for typing to settle, skips one ASCII character on blur, and offers retry', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const calls = [];
+  const state = fixture({ providers: { loadDeckCards: async () => [], findCandidates: (text, { signal }) => {
+    const request = deferred(); calls.push({ text, signal, ...request }); return request.promise;
+  } } });
+  await state.ui.openDeck(state.first.id);
+  let query = queryInput(state.container);
+  query.value = 'f'; query.dispatch('input'); query.dispatch('change');
+  t.mock.timers.tick(300); await settle();
+  assert.equal(calls.length, 0);
+  all(state.container, node => node.className === 'deck-add-form')[0].dispatch('submit'); await settle();
+  assert.equal(calls[0].text, 'f');
+  state.ui.render();
+  assert.equal(calls[0].signal.aborted, true);
+  t.mock.timers.tick(300); await settle();
+  assert.equal(calls.length, 1);
+
+  query = queryInput(state.container);
+  query.value = 'fi'; query.dispatch('input'); t.mock.timers.tick(200);
+  query.value = '精'; query.dispatch('input'); query.dispatch('change');
+  t.mock.timers.tick(299); await settle();
+  assert.equal(calls.length, 1);
+  t.mock.timers.tick(1); await settle();
+  assert.deepEqual(calls.map(call => call.text), ['f', '精']);
+  calls[1].reject(new Error('服务暂忙')); await settle();
+  assert.match(state.container.textContent, /服务暂忙/);
+  button(state.container, '重试搜索').dispatch('click'); await settle();
+  assert.equal(calls[2].text, '精');
+  button(state.container, '高级搜索 ↗').dispatch('click');
+  assert.equal(calls[2].signal.aborted, true);
 });
 
 test('changing query text invalidates an in-flight candidate response during the debounce interval', async () => {

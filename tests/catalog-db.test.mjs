@@ -13,7 +13,7 @@ function card(id, name, zhName, extra = {}) {
 const face = (name, power, toughness, typeLine = 'Creature — Human', extra = {}) => ({ name, power, toughness, typeLine, zhTypeLine: typeLine.includes('Creature') ? '生物～人类' : '地', oracleText: '', zhText: '', ...extra });
 const cards = [
   card('scholar', 'Grove Scholar', '林地学者', { aliases: ['旧译学者'], manaValue: 2, colors: ['G'], colorIdentity: ['G'], power: '1', toughness: '2', typeLine: 'Creature — Elf', zhTypeLine: '生物～精灵', oracleText: 'Draw a card.', zhText: '抓一张牌。', tags: ['draw'], versions: [{ id: 'v-a', set: 'a', collectorNumber: '12a', lang: 'en', rarity: 'rare' }, { id: 'v-b', set: 'b', collectorNumber: '21', lang: 'zhs', rarity: 'common' }] }),
-  card('stone', 'Tidal Stone', '潮汐石', { manaValue: 1, oracleText: 'Add one mana.', zhText: '加一点法术力。', tags: ['ramp'], releasedAt: '2022-02-02' }),
+  card('stone', 'Tidal Stone', '潮汐石', { aliases: ['旧译学者候补', 'b/21'], manaValue: 1, oracleText: 'Add one mana.', zhText: '加一点法术力。', tags: ['ramp'], releasedAt: '2022-02-02' }),
   card('counter', 'Counter Thought', '反击思绪', { manaValue: 3, colors: ['U'], colorIdentity: ['U'], typeLine: 'Instant', zhTypeLine: '瞬间', oracleText: 'Counter target spell.', zhText: '反击目标咒语。', tags: ['counterspell'] }),
   card('banned', 'Broken Charm', '破损符咒', { manaValue: 8, colors: ['B'], colorIdentity: ['B'], legalities: { commander: 'banned' }, oracleText: 'Return a card from your graveyard.', zhText: '', tags: ['recursion'] }),
   card('modal', 'Morning // Evening', '晨光 // 夜幕', { manaValue: 4, colors: ['U'], colorIdentity: ['U', 'G'], faces: [face('Morning', '1', '8', 'Creature — Human', { zhName: '晨光', oracleText: 'Draw two cards.', zhText: '抓两张牌。' }), face('Evening', '8', '1', 'Land', { zhName: '夜幕', oracleText: 'Add green mana.', zhText: '加绿色法术力。' })], tags: ['draw', 'ramp'] }),
@@ -91,10 +91,23 @@ test('batch only hydrates requested identities and explicitly requested printing
   assert.equal((await service.detail('missing')).card, null);
 });
 test('suggest prioritizes exact aliases, supports set/number, and limits commander colors before truncation', async () => {
-  assert.deepEqual((await service.suggest('旧译学者')).cards.map(card => card.id), ['scholar']);
+  const exact = await service.suggest('旧译学者');
+  assert.deepEqual(exact.cards.map(card => card.id), ['scholar']);
+  assert.equal(exact.total, 1);
+  assert.deepEqual((await service.suggest('旧译学者', ['U'])).cards.map(card => card.id), ['stone']);
   const printing = await service.suggest('b/21'); assert.equal(printing.cards[0].matchingVersions[0].id, 'v-b');
+  assert.deepEqual((await service.suggest('b/21', ['U'])).cards.map(card => card.id), ['stone']);
+  assert.deepEqual((await service.suggest('card 2')).cards.map(card => card.id), ['two']);
+  assert.deepEqual((await service.suggest('Ｏ’ＣＯＮＮＯＲ')).cards.map(card => card.id), ['quoted']);
+  assert.deepEqual((await service.suggest('猫')).cards.map(card => card.id), ['cat']);
   assert.deepEqual((await service.suggest('林地', ['U'])).cards, []);
   assert.ok((await service.suggest('a', [], 8)).cards.every(card => card.colorIdentity.length === 0));
+});
+test('partial suggestions retain full counts and hydrate only the returned page', async () => {
+  const expected = await service.search({ q: 'name:a', limit: 2 });
+  assert.ok(expected.total > 2);
+  assert.deepEqual(await service.suggest('a', null, 2), expected);
+  assert.equal((await service.suggest('very '.repeat(200) + 'unlikely')).total, 0);
 });
 test('text import resolves exact names and preserves original row errors and printings', async () => {
   const text = '[Commander]\n1 Grove Scholar (b) 21\n[Main]\n2 旧译学者\n1 Unknown\n1 Tidal Stone (nope) 9';
@@ -130,6 +143,8 @@ test('contentless FTS stays correct after SQLite compaction and snapshot changes
   await activateCatalogVersion(db, { version, expectedCards: 1, expectedFaces: 1, expectedVersions: 1 });
   assert.equal((await service.search({ q: 'name:林地学者' })).total, 0);
   assert.deepEqual((await service.search({ q: 'name:全新名字' })).cards.map(card => card.id), ['scholar']);
+  assert.equal((await service.suggest('林地学者')).total, 0);
+  assert.deepEqual((await service.suggest('全新名字')).cards.map(card => card.id), ['scholar']);
   await activateCatalogVersion(db, { version: 'fixture-v1', expectedCards: cards.length, expectedFaces: cards.reduce((n, card) => n + card.faces.length, 0), expectedVersions: cards.reduce((n, card) => n + card.versions.length, 0) });
 });
 test('FTS query plans perform one inverted-index candidate lookup rather than one per card', async () => {

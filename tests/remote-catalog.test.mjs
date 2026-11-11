@@ -84,16 +84,46 @@ test('metadata is shared, failed metadata is retryable, and empty decks need no 
 test('service query errors retain source position and network failures never fall back to bulk data', async () => {
   const invalid = client(() => response({ error: { message: '条件缺失', code: 'INVALID_QUERY', rawPosition: 3 } }, 400));
   await assert.rejects(invalid.remote.search({ query: 'mv:' }), error => error.message === '条件缺失' && error.position === 3);
+  assert.equal(invalid.calls.length, 1);
+  const invalidEnvelope = client(() => response({ cards: [], error: { message: '条件缺失', position: 3 } }));
+  await assert.rejects(invalidEnvelope.remote.search({ query: 'mv:' }), error => error.code === 'INVALID_QUERY' && error.position === 3);
+  assert.equal(invalidEnvelope.calls.length, 1);
   const calls = [];
   const offline = createRemoteCatalog({ fetcher: async url => { calls.push(url); throw new TypeError('Offline'); } });
   await assert.rejects(offline.search({ query: 'Elf' }), /暂时无法连接/);
-  assert.deepEqual(calls, ['/api/catalog/search']);
+  assert.deepEqual(calls, ['/api/catalog/search', '/api/catalog/search']);
 });
 
 test('request cancellation is propagated to the fetcher and preserved as AbortError', async () => {
-  const controller = new AbortController(); controller.abort();
-  const remote = createRemoteCatalog({ fetcher: async (url, options) => { assert.equal(options.signal, controller.signal); throw new DOMException('Aborted', 'AbortError'); } });
+  const controller = new AbortController();
+  const { remote, calls } = client((call) => {
+    assert.equal(call.signal, controller.signal);
+    controller.abort();
+    return response({ cards: [card] });
+  });
   await assert.rejects(remote.search({ query: 'Elf', signal: controller.signal }), error => error.name === 'AbortError');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(remote.cachedCards(), []);
+});
+
+test('search retries a non-JSON gateway response once and keeps the requested page', async () => {
+  const { remote, calls } = client((call, count) => count === 1
+    ? new Response('<html>Bad Gateway</html>', { status: 502 })
+    : response({ cards: [card], total: 49, offset: 48 }));
+  const result = await remote.search({ query: 'Alpha', offset: 48 });
+  assert.equal(result.cards[0].id, card.id);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1], calls[0]);
+});
+
+test('changing the suggestion cancels the old database-busy retry', async () => {
+  const controller = new AbortController();
+  const { remote, calls } = client(() => response({ error: { code: 'CATALOG_BUSY', message: '卡库暂时繁忙' } }, 503));
+  const assertion = assert.rejects(remote.suggest('flub', { signal: controller.signal }), { name: 'AbortError' });
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort();
+  await assertion;
+  assert.equal(calls.length, 1);
 });
 
 test('unknown card identities remain explicit errors even when a search summary was previously cached', async () => {

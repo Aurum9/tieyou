@@ -44,6 +44,15 @@ test('worker rejects invalid pagination, identity and oversized card batches', a
   assert.equal((await request('/api/catalog/suggest', { query: '石', colorIdentity: ['X'] })).status, 400);
   assert.equal((await request('/api/catalog/cards', { ids: Array(501).fill('test-card') })).status, 400);
 });
+test('worker returns a retryable card-catalog error when D1 is overloaded', async t => {
+  t.mock.method(console, 'error', () => {});
+  const DB = { prepare() { throw new Error('D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window.'); } };
+  const response = await worker.fetch(new Request('https://cards.test/api/catalog/suggest', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: 'flubs' }),
+  }), { DB });
+  assert.equal(response.status, 503);
+  assert.deepEqual((await response.json()).error, { code: 'CATALOG_BUSY', message: '卡库暂时繁忙，请重试' });
+});
 test('maintenance rejects cross-origin, invalid JSON and oversized payloads', async () => {
   const body = { action: 'batch', version: 'blocked' };
   assert.equal((await request('/api/catalog/import', body, { headers: { 'Content-Type': 'application/json', Origin: 'https://other.test' } })).status, 403);

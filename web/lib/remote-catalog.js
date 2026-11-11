@@ -1,3 +1,20 @@
+const RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
+
+function waitForRetry(delay, signal) {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, delay);
+    function abort() {
+      clearTimeout(timer);
+      reject(signal.reason);
+    }
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
 /** Same-origin card service. The browser caches only cards that it has requested. */
 export function createRemoteCatalog({ fetcher = globalThis.fetch, baseURL = '/api/catalog' } = {}) {
   const cache = new Map(), levels = new Map(), details = new Map();
@@ -22,32 +39,53 @@ export function createRemoteCatalog({ fetcher = globalThis.fetch, baseURL = '/ap
     return cards.map(card => remember(card, level));
   }
   async function request(path, { body, signal } = {}) {
+    signal?.throwIfAborted();
     let response;
     try {
       response = await fetcher(baseURL + path, { method: body === undefined ? 'GET' : 'POST', ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), ...(signal ? { signal } : {}) });
     } catch (error) {
+      signal?.throwIfAborted();
       if (error?.name === 'AbortError') throw error;
-      throw new Error('卡牌服务暂时无法连接，请重试。', { cause: error });
+      const networkError = new Error('卡牌服务暂时无法连接，请重试。', { cause: error });
+      networkError.code = 'CATALOG_NETWORK';
+      throw networkError;
     }
     let payload;
     try { payload = await response.json(); }
-    catch { throw new Error('卡牌服务返回的数据无法读取，请重试。'); }
+    catch (error) {
+      signal?.throwIfAborted();
+      if (error?.name === 'AbortError') throw error;
+      const invalidResponse = new Error('卡牌服务返回的数据无法读取，请重试。', { cause: error });
+      invalidResponse.status = response.status;
+      throw invalidResponse;
+    }
+    signal?.throwIfAborted();
     if (!response.ok || payload?.error) {
       const info = payload?.error;
       const error = new Error((typeof info === 'string' ? info : info?.message) || `卡牌服务请求失败（HTTP ${response.status}）`);
       error.status = response.status;
-      error.code = info?.code;
+      error.code = info?.code ?? (response.ok && path === '/search' ? 'INVALID_QUERY' : undefined);
       error.position = info?.position ?? info?.rawPosition;
       throw error;
     }
     return payload;
+  }
+  async function requestLookup(path, options) {
+    try {
+      return await request(path, options);
+    } catch (error) {
+      if (error.code !== 'CATALOG_NETWORK' && !RETRYABLE_STATUSES.has(error.status)) throw error;
+      const delay = error.code === 'CATALOG_BUSY' ? 1600 + Math.random() * 400 : 350;
+      await waitForRetry(delay, options.signal);
+      return request(path, options);
+    }
   }
   function meta() {
     metadataPromise ||= request('/meta').catch(error => { metadataPromise = undefined; throw error; });
     return metadataPromise;
   }
   async function search({ query = '', sort = 'name', commanderOnly = true, offset = 0, limit = 48, signal } = {}) {
-    const result = await request('/search', { body: { query, sort, commanderOnly, offset, limit }, signal });
+    const result = await requestLookup('/search', { body: { query, sort, commanderOnly, offset, limit }, signal });
     return { ...result, cards: rememberList(result.cards) };
   }
   async function getCards(ids, { versions = [] } = {}) {
@@ -97,7 +135,7 @@ export function createRemoteCatalog({ fetcher = globalThis.fetch, baseURL = '/ap
     return details.get(id);
   }
   async function suggest(query, { colorIdentity = null, limit = 8, signal } = {}) {
-    const result = await request('/suggest', { body: { query, colorIdentity, limit }, signal });
+    const result = await requestLookup('/suggest', { body: { query, colorIdentity, limit }, signal });
     return { ...result, cards: rememberList(result.cards) };
   }
   async function resolveText(text) {

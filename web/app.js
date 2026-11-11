@@ -239,6 +239,17 @@ function showIdleCatalog() {
   searchTotal = 0; lastSearch = null;
 }
 
+function cancelCatalogSearch() {
+  clearTimeout(searchTimer);
+  searchController?.abort();
+  searchRevision++;
+}
+
+function scheduleCatalogSearch(delay) {
+  cancelCatalogSearch();
+  searchTimer = setTimeout(runSearch, delay);
+}
+
 async function runSearch() {
   clearTimeout(searchTimer);
   const revision = ++searchRevision;
@@ -278,11 +289,11 @@ async function runSearch() {
     }
   } catch (error) {
     if (error.name === 'AbortError' || revision !== searchRevision || currentView !== 'catalog') return;
-    result = { cards: [], total: 0, error: { message: error.message || '检索出现问题，请修改条件后重试。', rawPosition: error.position } };
+    result = { cards: [], total: 0, error: { message: error.message || '卡库请求暂时未完成，请重试', rawPosition: error.position, serviceFailure: error.code !== 'INVALID_QUERY' } };
   }
   renderActiveFilters();
   $('#results').setAttribute('aria-busy', 'false');
-  filterUI.showError(result.error?.message);
+  filterUI.showError(result.error?.serviceFailure ? null : result.error?.message);
   $('#results').replaceChildren();
   $('#result-state').hidden = true;
   $('#load-more').hidden = true;
@@ -292,8 +303,13 @@ async function runSearch() {
     const rawPosition = result.error.rawPosition ?? result.error.position;
     const position = Number.isInteger(rawPosition) ? '（搜索框第 ' + (rawPosition + 1) + ' 个字符附近）' : '';
     errorBox.textContent = result.error.message + position;
-    $('#results-count').textContent = '搜索条件需要调整';
-    setResultState({ title: '搜索条件有误', kind: 'help', action: { label: '打开高级搜索', run: showAdvancedFilters } });
+    if (result.error.serviceFailure) {
+      $('#results-count').textContent = '检索未完成';
+      setResultState({ title: '卡查暂时不可用', kind: 'help', action: { label: '重试', run: runSearch } });
+    } else {
+      $('#results-count').textContent = '搜索条件需要调整';
+      setResultState({ title: '搜索条件有误', kind: 'help', action: { label: '打开高级搜索', run: showAdvancedFilters } });
+    }
     matchedCards = [];
     return;
   }
@@ -366,6 +382,7 @@ function showAdvancedFilters() {
 }
 
 function switchView(view) {
+  if (currentView === 'catalog' && view !== 'catalog') cancelCatalogSearch();
   if (view !== 'playtest') playtestRevision++;
   if (view !== 'playtest') playtestUI?.closeOverlays({ restoreFocus: false });
   closeFilters();
@@ -660,12 +677,12 @@ function trapFocus(event, container) {
 }
 
 function wireEvents() {
-  filterUI = initSearchFilters({ onChange: () => { synchronizeQuery(); clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 150); } });
+  filterUI = initSearchFilters({ onChange: () => { synchronizeQuery(); scheduleCatalogSearch(150); } });
   $('#search-form').addEventListener('submit', (event) => {
     event.preventDefault(); runSearch();
     if (window.matchMedia('(max-width: 700px)').matches) $('#search-input').blur();
   });
-  $('#search-input').addEventListener('input', () => { acceptQueryEdit(); clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); });
+  $('#search-input').addEventListener('input', () => { acceptQueryEdit(); scheduleCatalogSearch(200); });
   $('#sort-select').addEventListener('change', () => { try { const sort = $('#sort-select').value; $('#search-input').value = [extractSearchOptions($('#search-input').value).query, sort === 'name' ? '' : SORT_QUERIES[sort]].filter(Boolean).join(' '); runSearch(); } catch (error) { notify(error.message, 'error'); } });
   $('#load-more').addEventListener('click', appendResults);
   $('#filter-reset').addEventListener('click', resetFilters);

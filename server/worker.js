@@ -117,11 +117,13 @@ export function createWorker({ assets = {}, serveAsset } = {}) {
         return json(await importCatalogBatch(env.DB, body));
       } catch (error) {
         const preparing = error.code === 'CATALOG_NOT_READY' || error.message === '卡库正在准备，请稍后重试';
+        const overloaded = /\bD1 DB is overloaded\b/i.test(error.message || '');
         const importRejected = url.pathname === '/api/catalog/import' && /^(卡库|每批|导入|印刷|已启用|该批次)/.test(error.message || '');
-        const status = error.status || (error instanceof URIError ? 400 : preparing ? 503 : error.name === 'QueryError' || importRejected ? 400 : 500);
+        const status = error.status || (error instanceof URIError ? 400 : preparing || overloaded ? 503 : error.name === 'QueryError' || importRejected ? 400 : 500);
         if (status >= 500) console.error(JSON.stringify({ route: url.pathname, message: error.message }));
-        const message = status < 500 || error.code === 'CATALOG_NOT_READY' ? error.message : '卡库请求暂时未完成，请重试';
-        return json({ error: { code: error.code || (preparing ? 'CATALOG_NOT_READY' : error.name === 'QueryError' ? 'INVALID_QUERY' : 'SERVER_ERROR'), message, ...(Number.isInteger(error.position) ? { position: error.position } : {}) } }, status);
+        const message = overloaded ? '卡库暂时繁忙，请重试' : status < 500 || preparing ? error.message : '卡库请求暂时未完成，请重试';
+        const code = overloaded ? 'CATALOG_BUSY' : error.code || (preparing ? 'CATALOG_NOT_READY' : error.name === 'QueryError' ? 'INVALID_QUERY' : 'SERVER_ERROR');
+        return json({ error: { code, message, ...(Number.isInteger(error.position) ? { position: error.position } : {}) } }, status);
       }
     }
   };
