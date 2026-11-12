@@ -66,6 +66,9 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   let disposeAddSearch;
   const identitySearchPreferences = new Map();
   const searchDrafts = new Map();
+  const collapsedLanes = new Map();
+  const openFold = new WeakMap();
+  let foldId = 0;
   const openModals = new Set();
   const store = new DeckStore({ onChange: updateStatus });
   function updateStatus() {
@@ -179,22 +182,22 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }, { errorTarget });
   }
 
-  function moveEntry(entryId, destination) {
+  function moveEntry(entryId, destination, fromDrag = false) {
     const deck = store.get(selectedId);
     const entry = deck?.entries.find(item => item.id === entryId);
     if (!entry) return;
     if (Object.hasOwn(destination, 'category')) {
+      if (entry.zone === 'commander') return;
       const names = getDeckCategories(deck);
       const next = destination.category;
       if (next === getDeckEntryCategory(entry) || (next !== null && !names.includes(next))) return;
-      run(() => {
-        deck.customCategories = names;
-        entry.categories = next === null ? [] : [next];
-        return store.save(deck);
-      });
+      deck.customCategories = names;
+      entry.categories = next === null ? [] : [next];
     } else if (Object.hasOwn(editorZones, destination.zone) && entry.zone !== destination.zone) {
-      saveEntry(entryId, { zone: destination.zone });
-    }
+      entry.zone = destination.zone;
+    } else return;
+    const saved = run(() => store.save(deck), { refresh: false });
+    if (saved) render(fromDrag);
   }
 
   function editCategory(deckId, previous = null, remove = false) {
@@ -231,7 +234,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     if (!remove) queueMicrotask(() => name.focus());
   }
 
-  function renderEditor(deck) {
+  function renderEditor(deck, expandAfterDrop) {
     const back = button('← 卡组库', showLibrary); container.append(back);
     const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('h1', '', deck.name));
     const actions = el('div', 'deck-actions');
@@ -256,7 +259,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       const checks = el('details', `deck-checks${issues.some(issue => issue.severity === 'error') ? ' has-issues' : ''}`);
       checks.append(el('summary', '', `组牌检查 · ${issues.length} 项问题`));
       const list = el('ul');
-      let highlighted = [], highlightTimer;
+      let highlighted = [], highlightTimer, jumpTimer;
       const clearHighlight = () => {
         for (const row of highlighted) row.classList.remove('is-highlighted');
         highlighted = [];
@@ -264,18 +267,25 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       function jumpToEntries(entryIds) {
         const ids = new Set(entryIds);
         clearTimeout(highlightTimer);
+        clearTimeout(jumpTimer);
         clearHighlight();
         highlighted = [...entryRows].filter(([id]) => ids.has(id)).map(([, row]) => row);
         const first = highlighted[0];
         if (!first) return;
+        let unfolded = false;
         for (const row of highlighted) {
           for (let ancestor = row.parentNode; ancestor && ancestor !== container; ancestor = ancestor.parentNode) {
             if (ancestor.tagName?.toLowerCase() === 'details') ancestor.open = true;
+            if (openFold.get(ancestor)?.()) unfolded = true;
           }
           row.classList.add('is-highlighted');
         }
-        first.focus({ preventScroll: true });
-        first.scrollIntoView({ block: 'center' });
+        const jump = () => {
+          first.focus({ preventScroll: true });
+          first.scrollIntoView({ block: 'center' });
+        };
+        if (unfolded) jumpTimer = setTimeout(jump, 200);
+        else jump();
         highlightTimer = setTimeout(clearHighlight, 1800);
       }
       for (const issue of issues) {
@@ -292,10 +302,10 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       checks.append(list); container.append(checks);
     }
     renderAddSearch(deck);
-    renderDeckBoard(deck, entryIssues, entryRows);
+    renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop);
   }
 
-  function renderDeckBoard(deck, entryIssues, entryRows) {
+  function renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop) {
     const byCategory = groupBy === 'category';
     const categoryNames = getDeckCategories(deck);
     const listHeader = el('div', 'deck-list-heading deck-editor-toolbar');
@@ -323,15 +333,92 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     container.append(listHeader);
 
     const board = el('div', `deck-editor-board deck-editor-view-${viewMode}${byCategory ? ' is-category' : ''}`);
-    if (viewMode === 'text') editorDrag = createDeckEditorDrag(board, { onMove: moveEntry });
+    if (!collapsedLanes.has(deck.id)) collapsedLanes.set(deck.id, new Set());
+    const collapsed = collapsedLanes.get(deck.id);
+    const folds = [];
+    let dragFolding = expandAfterDrop;
+    function setDragFolding(active) {
+      dragFolding = active;
+      for (const update of folds) update();
+    }
+    editorDrag = createDeckEditorDrag(board, {
+      onMove: (entryId, destination) => moveEntry(entryId, destination, true),
+      onDragChange: setDragFolding,
+    });
     const count = entries => entries.reduce((sum, entry) => sum + entry.quantity, 0);
+
+    function createFold(heading, label, key, entries) {
+      const title = `${label} · ${count(entries)}`;
+      const fold = el('div', 'deck-editor-fold');
+      const inner = el('div', 'deck-editor-fold-inner');
+      fold.append(inner);
+      if (!entries.length) {
+        heading.append(el('span', 'deck-editor-empty-title', title));
+        return { fold, inner };
+      }
+      fold.id = `deck-editor-fold-${++foldId}`;
+      let folded, clipTimer;
+      const toggle = button(title, () => {
+        if (dragFolding) return;
+        if (collapsed.has(key)) collapsed.delete(key);
+        else collapsed.add(key);
+        update();
+      }, 'deck-editor-fold-toggle');
+      toggle.setAttribute('aria-controls', fold.id);
+      function update() {
+        const next = collapsed.has(key) || dragFolding;
+        if (next === folded) return;
+        if (folded !== undefined) {
+          clearTimeout(clipTimer);
+          fold.classList.add('is-folding');
+          clipTimer = setTimeout(() => fold.classList.remove('is-folding'), 200);
+        }
+        folded = next;
+        fold.classList.toggle('is-folded', next);
+        fold.inert = next;
+        toggle.setAttribute('aria-expanded', String(!next));
+      }
+      fold.addEventListener('transitionend', event => {
+        if (event.target !== fold || event.propertyName !== 'grid-template-rows') return;
+        clearTimeout(clipTimer);
+        fold.classList.remove('is-folding');
+      });
+      openFold.set(fold, () => {
+        if (!collapsed.delete(key)) return false;
+        update();
+        return true;
+      });
+      heading.append(toggle);
+      folds.push(update);
+      update();
+      return { fold, inner };
+    }
+
+    function buildRows(entries, canDrag = true) {
+      const rows = el('div', 'deck-editor-group-entries');
+      const ordered = [...entries].sort((a, b) => (index.get(a.cardId)?.name || a.cardId).localeCompare(index.get(b.cardId)?.name || b.cardId));
+      for (const entry of ordered) {
+        const row = entryRow(entry, entryIssues.get(entry.id), categoryNames, canDrag);
+        if (entryIssues.has(entry.id)) entryRows.set(entry.id, row);
+        rows.append(row);
+      }
+      return rows;
+    }
 
     function appendGroups(section, entries) {
       for (const group of groupDeckEntries(entries, index, groupBy, categoryNames)) {
         const lane = el('section', 'deck-editor-group');
         const heading = el('div', 'deck-editor-group-title');
-        heading.append(el('h3', 'deck-group-title', `${group.label} · ${count(group.entries)}`));
-        if (byCategory && group.key !== null) {
+        if (!byCategory) {
+          heading.append(el('h3', 'deck-group-title', `${group.label} · ${count(group.entries)}`));
+          lane.append(heading, buildRows(group.entries));
+          section.append(lane);
+          continue;
+        }
+        const title = el('h3');
+        const { fold, inner } = createFold(title, group.label, `category:${JSON.stringify(group.key)}`, group.entries);
+        heading.append(title);
+        if (group.key !== null) {
           const actions = el('div', 'deck-editor-category-actions');
           const rename = button('改名', () => editCategory(deck.id, group.key));
           const remove = button('删除', () => editCategory(deck.id, group.key, true));
@@ -339,36 +426,40 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
           remove.setAttribute('aria-label', `删除分类 ${group.label}`);
           actions.append(rename, remove); heading.append(actions);
         }
-        if (byCategory) editorDrag?.registerTarget(heading, { category: group.key });
-        const rows = el('div', 'deck-editor-group-entries');
-        const ordered = [...group.entries].sort((a, b) => (index.get(a.cardId)?.name || a.cardId).localeCompare(index.get(b.cardId)?.name || b.cardId));
-        for (const entry of ordered) {
-          const row = entryRow(entry, entryIssues.get(entry.id), categoryNames);
-          if (entryIssues.has(entry.id)) entryRows.set(entry.id, row);
-          rows.append(row);
-        }
-        lane.append(heading, rows); section.append(lane);
+        editorDrag.registerTarget(heading, { category: group.key });
+        inner.append(buildRows(group.entries));
+        lane.append(heading, fold); section.append(lane);
       }
     }
 
+    function appendZone(zone, label) {
+      const entries = deck.entries.filter(entry => entry.zone === zone);
+      const section = el('section', `deck-editor-zone${entries.length ? '' : ' is-empty'}`);
+      const heading = el('h3', 'deck-zone-title deck-editor-zone-heading');
+      const { fold, inner } = createFold(heading, label, `zone:${zone}`, entries);
+      if (!byCategory) editorDrag.registerTarget(heading, { zone });
+      if (zone === 'commander') inner.append(buildRows(entries, !byCategory));
+      else appendGroups(inner, entries);
+      section.append(heading, fold);
+      board.append(section);
+    }
     if (byCategory) {
+      if (deck.entries.some(entry => entry.zone === 'commander')) appendZone('commander', editorZones.commander);
       const section = el('div', 'deck-editor-zone deck-editor-category-zone');
-      appendGroups(section, deck.entries);
+      appendGroups(section, deck.entries.filter(entry => entry.zone !== 'commander'));
       board.append(section);
     } else {
-      for (const [zone, label] of Object.entries(editorZones)) {
-        const entries = deck.entries.filter(entry => entry.zone === zone);
-        const section = el('section', `deck-editor-zone${entries.length ? '' : ' is-empty'}`);
-        const heading = el('h3', 'deck-zone-title deck-editor-zone-heading', `${label} · ${count(entries)}`);
-        editorDrag?.registerTarget(heading, { zone });
-        section.append(heading); appendGroups(section, entries); board.append(section);
-      }
+      for (const [zone, label] of Object.entries(editorZones)) appendZone(zone, label);
     }
     if (!deck.entries.length && !byCategory) board.append(el('p', 'deck-empty deck-empty-small', '暂无卡牌'));
     container.append(board);
+    if (expandAfterDrop && typeof requestAnimationFrame === 'function') {
+      board.getBoundingClientRect();
+      requestAnimationFrame(() => { if (board.isConnected) setDragFolding(false); });
+    } else if (expandAfterDrop) setDragFolding(false);
   }
 
-  function entryRow(entry, issues = [], categoryNames) {
+  function entryRow(entry, issues = [], categoryNames, canDrag) {
     const card = index.get(entry.cardId); const wrapper = el('article', 'deck-entry'); const row = el('div', 'deck-entry-main');
     const name = card?.zhName || card?.name || `缺失卡牌 ${entry.cardId}`;
     const version = card ? getVersion(card, entry.versionId) : null;
@@ -424,8 +515,9 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const trigger = el('summary', 'deck-entry-menu-trigger', '…');
     trigger.setAttribute('aria-label', `操作 ${name}`); trigger.title = '卡牌操作';
     const menu = el('div', 'deck-entry-menu');
+    if (viewMode !== 'text') menu.append(field('数量', quantity));
     menu.append(field('分区', zone), field('印刷版本', printing));
-    if (groupBy === 'category') {
+    if (groupBy === 'category' && entry.zone !== 'commander') {
       const categories = select([['', '未分类'], ...categoryNames.map(label => [label, label])], getDeckEntryCategory(entry) || '');
       categories.setAttribute('aria-label', '移动到分类');
       categories.addEventListener('change', () => moveEntry(entry.id, { category: categories.value || null }));
@@ -434,15 +526,20 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     menu.append(remove); actions.append(trigger, menu);
 
     if (viewMode === 'text') {
-      const handle = button('⋮', () => {}, 'deck-drag-handle'); handle.tabIndex = -1;
-      handle.title = '拖动卡牌'; handle.setAttribute('aria-label', `拖动 ${name}`);
-      editorDrag?.registerHandle(handle, entry.id);
+      if (canDrag) {
+        const handle = button('⋮', () => {}, 'deck-drag-handle'); handle.tabIndex = -1;
+        handle.title = '拖动卡牌'; handle.setAttribute('aria-label', `拖动 ${name}`);
+        editorDrag.registerHandle(handle, entry.id);
+        row.append(handle);
+      }
       const mana = el('div', 'deck-entry-mana');
       if (card?.manaCost) mana.append(renderManaCost(card.manaCost));
-      row.append(handle, quantity, title, mana, actions);
+      row.append(quantity, title, mana, actions);
     } else {
-      wrapper.append(createDeckCardImage({ card, version, name, onInspect: inspect }));
-      row.append(quantity);
+      const image = createDeckCardImage({ card, version, name, onInspect: inspect });
+      if (canDrag && card) editorDrag.registerHandle(image, entry.id, { touchHold: true });
+      wrapper.append(image);
+      if (entry.quantity > 1) row.append(el('span', 'deck-entry-quantity-badge', `×${entry.quantity}`));
       if (badges) row.append(badges);
       row.append(actions);
     }
@@ -751,7 +848,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const actions = el('div', 'deck-actions'); actions.append(previewButton, commitButton);
     current.panel.append(field('输入格式', format), nameField, field('选择本地文件（可选）', file), hint, source, error, actions, preview);
   }
-  function render() {
+  function render(expandAfterDrop = false) {
     editorDrag?.dispose();
     editorDrag = undefined;
     disposeAddSearch?.();
@@ -774,7 +871,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
           container.querySelector('[data-deck-analysis]')?.focus();
         },
       }));
-    } else if (deck) renderEditor(deck);
+    } else if (deck) renderEditor(deck, expandAfterDrop === true);
     else { selectedId = null; renderLibrary(); }
   }
   function showLibrary() { ++openRequest; openingId = null; openingError = null; selectedId = null; analysisOpen = false; render(); }

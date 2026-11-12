@@ -1,15 +1,17 @@
 const DRAG_THRESHOLD = 8;
+const TOUCH_HOLD_MS = 350;
 const SCROLL_MARGIN = 48;
 const SCROLL_STEP = 16;
+const NONPASSIVE_CAPTURE = { capture: true, passive: false };
 
-export function createDeckEditorDrag(root, { onMove }) {
+export function createDeckEditorDrag(root, { onMove, onDragChange }) {
   const doc = root.ownerDocument || globalThis.document;
   const view = doc.defaultView || globalThis.window;
   const handles = new Map();
   const targets = new Map();
   let drag = null;
   let hovered = null;
-  let scrollFrame = null;
+  let frame = null;
   let suppressClick = false;
   let disposed = false;
 
@@ -31,67 +33,74 @@ export function createDeckEditorDrag(root, { onMove }) {
     hovered?.classList.add('is-drag-over');
   }
 
-  function revealTargets() {
-    const headers = [...targets.keys()].filter(target => target.getBoundingClientRect().height > 0);
-    const visible = headers.some(target => {
-      const { top, bottom } = target.getBoundingClientRect();
-      return top < view.innerHeight - SCROLL_MARGIN && bottom > SCROLL_MARGIN;
-    });
-    if (!visible) headers[0]?.scrollIntoView({ block: 'center', behavior: 'instant' });
-  }
-
-  function requestScroll() {
-    if (!drag?.started || scrollFrame !== null) return;
+  function scrollNearEdge() {
     const { x, y } = drag;
     if (x < 0 || x >= view.innerWidth || y < 0 || y >= view.innerHeight) return;
     const distance = y < SCROLL_MARGIN ? y - SCROLL_MARGIN : Math.max(0, y - (view.innerHeight - SCROLL_MARGIN));
     if (!distance) return;
     const delta = Math.sign(distance) * Math.ceil(SCROLL_STEP * Math.abs(distance) / SCROLL_MARGIN);
-    scrollFrame = view.requestAnimationFrame(() => {
-      scrollFrame = null;
-      if (!drag?.started) return;
-      const previousY = view.scrollY;
-      view.scrollBy({ top: delta, behavior: 'instant' });
+    view.scrollBy({ top: delta, behavior: 'instant' });
+  }
+
+  function animateDrag() {
+    if (!drag?.started) return;
+    if (drag.moved) {
+      scrollNearEdge();
+      // A collapsing lane can move a header under a stationary pointer.
       hover(targetAt(drag.x, drag.y));
-      if (view.scrollY !== previousY) requestScroll();
-    });
+    }
+    frame = view.requestAnimationFrame(animateDrag);
   }
 
   function beginDrag() {
     drag.started = true;
-    drag.scrollX = view.scrollX;
-    drag.scrollY = view.scrollY;
     suppressClick = true;
-    // The handle can disappear when the card rows collapse.
-    try { root.setPointerCapture?.(drag.pointerId); } catch { /* The pointer may have ended. */ }
+    if (!drag.touch) {
+      // The handle can disappear when the card rows collapse.
+      try { root.setPointerCapture?.(drag.id); } catch { /* The pointer may have ended. */ }
+    }
     root.classList.add('is-dragging');
     drag.handle.classList.add('is-drag-source');
     for (const target of targets.keys()) target.classList.add('is-drop-target');
-    revealTargets();
+    frame = view.requestAnimationFrame(animateDrag);
+    onDragChange?.(true);
   }
 
   function cancel() {
     if (!drag) return;
     const finished = drag;
     drag = null;
-    doc.removeEventListener('pointermove', pointerMove, true);
-    doc.removeEventListener('pointerup', pointerUp, true);
-    doc.removeEventListener('pointercancel', pointerCancel, true);
+    if (finished.touch) {
+      clearTimeout(finished.holdTimer);
+      doc.removeEventListener('touchstart', additionalTouch, true);
+      doc.removeEventListener('touchmove', touchMove, true);
+      doc.removeEventListener('touchend', touchEnd, true);
+      doc.removeEventListener('touchcancel', touchCancel, true);
+    } else {
+      doc.removeEventListener('pointermove', pointerMove, true);
+      doc.removeEventListener('pointerup', pointerUp, true);
+      doc.removeEventListener('pointercancel', pointerCancel, true);
+    }
     doc.removeEventListener('keydown', keyDown, true);
     view.removeEventListener('blur', cancel);
     if (!finished.started) return;
-    if (scrollFrame !== null) {
-      view.cancelAnimationFrame(scrollFrame);
-      scrollFrame = null;
+    if (frame !== null) {
+      view.cancelAnimationFrame(frame);
+      frame = null;
     }
-    if (root.hasPointerCapture?.(finished.pointerId)) root.releasePointerCapture(finished.pointerId);
+    if (!finished.touch && root.hasPointerCapture?.(finished.id)) root.releasePointerCapture(finished.id);
     root.classList.remove('is-dragging');
     finished.handle.classList.remove('is-drag-source');
     hover(null);
     for (const target of targets.keys()) target.classList.remove('is-drop-target');
-    if (view.scrollX !== finished.scrollX || view.scrollY !== finished.scrollY) {
-      view.scrollTo({ left: finished.scrollX, top: finished.scrollY, behavior: 'instant' });
-    }
+    onDragChange?.(false);
+  }
+
+  function track(handle, id, { clientX, clientY }, touch = false) {
+    suppressClick = false;
+    drag = { handle, id, touch, startX: clientX, startY: clientY, x: clientX, y: clientY, started: false, moved: false };
+    doc.addEventListener('keydown', keyDown, true);
+    view.addEventListener('blur', cancel);
   }
 
   function pointerDown(event) {
@@ -99,38 +108,88 @@ export function createDeckEditorDrag(root, { onMove }) {
     suppressClick = false;
     const handle = registeredAncestor(event.target, handles);
     if (!handle || handle.disabled || !targets.size) return;
-    drag = { handle, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, started: false };
-    doc.addEventListener('pointermove', pointerMove, { capture: true, passive: false });
+    if (event.pointerType === 'touch' && handles.get(handle).touchHold) return;
+    track(handle, event.pointerId, event);
+    doc.addEventListener('pointermove', pointerMove, NONPASSIVE_CAPTURE);
     doc.addEventListener('pointerup', pointerUp, true);
     doc.addEventListener('pointercancel', pointerCancel, true);
-    doc.addEventListener('keydown', keyDown, true);
-    view.addEventListener('blur', cancel);
+  }
+
+  function updatePosition({ clientX, clientY }) {
+    drag.x = clientX;
+    drag.y = clientY;
+    drag.moved ||= Math.hypot(clientX - drag.startX, clientY - drag.startY) >= DRAG_THRESHOLD;
   }
 
   function pointerMove(event) {
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    drag.x = event.clientX;
-    drag.y = event.clientY;
+    if (!drag || event.pointerId !== drag.id) return;
+    updatePosition(event);
     if (!drag.started) {
-      if (Math.hypot(drag.x - drag.startX, drag.y - drag.startY) < DRAG_THRESHOLD) return;
+      if (!drag.moved) return;
       beginDrag();
     }
     event.preventDefault();
     hover(targetAt(drag.x, drag.y));
-    requestScroll();
   }
 
   function pointerUp(event) {
-    if (!drag || event.pointerId !== drag.pointerId) return;
-    const target = drag.started ? targetAt(event.clientX, event.clientY) : null;
+    if (!drag || event.pointerId !== drag.id) return;
+    finishDrop(event, event);
+  }
+
+  function finishDrop(event, { clientX, clientY }) {
+    const target = drag.started && drag.moved ? targetAt(clientX, clientY) : null;
     const entryId = handles.get(drag.handle).entryId;
+    const destination = targets.get(target);
     if (drag.started) event.preventDefault();
     cancel();
-    if (target) onMove(entryId, targets.get(target));
+    if (target) onMove(entryId, destination);
   }
 
   function pointerCancel(event) {
-    if (event.pointerId === drag?.pointerId) cancel();
+    if (event.pointerId === drag?.id) cancel();
+  }
+
+  function touchStart(event) {
+    if (disposed || drag || event.touches.length !== 1 || !targets.size) return;
+    const handle = registeredAncestor(event.target, handles);
+    if (!handle || handle.disabled || !handles.get(handle).touchHold) return;
+    const touch = event.changedTouches[0];
+    track(handle, touch.identifier, touch, true);
+    drag.holdTimer = setTimeout(beginDrag, TOUCH_HOLD_MS);
+    doc.addEventListener('touchstart', additionalTouch, true);
+    // Prevent scrolling only after the hold. A swipe before then can scroll the page normally.
+    doc.addEventListener('touchmove', touchMove, NONPASSIVE_CAPTURE);
+    doc.addEventListener('touchend', touchEnd, NONPASSIVE_CAPTURE);
+    doc.addEventListener('touchcancel', touchCancel, true);
+  }
+
+  function changedTouch(event) {
+    return Array.from(event.changedTouches).find(touch => touch.identifier === drag?.id);
+  }
+
+  function additionalTouch(event) {
+    if (event.touches.length > 1) cancel();
+  }
+
+  function touchMove(event) {
+    const touch = changedTouch(event);
+    if (!touch) return;
+    if (event.cancelable === false) { cancel(); return; }
+    updatePosition(touch);
+    if (drag.started) {
+      event.preventDefault();
+      if (drag.moved) hover(targetAt(drag.x, drag.y));
+    } else if (drag.moved) cancel();
+  }
+
+  function touchEnd(event) {
+    const touch = changedTouch(event);
+    if (touch) finishDrop(event, touch);
+  }
+
+  function touchCancel(event) {
+    if (changedTouch(event)) cancel();
   }
 
   function keyDown(event) {
@@ -151,14 +210,23 @@ export function createDeckEditorDrag(root, { onMove }) {
     if (registeredAncestor(event.target, handles)) event.preventDefault();
   }
 
+  function contextMenu(event) {
+    if (drag?.touch) event.preventDefault();
+  }
+
   root.addEventListener('pointerdown', pointerDown);
+  root.addEventListener('touchstart', touchStart, { passive: true });
+  root.addEventListener('contextmenu', contextMenu);
   root.addEventListener('click', click, true);
   root.addEventListener('dragstart', nativeDrag);
 
   return {
-    registerHandle(handle, entryId) {
-      handles.set(handle, { entryId, touchAction: handle.style?.touchAction });
-      if (handle.style) handle.style.touchAction = 'none';
+    registerHandle(handle, entryId, { touchHold = false } = {}) {
+      handles.set(handle, { entryId, touchHold, touchAction: handle.style?.touchAction, touchCallout: handle.style?.webkitTouchCallout });
+      if (handle.style) {
+        if (touchHold) handle.style.webkitTouchCallout = 'none';
+        else handle.style.touchAction = 'none';
+      }
     },
     registerTarget(target, payload) { targets.set(target, payload); },
     cancel,
@@ -166,10 +234,15 @@ export function createDeckEditorDrag(root, { onMove }) {
       disposed = true;
       cancel();
       root.removeEventListener?.('pointerdown', pointerDown);
+      root.removeEventListener?.('touchstart', touchStart);
+      root.removeEventListener?.('contextmenu', contextMenu);
       root.removeEventListener?.('click', click, true);
       root.removeEventListener?.('dragstart', nativeDrag);
-      for (const [handle, { touchAction }] of handles) {
-        if (handle.style) handle.style.touchAction = touchAction;
+      for (const [handle, { touchAction, touchCallout, touchHold }] of handles) {
+        if (handle.style) {
+          if (touchHold) handle.style.webkitTouchCallout = touchCallout || '';
+          else handle.style.touchAction = touchAction || '';
+        }
       }
       handles.clear();
       targets.clear();

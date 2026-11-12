@@ -48,15 +48,17 @@
 
 .deck-editor-board {
   --editor-strip-height: 36px;
-  --editor-edge-W: #c5ae6b;
+  --editor-edge-W: #aebbc5;
   --editor-edge-U: #70a3c5;
   --editor-edge-B: #746580;
   --editor-edge-R: #c98373;
   --editor-edge-G: #80a373;
+  --editor-lane-minimum: 176px;
+  --editor-lane-gap: 10px;
   min-width: 0;
 }
 
-.deck-editor-board [data-deck-color="W"] { --editor-tint: #faf7ee; --editor-edge: var(--editor-edge-W); }
+.deck-editor-board [data-deck-color="W"] { --editor-tint: #f7f9fa; --editor-edge: var(--editor-edge-W); }
 .deck-editor-board [data-deck-color="U"] { --editor-tint: #f1f7fc; --editor-edge: var(--editor-edge-U); }
 .deck-editor-board [data-deck-color="B"] { --editor-tint: #f6f2f6; --editor-edge: var(--editor-edge-B); }
 .deck-editor-board [data-deck-color="R"] { --editor-tint: #fcf4f1; --editor-edge: var(--editor-edge-R); }
@@ -71,8 +73,24 @@
   margin-block: 24px;
 }
 
-.deck-editor-board:not(.is-dragging) .deck-editor-zone.is-empty {
-  display: none;
+.deck-editor-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  transition: grid-template-rows 180ms ease;
+}
+
+.deck-editor-fold-inner {
+  min-width: 0;
+  min-height: 0;
+}
+
+.deck-editor-fold.is-folded {
+  grid-template-rows: 0fr;
+}
+
+.deck-editor-fold:is(.is-folded, .is-folding) > .deck-editor-fold-inner {
+  overflow: hidden;
 }
 
 .deck-editor-zone-heading {
@@ -87,6 +105,56 @@
 .deck-editor-zone-heading.deck-zone-title {
   margin: 0 0 8px;
   font-size: 17px;
+}
+
+.deck-editor-fold-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.deck-editor-empty-title {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding-inline: 23px 6px;
+}
+
+.deck-editor-fold-toggle::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin: -3px 2px 0 1px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+  transition: transform 180ms ease;
+}
+
+.deck-editor-fold-toggle[aria-expanded="false"]::before {
+  transform: rotate(-45deg);
+}
+
+.deck-editor-fold-toggle:hover {
+  background: var(--accent-soft);
+}
+
+.deck-editor-fold-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .deck-editor-group {
@@ -432,39 +500,37 @@
   padding: 2px 4px;
 }
 
-.deck-editor-view-cards .deck-entry-main .deck-drag-handle {
-  margin-inline-end: auto;
-}
-
-.deck-editor-view-stack .deck-editor-zone,
+.deck-editor-view-stack .deck-editor-zone:not(.deck-editor-category-zone) > .deck-editor-fold > .deck-editor-fold-inner,
 .deck-editor-board.is-category .deck-editor-category-zone {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 176px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--editor-lane-minimum)), 1fr));
   align-items: start;
-  gap: 0 10px;
+  align-content: start;
+  gap: 0 var(--editor-lane-gap);
 }
 
 .deck-editor-board.is-category .deck-editor-category-zone {
   margin-block-start: 10px;
 }
 
-.deck-editor-view-stack .deck-editor-zone-heading {
-  grid-column: 1 / -1;
-}
-
-.deck-editor-view-stack .deck-editor-zone > .deck-editor-category-zone {
-  grid-column: 1 / -1;
+.deck-editor-view-text.is-category .deck-editor-category-zone {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
 }
 
 .deck-editor-view-stack .deck-editor-group-entries {
   gap: 0;
+  max-width: 268px;
 }
 
 .deck-editor-view-stack .deck-entry {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) var(--editor-stack-controls, auto);
   border: 0;
   background: transparent;
+}
+
+.deck-editor-view-stack .deck-editor-group-entries:has(.deck-entry-quantity-badge) {
+  --editor-stack-controls: 60px;
 }
 
 .deck-editor-view-stack .deck-editor-image {
@@ -493,53 +559,42 @@
   display: none;
 }
 
-.deck-editor-board.is-dragging .deck-editor-group-entries {
-  display: none;
-}
-
-.deck-editor-board.is-dragging {
-  align-content: start;
-  padding-block-end: clamp(150px, 42vh, 360px);
-}
-
-.deck-editor-board.is-dragging:not(.is-category) .deck-editor-group,
-.deck-editor-board.is-dragging .deck-editor-category-actions {
-  display: none;
-}
-
-.deck-editor-board.is-dragging:not(.is-category) {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.deck-editor-board.is-dragging :is(.deck-editor-zone, .deck-editor-group) {
-  margin-block: 3px;
+.deck-entry-quantity-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .deck-editor-board .is-drop-target {
-  display: flex;
-  align-items: center;
-  min-height: 42px;
-  padding: 6px 8px;
-  border: 1px dashed #a7bbaa;
+  outline: 1px dashed #a7bbaa;
+  outline-offset: -1px;
   border-radius: 7px;
   background: var(--surface);
 }
 
 .deck-editor-board .is-drag-over {
-  border-color: var(--accent);
+  outline-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-@media (min-width: 850px) {
-  .deck-editor-view-text.is-category .deck-editor-category-zone {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 235px), 1fr));
-  }
-}
-
 @media (max-width: 700px) {
+  .deck-editor-board {
+    --editor-lane-minimum: 168px;
+    --editor-lane-gap: 7px;
+  }
+
   .deck-editor-toolbar {
     align-items: flex-start;
   }
@@ -591,18 +646,9 @@
     gap: 7px;
   }
 
-  .deck-editor-view-stack .deck-editor-zone,
-  .deck-editor-board.is-category .deck-editor-category-zone {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr));
-    gap: 0 7px;
-  }
-
-  .deck-editor-view-text.is-category .deck-editor-category-zone {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .deck-editor-view-text.is-category.is-dragging .deck-editor-category-zone {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 128px), 1fr));
+  .deck-editor-fold-toggle,
+  .deck-editor-empty-title {
+    min-height: 36px;
   }
 
   .deck-editor-view-stack .deck-entry-main .deck-entry-menu-trigger {
