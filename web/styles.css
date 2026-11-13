@@ -22,7 +22,36 @@
 .card-type>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .card-type .mana-symbols{flex-shrink:0}
 
-.card-membership{font-size:10px;color:#2b6043;background:#edf4e6;border:1px solid #cfdfc5;border-radius:5px;padding:4px 7px;margin:8px 0 0;line-height:1.5;grid-column:1/-1;overflow-wrap:anywhere}.is-list .card-membership{grid-column:1/-1}
+.add-card-button.is-in-deck,
+.is-list .add-card-button.is-in-deck {
+  flex-direction: column;
+  width: 56px;
+  padding: 1px 3px;
+  border-color: #cfdfc5;
+  background: #edf4e6;
+  color: #2b6043;
+  font-size: 10px;
+  line-height: 1.05;
+  white-space: nowrap;
+  cursor: default;
+}
+.add-card-count {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.add-card-button:disabled:not(.is-in-deck) {
+  opacity: .6;
+  cursor: wait;
+}
+.card-info:has(> .add-card-button.is-in-deck) :is(.card-title, .card-english) {
+  max-width: calc(100% - 61px);
+}
+.is-list .card-info:has(> .add-card-button.is-in-deck) {
+  padding-right: 64px;
+}
+.is-list .card-info:has(> .add-card-button.is-in-deck) :is(.card-title, .card-english) {
+  max-width: 100%;
+}
 
 /* Touch layout, including safe areas when the browser fills a phone display. */
 .filter-footer-note{display:flex;align-items:center;gap:8px}
@@ -61,11 +90,11 @@ body:has(.deck-modal-overlay){overflow:hidden}
   .card-english{max-width:calc(100% - 49px);font-size:11px;margin-top:3px}
   .add-card-button{width:44px;height:44px;top:8px;right:0;border-radius:7px}.add-card-button .icon{width:20px;height:20px}
   .card-type{flex-wrap:wrap;gap:3px;white-space:normal;align-items:flex-start}.card-type>span:first-child{flex-basis:100%;white-space:nowrap}.card-type .mana-symbols{margin-left:0}
-  .card-set{flex-wrap:wrap;font-size:10px}.card-membership{font-size:11px;padding:5px 6px}
+  .card-set{flex-wrap:wrap;font-size:10px}
   .is-list .card-info{padding-right:50px;min-width:0}.is-list .card-title{max-width:100%;min-height:44px;white-space:normal}
   .is-list .card-english{max-width:100%}.is-list .add-card-button{width:44px;height:44px;right:0}
   .is-list .card-type{flex-wrap:wrap}.is-list .card-type .mana-symbols{margin-left:0}
-  .is-list .card-membership{margin-right:-50px}.load-more{min-height:44px;font-size:13px}
+  .load-more{min-height:44px;font-size:13px}
   .detail-header{padding:env(safe-area-inset-top) 12px 0;min-height:calc(58px + env(safe-area-inset-top));flex-shrink:0;font-size:13px}
   .detail-content{min-height:0;flex:1;padding:18px 16px calc(24px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
   .detail-overview{gap:14px}.detail-images,.detail-images.multi{width:38%;max-width:160px}.detail-meta h2{font-size:21px}

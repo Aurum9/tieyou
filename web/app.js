@@ -5,6 +5,7 @@ import { initSearchFilters } from './lib/filter-ui.js';
 import { getCommanderIdentity } from './lib/decks.js';
 import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from './lib/deck-target.js';
 import { buildDeckMembership } from './lib/deck-membership.js';
+import { LAND_TAG_NAMES, TAG_NAMES } from './lib/tag-vocabulary.js';
 import { clauseRange, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
 import { hasCatalogQueryIntent } from './lib/catalog-query-policy.js';
 import { PlaytestStorage } from './lib/playtest-storage.js';
@@ -47,6 +48,8 @@ let filterUI = null;
 let generatedClause = '';
 let scopeClause = '';
 let catalogMembership = new Map();
+const pickerAdditions = new Map();
+const pendingResultAdds = new Set();
 
 function synchronizeQuery() {
   if (!filterUI) return;
@@ -169,20 +172,80 @@ function notify(message, type = 'info') {
   setTimeout(() => toast.remove(), type === 'error' ? 6500 : 3800);
 }
 
-function renderCard(card) {
+function catalogAddKey(cardId, targetId) {
+  return JSON.stringify([cardId, targetId]);
+}
+
+function catalogCardQuantity(cardId, target) {
+  return target ? catalogMembership.get(cardId)?.total || 0 : pickerAdditions.get(cardId)?.quantity || 0;
+}
+
+function updateCatalogAddButton(button, cardId, target) {
+  const quantity = catalogCardQuantity(cardId, target);
+  const pending = pendingResultAdds.has(catalogAddKey(cardId, target?.id ?? null));
+  const state = quantity ? String(quantity) : pending ? 'pending' : 'available';
+  button.title = quantity ? '已在卡组' : pending ? '正在加入卡组'
+    : target ? '加入「' + target.name + '」主牌区' : '选择卡组并加入';
+  if (button.dataset.addState === state) return;
+  button.dataset.addState = state;
+  button.classList.toggle('is-in-deck', quantity > 0);
+  button.disabled = quantity > 0 || pending;
+  const count = quantity > 1 ? ' ×' + quantity : '';
+  const name = button.dataset.cardName;
+  button.setAttribute('aria-label', quantity ? name + ' 已在卡组' + count : pending
+    ? '正在将 ' + name + ' 加入卡组' : '将 ' + name + ' 加入卡组');
+  if (quantity) {
+    button.replaceChildren(node('span', { text: '已在卡组' }));
+    if (count) button.append(node('span', { class: 'add-card-count', text: count.trim() }));
+  } else button.replaceChildren(icon('plus'));
+}
+
+function refreshCatalogAddButtons(target = resolveDeckTarget(deckUI?.listDecks() || [], catalogTargetId)) {
+  for (const tile of $$('#results .card-tile')) {
+    const button = $('.add-card-button', tile);
+    if (button) updateCatalogAddButton(button, tile.dataset.cardId, target);
+  }
+}
+
+function pickerDeckQuantity(deck, cardId) {
+  return (deck?.entries || []).reduce((total, entry) => total + (entry.cardId === cardId ? entry.quantity : 0), 0);
+}
+
+async function addCatalogResult(card, version) {
+  if (currentView !== 'catalog') return;
+  const target = resolveDeckTarget(deckUI?.listDecks() || [], catalogTargetId);
+  const key = catalogAddKey(card.id, target?.id ?? null);
+  if (catalogCardQuantity(card.id, target) || pendingResultAdds.has(key)) return;
+  pendingResultAdds.add(key);
+  refreshCatalogAddButtons(target);
+  try {
+    await addCard(card, version, {
+      skipExisting: true,
+      onAdded(deckId) {
+        const quantity = pickerDeckQuantity(deckUI.getDeck(deckId), card.id);
+        if (quantity) pickerAdditions.set(card.id, { deckId, quantity });
+      },
+    });
+  } finally {
+    pendingResultAdds.delete(key);
+    refreshCatalogAddButtons();
+  }
+}
+
+function renderCard(card, target) {
   const article = node('article', { class: 'card-tile', 'data-card-id': card.id });
   const version = selectedVersionFor(card);
   const image = imageFrame(version?.image || card.image || cardFaces(card)[0]?.image, cardName(card), 'card-image-button', true);
   image.addEventListener('click', () => openDetail(card));
   if (cardFaces(card).length > 1) image.append(node('span', { class: 'card-top-badge', text: cardFaces(card).length + ' 个牌面' }));
   const title = node('button', { class: 'card-title', type: 'button', text: cardName(card), title: cardName(card), onClick: () => openDetail(card) });
-  const add = node('button', { class: 'add-card-button', type: 'button', 'aria-label': '将 ' + cardName(card) + ' 加入卡组', title: '加入卡组', onClick: () => addCard(card, version) }, icon('plus'));
+  const add = node('button', { class: 'add-card-button', type: 'button', 'data-card-name': cardName(card), onClick: () => addCatalogResult(card, version) });
+  updateCatalogAddButton(add, card.id, target);
   const type = node('p', { class: 'card-type' }, [node('span', { text: card.zhTypeLine || card.typeLine || '类别待补全' }), manaCost(card.manaCost)]);
   const set = node('div', { class: 'card-set' }, [node('span', { class: 'set-code', text: version?.set || card.set || '—' }), node('span', { text: (version?.collectorNumber || card.collectorNumber) ? '#' + (version?.collectorNumber || card.collectorNumber) : '' })]);
   if (!hasChineseText(card)) set.append(node('span', { class: 'card-translation-missing', text: '中文待补' }));
   else if (card.translation?.stale || cardFaces(card).some((face) => face.translation?.stale)) set.append(node('span', { class: 'card-translation-missing', text: '译文待更新' }));
   const info = node('div', { class: 'card-info' }, [title, node('p', { class: 'card-english', text: card.name, title: card.name }), add, type, set]);
-  info.append(node('p', { class: 'card-membership', text: catalogMembership.get(card.id)?.label || '', hidden: !catalogMembership.has(card.id) }));
   article.append(image, info);
   return article;
 }
@@ -200,7 +263,8 @@ function setResultState({ title, message, kind = 'search', action } = {}) {
 
 function renderResultPage(cards) {
   const fragment = document.createDocumentFragment();
-  for (const card of cards) fragment.append(renderCard(card));
+  const target = resolveDeckTarget(deckUI?.listDecks() || [], catalogTargetId);
+  for (const card of cards) fragment.append(renderCard(card, target));
   $('#results').append(fragment);
   renderedCount += cards.length;
   $('#load-more').hidden = renderedCount >= searchTotal;
@@ -450,7 +514,7 @@ async function openPlaytest(deck) {
   } catch (error) { if (revision === playtestRevision) notify(error.message || '手动测试暂时无法打开，请重试。', 'error'); }
 }
 
-async function addCard(card, version) {
+async function addCard(card, version, { skipExisting = false, onAdded } = {}) {
   if (currentView === 'playtest') return;
   if (!deckUI) { notify('卡组工作台暂时不可用，请刷新后重试。', 'error'); return; }
   const targetId = currentView === 'decks' ? deckUI.getSelectedDeckId() : catalogTargetId;
@@ -459,8 +523,8 @@ async function addCard(card, version) {
     if (core) card = core;
     const target = resolveDeckTarget(deckUI.listDecks(), targetId);
     if (targetId && !target) { if (catalogTargetId === targetId) catalogTargetId = null; refreshCatalogTarget(); notify('目标卡组已不存在，请重新选择。', 'error'); return; }
-    if (target) deckUI.quickAddCard(card, version, target.id);
-    else await deckUI.addCard(card, version);
+    if (target) deckUI.quickAddCard(card, version, target.id, { skipExisting });
+    else await deckUI.addCard(card, version, undefined, { onAdded });
   } catch (error) {
     notify(error.message || '卡牌暂时无法加入卡组，请重试。', 'error');
   }
@@ -491,11 +555,15 @@ function refreshCatalogTarget() {
   $('#catalog-scope-label').hidden = identity === null;
   $('#catalog-scope-filter').checked = catalogScopeEnabled;
   $('#catalog-scope-text').textContent = '按主将标识色限制搜索：' + (identity?.map(color => COLOR_NAMES[color]).join(' / ') || '无色');
-  $$('.add-card-button').forEach(button => { button.title = target ? '加入「' + target.name + '」主牌区' : '选择卡组并加入'; });
   const detailTarget = currentAddTarget();
   $$('.detail-add').forEach(button => { button.textContent = detailTarget ? '加入「' + detailTarget.name + '」主牌区' : '选择卡组并加入'; });
-  catalogMembership = buildDeckMembership(decks, catalogTargetId);
-  $$('#results .card-tile').forEach(tile => { const badge = $('.card-membership', tile), item = catalogMembership.get(tile.dataset.cardId); if (badge) { badge.textContent = item?.label || ''; badge.hidden = !item; } });
+  catalogMembership = target ? buildDeckMembership(decks, target.id) : new Map();
+  for (const [cardId, addition] of pickerAdditions) {
+    const quantity = pickerDeckQuantity(resolveDeckTarget(decks, addition.deckId), cardId);
+    if (quantity) addition.quantity = quantity;
+    else pickerAdditions.delete(cardId);
+  }
+  refreshCatalogAddButtons(target);
   synchronizeQuery();
 }
 
@@ -617,11 +685,14 @@ function renderDetail() {
   const legalityLabel = legality === 'legal' ? 'EDH 合法' : legality === 'banned' ? 'EDH 禁用' : legality === 'not_legal' ? 'EDH 不合法' : legality === 'restricted' ? 'EDH 限制' : 'EDH 合法性未知';
   meta.append(node('span', { class: 'legality-pill' + (legality === 'legal' ? '' : legality ? ' bad' : ' unknown') }, [icon(legality === 'legal' ? 'check' : 'info'), legalityLabel]));
   if (card.tags?.length) {
-    const tagNames = { draw: '抓牌', ramp: '加速', 'tutor-land': '找地', 'spot-removal': '单体去除', sweeper: '清场', counterspell: '反击', recursion: '坟场回收', 'hate-graveyard': '坟场针对', 'castable-from-graveyard': '可从坟场施放' };
-    const tags = card.tags.map((tag) => typeof tag === 'string' ? tag : tag.label || tag.name || tag.id);
-    const primaryTags = tags.filter((tag) => tagNames[tag]);
-    meta.append(node('div', { class: 'detail-tags' }, (primaryTags.length ? primaryTags : tags.slice(0, 4)).map((tag) => node('span', { text: tagNames[tag] || tag }))));
-    if (tags.length > primaryTags.length) meta.append(node('details', { class: 'detail-more-tags' }, [node('summary', { text: '查看全部 ' + tags.length + ' 个标签' }), node('div', { class: 'detail-tags' }, tags.map((tag) => node('span', { text: tagNames[tag] || tag })))]));
+    const tags = [...new Set(card.tags.map(tag => typeof tag === 'string' ? tag : tag?.slug || tag?.id || tag?.label || tag?.name).filter(Boolean))];
+    const landTags = tags.filter(tag => Object.hasOwn(LAND_TAG_NAMES, tag))
+      .sort((a, b) => b.split('-').length - a.split('-').length);
+    const translatedTags = tags.filter(tag => Object.hasOwn(TAG_NAMES, tag) || tag === 'castable-from-graveyard');
+    const preview = [...new Set([...landTags, ...translatedTags, ...tags])].slice(0, 4);
+    const chip = tag => node('span', { text: TAG_NAMES[tag] || (tag === 'castable-from-graveyard' ? '可从坟场施放' : tag) });
+    if (preview.length) meta.append(node('div', { class: 'detail-tags' }, preview.map(chip)));
+    if (tags.length > preview.length) meta.append(node('details', { class: 'detail-more-tags' }, [node('summary', { text: '查看全部 ' + tags.length + ' 个标签' }), node('div', { class: 'detail-tags' }, tags.map(chip))]));
   }
   root.append(node('div', { class: 'detail-overview' }, [images, meta]));
   if (detailLoading) { root.append(node('p', { id: 'detail-pending', class: 'data-note', role: 'status', text: '正在加载详情…' })); return; }

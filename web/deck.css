@@ -4,6 +4,35 @@
 .deck-recovery{padding:20px;border:1px solid #ca9988;border-radius:10px;background:#f8eee6;margin:18px 0}.deck-recovery>.button{margin-right:10px;margin-bottom:5px}.deck-recovery strong{font-size:14px}
 
 .deck-add-form{display:grid;grid-template-columns:minmax(0,1fr) auto}
+
+.deck-search-result > .deck-candidate-drag {
+  flex: 1;
+  min-width: 0;
+  cursor: grab;
+  user-select: none;
+}
+
+.deck-candidate-drag.is-drag-source,
+.deck-candidate-drag.is-drag-source .deck-card-link {
+  cursor: grabbing;
+}
+
+.deck-search-result > :is(.deck-candidate-add, .deck-candidate-added) {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+.deck-search-result > .deck-candidate-add {
+  min-width: 36px;
+  min-height: 34px;
+}
+
+.deck-candidate-added {
+  color: var(--muted);
+  font-size: 12px;
+  padding-inline: 5px;
+}
 @media(max-width:700px){.deck-add-form{grid-template-columns:minmax(0,1fr) auto;align-items:start}.deck-add-form .button{font-size:11px;padding:9px 10px}}
 
 /* Keep the workshop usable with touch controls and a narrow on-screen keyboard. */

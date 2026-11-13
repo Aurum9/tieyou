@@ -151,15 +151,16 @@ export class DeckStore {
     this.commit({ ...this.state, decks: [...this.state.decks, item.deck], trash: this.state.trash.filter(item => item.deck.id !== id) });
     return this.get(id);
   }
-  addCard(deckId, card, versionId = defaultVersion(card), zone = 'main', quantity = 1) {
+  addCard(deckId, card, versionId = defaultVersion(card), zone = 'main', quantity = 1, category = null) {
     const deck = this.get(deckId);
     if (!deck) fail('请先创建卡组');
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) fail('数量须为 1–999 的整数');
     if (!ZONES.includes(zone)) fail('分区不正确');
     if (!getVersion(card, versionId) && !(versionId === card.id && !card.versions?.length)) fail('印刷版本不属于这张牌');
-    const matching = deck.entries.find(entry => entry.cardId === card.id && entry.versionId === versionId && entry.zone === zone && !entry.notes && !entry.categories.length);
+    const categories = category === null ? [] : [category];
+    const matching = deck.entries.find(entry => entry.cardId === card.id && entry.versionId === versionId && entry.zone === zone && !entry.notes && entry.categories.length === categories.length && entry.categories[0] === categories[0]);
     if (matching) matching.quantity += quantity;
-    else deck.entries.push({ id: newId(), cardId: card.id, versionId, quantity, zone, categories: [], notes: '' });
+    else deck.entries.push({ id: newId(), cardId: card.id, versionId, quantity, zone, categories, notes: '' });
     return this.save(deck);
   }
   importBackup(text, { cards } = {}) {

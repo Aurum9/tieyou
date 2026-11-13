@@ -589,6 +589,44 @@
   color: var(--accent);
 }
 
+.deck-editor-drag-ghost {
+  position: fixed;
+  z-index: 90;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  opacity: .88;
+  user-select: none;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 4px 14px #1639262b;
+  color: var(--ink);
+}
+
+.deck-editor-drag-ghost > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-width: min(160px, calc(100vw - 24px));
+  padding: 5px 8px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.deck-editor-drag-ghost > img {
+  display: none;
+  width: clamp(52px, 16vw, 76px);
+  aspect-ratio: 488 / 680;
+  object-fit: cover;
+}
+
+.deck-editor-drag-ghost.has-image > img { display: block; }
+.deck-editor-drag-ghost.has-image > span { display: none; }
+
 @media (max-width: 700px) {
   .deck-editor-board {
     --editor-lane-minimum: 168px;

@@ -3,7 +3,8 @@ import { createDeckAnalysis } from './deck-analysis-ui.js';
 import { getDeckCategories, getDeckEntryCategory, groupDeckEntries } from './deck-editor-groups.js';
 import { applyDeckCardColor, createDeckCardImage } from './deck-editor-views.js';
 import { createDeckEditorDrag } from './deck-editor-drag.js';
-import { normalizeText } from './search.js';
+import { commanderScopeQuery, deckTagQuery } from './deck-target.js';
+import { normalizeText, searchCards } from './search.js';
 
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
 const editorZones = { commander: '指挥官', main: '主牌', considering: '备牌' };
@@ -24,6 +25,9 @@ function input(value = '', type = 'text') { const node = el('input', 'deck-input
 function select(options, value) { const node = el('select', 'deck-input'); for (const [id, label] of options) { const option = el('option', '', label); option.value = id; node.append(option); } node.value = value; return node; }
 function quantityInput(value = 1) { const node = input(value, 'number'); node.min = '1'; node.max = '999'; node.step = '1'; node.setAttribute('aria-label', '数量'); return node; }
 function printingName(version) { return `${String(version.set || '').toUpperCase()} · ${version.collectorNumber || '—'}${version.lang ? ` · ${version.lang}` : ''}`; }
+function dragPreview(card, version, name) {
+  return { name, image: version?.faceImages?.[0] || version?.image || card?.image || card?.faces?.[0]?.image };
+}
 function download(text, filename, type = 'text/plain') { const url = URL.createObjectURL(new Blob([text], { type })); const link = el('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 function safeFilename(name) { return name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 120) || 'edh-decks'; }
 function modal(title, { wide = false, onClose } = {}) {
@@ -66,6 +70,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   let disposeAddSearch;
   const identitySearchPreferences = new Map();
   const searchDrafts = new Map();
+  const pendingCandidateAdds = new Set();
   const collapsedLanes = new Map();
   const openFold = new WeakMap();
   let foldId = 0;
@@ -301,8 +306,9 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       }
       checks.append(list); container.append(checks);
     }
-    renderAddSearch(deck);
+    const search = renderAddSearch(deck);
     renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop);
+    search();
   }
 
   function renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop) {
@@ -342,7 +348,9 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       for (const update of folds) update();
     }
     editorDrag = createDeckEditorDrag(board, {
+      inputRoot: container,
       onMove: (entryId, destination) => moveEntry(entryId, destination, true),
+      onAdd: (source, destination) => addCandidate(deck.id, source, destination, true),
       onDragChange: setDragFolding,
     });
     const count = entries => entries.reduce((sum, entry) => sum + entry.quantity, 0);
@@ -529,7 +537,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       if (canDrag) {
         const handle = button('⋮', () => {}, 'deck-drag-handle'); handle.tabIndex = -1;
         handle.title = '拖动卡牌'; handle.setAttribute('aria-label', `拖动 ${name}`);
-        editorDrag.registerHandle(handle, entry.id);
+        editorDrag.registerHandle(handle, entry.id, { preview: dragPreview(card, version, name) });
         row.append(handle);
       }
       const mana = el('div', 'deck-entry-mana');
@@ -537,7 +545,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       row.append(quantity, title, mana, actions);
     } else {
       const image = createDeckCardImage({ card, version, name, onInspect: inspect });
-      if (canDrag && card) editorDrag.registerHandle(image, entry.id, { touchHold: true });
+      if (canDrag && card) editorDrag.registerHandle(image, entry.id, { touchHold: true, preview: dragPreview(card, version, name) });
       wrapper.append(image);
       if (entry.quantity > 1) row.append(el('span', 'deck-entry-quantity-badge', `×${entry.quantity}`));
       if (badges) row.append(badges);
@@ -549,9 +557,9 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   function renderAddSearch(deck) {
     const section = el('section', 'deck-add-section'); section.append(el('h2', '', '添加卡牌'));
     const draft = searchDrafts.get(deck.id) || { query: '' }; searchDrafts.set(deck.id, draft);
-    const form = el('form', 'deck-add-form'); const query = input(draft.query); query.placeholder = '中文 / 英文牌名，或系列＋编号（如 cmm 396）'; query.setAttribute('aria-label', '搜索要加入的卡牌'); query.autocomplete = 'off';
+    const form = el('form', 'deck-add-form'); const query = input(draft.query); query.placeholder = '牌名、系列＋编号或标签（如电震圈）'; query.setAttribute('aria-label', '搜索要加入的卡牌'); query.autocomplete = 'off';
     const advanced = button('高级搜索 ↗', () => {
-      if (activeRequest) results.replaceChildren();
+      if (activeRequest) clearResults();
       cancelSuggestions();
       return onOpenCatalog({ deckId: deck.id, query: query.value.trim(), restrictIdentity: restrictIdentity.checked });
     });
@@ -565,6 +573,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }
     const results = el('div', 'deck-add-results'); section.append(results);
     let candidateRequest = 0, suggestionTimer, scheduledKey, activeRequest, displayedKey;
+    const candidateHandles = [];
+    function clearResults(...children) {
+      for (const remove of candidateHandles.splice(0)) remove();
+      results.replaceChildren(...children);
+    }
     const isCurrent = request => request === candidateRequest && query.isConnected && !container.hidden;
     function cancelSuggestions() {
       clearTimeout(suggestionTimer);
@@ -575,26 +588,42 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }
     function renderCandidates(result, request, normalizedQuery) {
       if (!isCurrent(request)) return;
-      results.replaceChildren();
+      clearResults();
       const allCandidates = Array.isArray(result) ? result : result.cards;
       setCards(allCandidates);
       const candidates = allCandidates.slice(0, 8);
       if (!candidates.length) { results.append(el('p', 'deck-muted', restrictIdentity.checked ? '主将标识色范围内无匹配卡牌' : '无匹配卡牌')); return; }
       const total = result.total ?? allCandidates.length;
       if (total > 8) results.append(el('p', 'deck-muted', `显示前 8 项 · 共 ${total} 项匹配`));
-      const printingQuery = normalizedQuery.match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
+      const printingQuery = !deckTagQuery(normalizedQuery) && normalizedQuery.match(/^([a-z0-9]+)\s*[:/#\s]\s*(\S+)$/);
+      const quantities = new Map();
+      for (const entry of deck.entries) quantities.set(entry.cardId, (quantities.get(entry.cardId) || 0) + entry.quantity);
       for (const card of candidates) {
-        const row = el('div', 'deck-search-result'); const name = el('div'); name.append(button(card.zhName || card.name, () => onInspect(card), 'deck-card-link'), el('small', 'deck-muted', card.name));
+        const row = el('div', 'deck-search-result');
+        const label = card.zhName || card.name;
+        const name = el('div');
+        name.append(button(label, () => onInspect(card), 'deck-card-link'));
+        if (card.name !== label) name.append(el('small', 'deck-muted', card.name));
         const version = printingQuery ? card.versions?.find(item => item.set.toLowerCase() === printingQuery[1] && String(item.collectorNumber).toLowerCase() === printingQuery[2]) : null;
-        row.append(name, button('＋ 加入', () => {
-          if (!loadCardsByIds) return quickAddCard(card, version, deck.id);
-          const versionId = version?.id || defaultVersion(card);
-          return loadCardsByIds([card.id], { versions: [{ cardId: card.id, versionId }] }).then(loaded => {
-            setCards(loaded); const ready = index.get(card.id);
-            if (!ready) throw new Error('卡牌数据未找到，请重试');
-            return quickAddCard(ready, versionId, deck.id);
-          }).catch(error => onNotify(error.message, 'error'));
-        }, 'button button-quiet')); results.append(row);
+        const amount = quantities.get(card.id) || 0;
+        const source = { card, versionId: version?.id || defaultVersion(card) };
+        let add;
+        if (amount) add = el('span', 'deck-candidate-added', amount > 1 ? `已在卡组 ×${amount}` : '已在卡组');
+        else {
+          add = button('＋', async () => {
+            add.disabled = true;
+            try { await addCandidate(deck.id, source); }
+            finally { if (add.isConnected) add.disabled = false; }
+          }, 'button button-quiet deck-candidate-add');
+          add.setAttribute('aria-label', `加入 ${label}`);
+          name.classList.add('deck-candidate-drag');
+          const remove = editorDrag.registerExternalHandle(name, source, {
+            touchHold: true, preview: dragPreview(card, version || getVersion(card, source.versionId), label),
+          });
+          candidateHandles.push(remove);
+        }
+        row.append(name, add);
+        results.append(row);
       }
     }
     function showCandidates({ debounce = false, submitted = false } = {}) {
@@ -605,7 +634,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       if (key === displayedKey || key === activeRequest?.key || (debounce && key === scheduledKey)) return;
       cancelSuggestions();
       displayedKey = undefined;
-      results.replaceChildren();
+      clearResults();
       const request = candidateRequest;
       if (!normalized || !isCurrent(request)) return;
       if (findCandidates && draft.completed?.key === key) {
@@ -619,7 +648,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         if (!isCurrent(request)) return;
         const options = { colorIdentity, limit: 8 };
         if (!findCandidates) {
-          renderCandidates(findCardCandidates(text, cards, options), request, normalized);
+          const tag = deckTagQuery(text);
+          const result = tag
+            ? searchCards(cards, [tag, commanderScopeQuery(colorIdentity)].filter(Boolean).join(' '), { commanderOnly: true }, 'edhrec')
+            : findCardCandidates(text, cards, options);
+          renderCandidates(result, request, normalized);
           return;
         }
         const controller = new AbortController();
@@ -637,7 +670,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
           displayedKey = key;
         }).catch(error => {
           if (!isCurrent(request) || error?.name === 'AbortError') return;
-          results.replaceChildren(el('p', 'deck-form-error', error?.message || '搜索失败'), button('重试搜索', () => showCandidates({ submitted: true })));
+          clearResults(el('p', 'deck-form-error', error?.message || '搜索失败'), button('重试搜索', () => showCandidates({ submitted: true })));
         }).finally(() => {
           if (activeRequest === active) activeRequest = undefined;
         });
@@ -652,7 +685,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       if (findCandidates && event.isComposing) {
         cancelSuggestions();
         displayedKey = undefined;
-        results.replaceChildren();
+        clearResults();
         return;
       }
       showCandidates({ debounce: true });
@@ -673,19 +706,44 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       if (container.hidden) cancelSuggestions();
     }) : null;
     visibilityObserver?.observe(container, { attributes: true, attributeFilter: ['hidden'] });
-    disposeAddSearch = () => { visibilityObserver?.disconnect(); cancelSuggestions(); };
+    disposeAddSearch = () => { visibilityObserver?.disconnect(); cancelSuggestions(); clearResults(); };
     container.append(section);
-    showCandidates({ debounce: Boolean(findCandidates) });
+    return () => showCandidates({ debounce: Boolean(findCandidates) });
   }
-  function quickAddCard(card, version, deckId = selectedId) {
-    if (!deckId || !store.get(deckId)) { onNotify('目标卡组已不存在，请重新选择卡组', 'error'); return false; }
+  async function addCandidate(deckId, { card, versionId }, destination = {}, fromDrag = false) {
+    const key = JSON.stringify([deckId, card.id]);
+    if (pendingCandidateAdds.has(key)) return false;
+    pendingCandidateAdds.add(key);
+    try {
+      if (loadCardsByIds) {
+        const loaded = await loadCardsByIds([card.id], { versions: [{ cardId: card.id, versionId }] });
+        const ready = loaded.find(item => item.id === card.id);
+        if (!ready) throw new Error('卡牌数据未找到，请重试');
+        card = ready;
+      }
+      return quickAddCard(card, versionId, deckId, { ...destination, skipExisting: true, fromDrag });
+    } catch (error) {
+      onNotify(error.message, 'error');
+      return false;
+    } finally { pendingCandidateAdds.delete(key); }
+  }
+  function quickAddCard(card, version, deckId = selectedId, { zone = 'main', category = null, skipExisting = false, fromDrag = false } = {}) {
+    const deck = store.get(deckId);
+    if (!deck) { onNotify('目标卡组已不存在，请重新选择卡组', 'error'); return false; }
+    if (skipExisting && deck.entries.some(entry => entry.cardId === card.id)) return false;
+    if (category !== null && !getDeckCategories(deck).includes(category)) {
+      onNotify('目标分类已不存在', 'error');
+      return false;
+    }
     setCards([card]);
     const versionId = typeof version === 'string' ? version : version?.id || defaultVersion(card);
-    const updated = run(() => store.addCard(deckId, card, versionId, 'main', 1));
+    const updated = run(() => store.addCard(deckId, card, versionId, zone, 1, category), { refresh: !fromDrag });
     if (!updated) return false;
-    onNotify(`已加入「${updated.name}」主牌区`, 'success'); return true;
+    if (fromDrag) render(true);
+    onNotify(`已加入「${updated.name}」${category ? `的「${category}」` : `${editorZones[zone]}区`}`, 'success');
+    return true;
   }
-  async function addCard(card, version, preferredId = selectedId) {
+  async function addCard(card, version, preferredId = selectedId, { onAdded } = {}) {
     if (loadCardDetails && !card.versionsComplete) {
       try { card = await loadCardDetails(card.id); setCards([card]); }
       catch (error) { onNotify(error.message, 'error'); return false; }
@@ -710,7 +768,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
           if (target.value === '__new__') return store.importEntries(newName.value.trim() || '未命名卡组', [{ id: 'new', cardId: card.id, versionId: printing.value, quantity: amount, zone: zone.value, categories: [], notes: '' }]);
           return store.addCard(target.value, card, printing.value, zone.value, amount);
         }, { refresh: false, errorTarget: error });
-        if (updated) { didAdd = true; selectedId = updated.id; current.close(); render(); onNotify(`已加入「${updated.name}」`, 'success'); }
+        if (updated) { didAdd = true; selectedId = updated.id; onAdded?.(updated.id); current.close(); render(); onNotify(`已加入「${updated.name}」`, 'success'); }
       }); current.panel.append(form);
     });
   }

@@ -10,6 +10,16 @@ function surface(parentNode = null) {
     parentNode,
     style: {},
     classList: classes,
+    children: [],
+    attributes: {},
+    offsetWidth: 76,
+    offsetHeight: 106,
+    append(child) { child.parentNode = this; this.children.push(child); },
+    remove() {
+      if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this);
+      this.parentNode = null;
+    },
+    setAttribute(name, value) { this.attributes[name] = value; },
     getBoundingClientRect: () => ({ top: 100, bottom: 140, height: 40 }),
     addEventListener(type, handler) {
       if (!events.has(type)) events.set(type, new Set());
@@ -30,8 +40,9 @@ function surface(parentNode = null) {
   };
 }
 
-function fixture() {
-  const root = surface();
+function fixture({ external = false } = {}) {
+  const root = surface(external ? surface() : null);
+  const inputRoot = root.parentNode || root;
   const doc = surface();
   const view = surface();
   view.innerHeight = 800;
@@ -50,15 +61,22 @@ function fixture() {
   };
   doc.defaultView = view;
   doc.elementFromPoint = () => doc.hit;
+  doc.body = surface();
+  doc.createElement = tagName => ({ ...surface(), tagName });
   root.ownerDocument = doc;
   const grip = surface(root);
   const header = surface(root);
   const child = surface(header);
-  const moves = [], dragStates = [];
+  const moves = [], adds = [], dragStates = [];
   const controller = createDeckEditorDrag(root, {
+    inputRoot,
     onMove: (...args) => {
       assert.equal(root.classList.has('is-dragging'), false);
       moves.push(args);
+    },
+    onAdd: (...args) => {
+      assert.equal(root.classList.has('is-dragging'), false);
+      adds.push(args);
     },
     onDragChange: active => {
       assert.equal(root.classList.has('is-dragging'), active);
@@ -67,7 +85,7 @@ function fixture() {
   });
   controller.registerHandle(grip, 'entry-1');
   controller.registerTarget(header, { category: '抓牌' });
-  return { root, doc, view, grip, header, child, moves, controller, runFrame, dragStates };
+  return { root, inputRoot, doc, view, grip, header, child, moves, adds, controller, runFrame, dragStates };
 }
 
 test('a short grip click stays usable, and dropping over a nested header button moves once', () => {
@@ -143,5 +161,45 @@ test('touch image taps and early swipes stay native, and a deliberate held drag 
   assert.equal(doc.dispatch('touchend', { changedTouches: [moved] }).defaultPrevented, true);
   assert.deepEqual(moves, [['image-1', { category: '抓牌' }]]);
   assert.equal(root.dispatch('click', { target: image }).defaultPrevented, true);
+  controller.dispose();
+});
+
+test('external card drag shows a floating preview and sends the source to the add callback', () => {
+  const { inputRoot, doc, child, adds, moves, controller, runFrame } = fixture({ external: true });
+  const result = surface(inputRoot);
+  const source = { cardId: 'new-card', versionId: 'v2' };
+  const unregister = controller.registerExternalHandle(result, source, {
+    preview: { name: '有名牌', image: 'https://example.com/card.jpg' },
+  });
+  const start = () => {
+    inputRoot.dispatch('pointerdown', { target: result });
+    doc.dispatch('pointermove', { clientX: 130 });
+  };
+
+  start();
+  const [ghost] = doc.body.children;
+  assert.equal(ghost.className, 'deck-editor-drag-ghost');
+  assert.equal(ghost.attributes['aria-hidden'], 'true');
+  assert.equal(ghost.children[0].textContent, '有名牌');
+  assert.equal(ghost.children[1].src, 'https://example.com/card.jpg');
+  ghost.children[1].dispatch('load');
+  assert.equal(ghost.classList.has('has-image'), true);
+  const firstPosition = ghost.style.transform;
+  doc.hit = child;
+  doc.dispatch('pointermove', { clientX: 180 });
+  runFrame();
+  assert.notEqual(ghost.style.transform, firstPosition);
+  doc.dispatch('pointerup', { clientX: 180 });
+  assert.deepEqual(adds, [[source, { category: '抓牌' }]]);
+  assert.deepEqual(moves, []);
+  assert.equal(doc.body.children.length, 0);
+
+  start();
+  assert.equal(doc.body.children.length, 1);
+  unregister();
+  assert.equal(doc.body.children.length, 0);
+  assert.equal(result.style.touchAction, '');
+  doc.dispatch('pointerup', { clientX: 180 });
+  assert.equal(adds.length, 1);
   controller.dispose();
 });

@@ -1,3 +1,5 @@
+import { localizedTagSlugs } from './tag-names.js';
+
 const textCache = new WeakMap();
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
 const typeAliases = { 生物: 'creature', 地: 'land', 地牌: 'land', 神器: 'artifact', 结界: 'enchantment', 瞬间: 'instant', 法术: 'sorcery', 鹏洛客: 'planeswalker', 战役: 'battle', 亲缘: 'kindred', 部族: 'tribal', 传奇: 'legendary', 基本: 'basic', 雪境: 'snow', 雪: 'snow', 世界: 'world', 持续: 'ongoing', 人类: 'human', 精灵: 'elf', 妖精: 'elf', 龙: 'dragon', 灵俑: 'zombie', 地精: 'goblin' };
@@ -239,7 +241,7 @@ function compile(node, hasTags) {
   }
   if (field === 'tag') {
     if (!hasTags) throw new QueryError('当前卡库尚未载入功能标签', position);
-    const candidates = tagAliases[value] || [value.replace(/ /g, '-')];
+    const candidates = tagAliases[value] || localizedTagSlugs(value) || [value.replace(/ /g, '-')];
     return card => (card.tags || []).some(tag => candidates.includes(normalizeText(typeof tag === 'string' ? tag : tag.slug || tag.name)));
   }
   if (field === 'r') {

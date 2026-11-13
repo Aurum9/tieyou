@@ -140,8 +140,9 @@ test('live candidate rows replace the redundant submit button and dropdown, keep
   assert.equal(all(state.container, node => node.tagName === 'datalist').length, 0);
   assert.equal(query.attributes.list, undefined); assert.equal(button(state.container, '查找卡牌'), undefined);
   assert.match(state.container.textContent, /显示前 8 项 · 共 12 项匹配/);
-  button(state.container, '＋ 加入').dispatch('click');
+  button(state.container, '＋').dispatch('click');
   assert.equal(state.ui.getDeck(state.first.id).entries[0].zone, 'main');
+  assert.match(state.container.textContent, /已在卡组/);
   query = queryInput(state.container); assert.equal(query.value, 'Elf'); assert.equal(all(document.body, node => node.attributes.role === 'dialog').length, 0);
   const submission = all(state.container, node => node.className === 'deck-add-form')[0].dispatch('submit');
   assert.equal(submission.defaultPrevented, true); assert.equal(query.value, 'Elf');
@@ -157,11 +158,11 @@ test('typing updates candidate rows after the debounce and still accepts Chinese
   assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 0);
   await new Promise(resolve => setTimeout(resolve, 230));
   assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 1);
-  button(state.container, '＋ 加入').dispatch('click');
+  button(state.container, '＋').dispatch('click');
   assert.equal(state.ui.getDeck(state.first.id).entries[0].cardId, 'elf-10');
   query = queryInput(state.container); query.value = 'abc 2'; query.dispatch('change');
   assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 1);
-  button(state.container, '＋ 加入').dispatch('click');
+  button(state.container, '＋').dispatch('click');
   const printingEntry = state.ui.getDeck(state.first.id).entries.find(entry => entry.cardId === 'elf-2');
   assert.equal(printingEntry.versionId, 'v-2'); assert.equal(printingEntry.zone, 'main');
 });
@@ -214,9 +215,11 @@ test('remote mini-search aborts stale requests and keeps the current results aft
   first.resolve({ cards: [state.cards[0]], total: 1 }); await settle();
   assert.equal(all(state.container, node => node.className === 'deck-search-result').length, 1);
   assert.ok(button(state.container, '精灵1')); assert.equal(button(state.container, '精灵0'), undefined);
-  await button(state.container, '＋ 加入').dispatchAsync('click');
+  await button(state.container, '＋').dispatchAsync('click');
   t.mock.timers.tick(300); await settle();
   assert.equal(searches.length, 2); assert.ok(button(state.container, '精灵1'));
+  assert.equal(button(state.container, '＋'), undefined);
+  assert.match(state.container.textContent, /已在卡组/);
   assert.deepEqual(batches, [{ ids: ['elf-1'], options: { versions: [{ cardId: 'elf-1', versionId: 'v-1' }] } }]);
   assert.equal(state.ui.getDeck(state.first.id).entries[0].cardId, 'elf-1');
   assert.equal(state.ui.getDeck(state.first.id).entries[0].zone, 'main'); assert.equal(state.loads, 0);

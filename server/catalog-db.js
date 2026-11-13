@@ -1,5 +1,7 @@
 import { parseQuery, extractSearchOptions, validateSearch, normalizeText, QueryError } from '../web/lib/search.js';
 import { parseDeckText } from '../web/lib/decks.js';
+import { commanderScopeQuery, deckTagQuery } from '../web/lib/deck-target.js';
+import { localizedTagSlugs } from '../web/lib/tag-names.js';
 
 // Values share the public query language. The parser itself stays in search.js.
 const typeAliases = { 生物: 'creature', 地: 'land', 地牌: 'land', 神器: 'artifact', 结界: 'enchantment', 瞬间: 'instant', 法术: 'sorcery', 鹏洛客: 'planeswalker', 战役: 'battle', 亲缘: 'kindred', 部族: 'tribal', 传奇: 'legendary', 基本: 'basic', 雪境: 'snow', 雪: 'snow', 世界: 'world', 持续: 'ongoing', 人类: 'human', 精灵: 'elf', 妖精: 'elf', 龙: 'dragon', 灵俑: 'zombie', 地精: 'goblin' };
@@ -139,7 +141,7 @@ export function compileCatalogQuery(query = '', { sort = 'name', commanderOnly =
     if (field === 'is') return `c.translated=${value === 'translated' ? 1 : 0}`;
     if (field === 'tag') {
       tagPosition ??= node.position;
-      const candidates = tagAliases[value] || [value.replace(/ /g, '-')];
+      const candidates = tagAliases[value] || localizedTagSlugs(value) || [value.replace(/ /g, '-')];
       return `EXISTS (SELECT 1 FROM catalog_tags tg WHERE tg.version=c.version AND tg.card_id=c.id AND tg.slug IN (SELECT value FROM json_each(${params.add(json(candidates))})))`;
     }
     const column = { set: 'set_code', cn: 'collector_number', lang: 'lang', r: 'rarity' }[field];
@@ -232,6 +234,9 @@ export function createCatalogService(db) {
     if (identity !== null && (!Array.isArray(identity) || identity.some(color => !/^[WUBRG]$/i.test(color)))) throw new QueryError('标识色无效');
     const version = await activeVersion(db);
     const identityMask = identity === null ? null : mask(identity);
+    const tag = deckTagQuery(q);
+    const scope = commanderScopeQuery(identity);
+    if (tag) return search({ q: [tag, scope].filter(Boolean).join(' '), sort: 'edhrec', commanderOnly: true, limit }, version);
     const printing = normalized.match(/^([a-z0-9]+)\s*[:/#\s]\s*([a-z0-9★*\-]+)$/i);
     if (printing) {
       const [, set, collectorNumber] = printing;
@@ -244,8 +249,7 @@ export function createCatalogService(db) {
         LIMIT 1
       `).bind(version, set, collectorNumber, identityMask).first();
       if (exists) {
-        const scope = identity === null ? '' : ` AND ci<=${identity.length ? identity.join('') : '无色'}`;
-        return search({ q: `set:"${set}" cn:"${collectorNumber}"${scope}`, limit }, version);
+        return search({ q: [`set:"${set}" cn:"${collectorNumber}"`, scope].filter(Boolean).join(' '), limit }, version);
       }
     }
     // A prefix bounds the number of FTS terms. The full substring check removes false positives.

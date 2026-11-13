@@ -59,6 +59,12 @@ test('已知系列和编号可用空格、冒号、斜线或井号分隔', () =>
     assert.deepEqual(search(query), ['sol']);
   }
 });
+test('功能标签转到高级卡查后仍是独立条件，按 EDHREC 排序', () => {
+  assert.equal(catalogQueryFromDeckSearch('电震圈'), 'otag:"电震圈" order:edhrec');
+  assert.equal(catalogQueryFromDeckSearch('cycle-rav-shockland'), 'otag:"cycle-rav-shockland" order:edhrec');
+  assert.equal(catalogQueryFromDeckSearch('otag：电震圈'), 'otag:"电震圈" order:edhrec');
+  assert.equal(catalogQueryFromDeckSearch('otag:"cycle-rav-shockland"'), 'otag:"cycle-rav-shockland" order:edhrec');
+});
 test('未知系列或非编号后缀继续按名称搜索', () => {
   assert.equal(catalogQueryFromDeckSearch('M21 123a'), 'name:"M21 123a"');
   assert.equal(catalogQueryFromDeckSearch('M21 Name', ['m21']), 'name:"M21 Name"');
