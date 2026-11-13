@@ -415,7 +415,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
 
     function appendGroups(section, entries) {
       for (const group of groupDeckEntries(entries, index, groupBy, categoryNames)) {
-        const lane = el('section', 'deck-editor-group');
+        const emptyUnclassified = byCategory && group.key === null && !group.entries.length;
+        const lane = el('section', emptyUnclassified ? 'deck-editor-group is-empty-unclassified' : 'deck-editor-group');
         const heading = el('div', 'deck-editor-group-title');
         if (!byCategory) {
           heading.append(el('h3', 'deck-group-title', `${group.label} · ${count(group.entries)}`));
@@ -547,7 +548,10 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       const image = createDeckCardImage({ card, version, name, onInspect: inspect });
       if (canDrag && card) editorDrag.registerHandle(image, entry.id, { touchHold: true, preview: dragPreview(card, version, name) });
       wrapper.append(image);
-      if (entry.quantity > 1) row.append(el('span', 'deck-entry-quantity-badge', `×${entry.quantity}`));
+      if (entry.quantity > 1) {
+        const badge = el('span', 'deck-entry-quantity-badge', `×${entry.quantity}`);
+        (viewMode === 'stack' ? wrapper : row).append(badge);
+      }
       if (badges) row.append(badges);
       row.append(actions);
     }

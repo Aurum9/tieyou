@@ -55,6 +55,7 @@
   --editor-edge-G: #80a373;
   --editor-lane-minimum: 176px;
   --editor-lane-gap: 10px;
+  --editor-stack-menu-width: 24px;
   min-width: 0;
 }
 
@@ -501,7 +502,8 @@
 }
 
 .deck-editor-view-stack .deck-editor-zone:not(.deck-editor-category-zone) > .deck-editor-fold > .deck-editor-fold-inner,
-.deck-editor-board.is-category .deck-editor-category-zone {
+.deck-editor-view-stack .deck-editor-category-zone,
+.deck-editor-view-text .deck-editor-category-zone {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--editor-lane-minimum)), 1fr));
   align-items: start;
@@ -517,6 +519,10 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
 }
 
+.deck-editor-board:not(.is-dragging) .is-empty-unclassified {
+  display: none;
+}
+
 .deck-editor-view-stack .deck-editor-group-entries {
   gap: 0;
   max-width: 268px;
@@ -524,13 +530,17 @@
 
 .deck-editor-view-stack .deck-entry {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--editor-stack-controls, auto);
+  grid-template-columns: minmax(0, 1fr) var(--editor-stack-menu-width);
   border: 0;
   background: transparent;
 }
 
-.deck-editor-view-stack .deck-editor-group-entries:has(.deck-entry-quantity-badge) {
-  --editor-stack-controls: 60px;
+.deck-editor-view-stack .deck-entry > .deck-entry-quantity-badge {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 5px;
+  inset-inline-end: calc(var(--editor-stack-menu-width) + 5px);
+  pointer-events: none;
 }
 
 .deck-editor-view-stack .deck-editor-image {
@@ -553,8 +563,7 @@
   padding: 0;
 }
 
-.deck-editor-view-stack .deck-entry-quantity { width: 25px; }
-.deck-editor-view-stack .deck-entry-menu-trigger { width: 24px; }
+.deck-editor-view-stack .deck-entry-menu-trigger { width: var(--editor-stack-menu-width); }
 .deck-editor-view-stack .deck-entry-main .deck-entry-issues {
   display: none;
 }
@@ -631,6 +640,7 @@
   .deck-editor-board {
     --editor-lane-minimum: 168px;
     --editor-lane-gap: 7px;
+    --editor-stack-menu-width: 25px;
   }
 
   .deck-editor-toolbar {
@@ -690,7 +700,6 @@
   }
 
   .deck-editor-view-stack .deck-entry-main .deck-entry-menu-trigger {
-    width: 25px;
     height: 28px;
   }
 }
