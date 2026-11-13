@@ -67,6 +67,7 @@ const cardDefinitions = [
 ];
 function fixture({ entries = [entry('forest', 15), entry('chief', 1, 'commander')] } = {}) {
   const doc = new Element('document'); doc.ownerDocument = doc; doc.createElement = tag => new Element(tag, doc); doc.body = doc.createElement('body'); doc.activeElement = doc.body;
+  doc.createTextNode = text => Object.assign(new Element('#text', doc), { textContent: text });
   doc.elementFromPoint = () => doc.point;
   const scrolls = []; doc.defaultView = { innerWidth: 390, innerHeight: 844, scrollTo: value => scrolls.push(value) };
   globalThis.document = doc; globalThis.window = doc.defaultView;
@@ -146,7 +147,9 @@ test('battlefield click toggles tap directly; the corner menu changes counters a
   const currentDialog = byClass(f.container, 'pt-card-dialog')[0];
   assert.equal(button(currentDialog, '查看详情'), undefined);
   assert.equal(byClass(currentDialog, 'pt-preview-image')[0].querySelector('img').src, forestImage);
-  assert.equal(byClass(currentDialog, 'pt-preview-text')[0].textContent, '{T}：加{G}。');
+  const rules = byClass(currentDialog, 'pt-preview-text')[0];
+  assert.equal(rules.children.map(node => node.tagName === 'img' ? node.alt : node.textContent).join(''), '{T}：加{G}。');
+  assert.deepEqual(byClass(rules, 'mana-symbol').map(node => node.alt), ['{T}', '{G}']);
   button(currentDialog, '关闭').dispatch('click'); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
 });
 

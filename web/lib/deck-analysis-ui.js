@@ -3,6 +3,7 @@ import { analyzeDeckRelated, loadTagVocabulary, loadTokenCatalog } from './deck-
 import { getVersion } from './decks.js';
 import { normalizeText } from './search.js';
 import { createDeckProbability } from './deck-probability-ui.js';
+import { appendManaText } from './mana-symbols.js';
 
 const COLOR_LABELS = { W: '白色', U: '蓝色', B: '黑色', R: '红色', G: '绿色', M: '多色', C: '无色' };
 const LAND_LABELS = {
@@ -60,7 +61,7 @@ function drilldown(id, entries, cards, onInspect) {
       list.append(row);
     }
     region.replaceChildren(el('h3', '', title));
-    if (rules) region.append(el('p', 'deck-analysis-token-rules', rules));
+    if (rules) region.append(appendManaText(el('p', 'deck-analysis-token-rules rule-text'), rules));
     region.append(list);
     region.hidden = false;
     region.scrollIntoView?.({ block: 'nearest' });

@@ -4,6 +4,7 @@ import { attachCardGestures } from './playtest-gestures.js';
 import { createLibraryPanel } from './playtest-library.js';
 import { createTokenPicker } from './playtest-token-picker.js';
 import { getVersion } from './decks.js';
+import { appendManaText } from './mana-symbols.js';
 
 const ZONES = { hand: '手牌', battlefield: '战场', graveyard: '坟场', exile: '放逐区', command: '统帅区', library: '牌库', stack: '堆叠' };
 const DOUBLE_FACED = new Set(['transform', 'modal_dfc', 'reversible_card', 'double_faced_token']);
@@ -316,7 +317,7 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
       const type = face.zhTypeLine || face.typeLine;
       if (type) section.append(el('p', 'pt-preview-type', type));
       const ruleText = face.zhText || face.oracleText;
-      if (ruleText) section.append(el('p', 'pt-preview-text', ruleText));
+      if (ruleText) section.append(appendManaText(el('p', 'pt-preview-text rule-text'), ruleText));
       rules.append(section);
     }
     preview.append(image, rules); parent.append(preview);

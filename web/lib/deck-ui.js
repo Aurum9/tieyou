@@ -5,6 +5,7 @@ import { applyDeckCardColor, createDeckCardImage } from './deck-editor-views.js'
 import { createDeckEditorDrag } from './deck-editor-drag.js';
 import { commanderScopeQuery, deckTagQuery } from './deck-target.js';
 import { normalizeText, searchCards } from './search.js';
+import { manaCost } from './mana-symbols.js';
 
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
 const editorZones = { commander: '指挥官', main: '主牌', considering: '备牌' };
@@ -56,7 +57,7 @@ function modal(title, { wide = false, onClose } = {}) {
   return { panel, close, overlay };
 }
 
-export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, loadDeckCards, loadCardsByIds, findCandidates, resolveDeckText, loadCardDetails, renderManaCost = value => el('span', '', value), onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {} }) {
+export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, loadDeckCards, loadCardsByIds, findCandidates, resolveDeckText, loadCardDetails, renderManaCost = manaCost, onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {} }) {
   let index = new Map(cards.map(card => [card.id, card]));
   let loadingCards = null;
   let openingId = null;
@@ -545,7 +546,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       if (card?.manaCost) mana.append(renderManaCost(card.manaCost));
       row.append(quantity, title, mana, actions);
     } else {
-      const image = createDeckCardImage({ card, version, name, onInspect: inspect });
+      const image = createDeckCardImage({ card, version, name, onInspect: inspect, stackPreview: viewMode === 'stack' });
       if (canDrag && card) editorDrag.registerHandle(image, entry.id, { touchHold: true, preview: dragPreview(card, version, name) });
       wrapper.append(image);
       if (entry.quantity > 1) {

@@ -9,13 +9,13 @@ import { LAND_TAG_NAMES, TAG_NAMES } from './lib/tag-vocabulary.js';
 import { clauseRange, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
 import { hasCatalogQueryIntent } from './lib/catalog-query-policy.js';
 import { PlaytestStorage } from './lib/playtest-storage.js';
+import { appendManaText, manaCost } from './lib/mana-symbols.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const PAGE_SIZE = 48;
 const remoteCatalog = createRemoteCatalog();
 const COLOR_NAMES = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿', C: '无色' };
-const MANA_GLYPHS = { W: '☀', U: '◆', B: '●', R: '◆', G: '♣', C: '◇', T: '↷', Q: '↶', E: 'ϟ', S: '❄' };
 let allCards = [];
 let manifest = null;
 let deckUI = null;
@@ -95,28 +95,9 @@ function icon(name, className = '') {
   return svg;
 }
 
-function manaSymbol(symbol) {
-  const normalized = String(symbol).toUpperCase();
-  const kind = normalized.includes('/') ? 'hybrid' : /^[WUBRGC]$/.test(normalized) ? normalized.toLowerCase() : 'c';
-  const item = node('span', { class: 'mana-symbol mana-' + kind, title: '{' + normalized + '}', 'aria-label': '{' + normalized + '}', text: MANA_GLYPHS[normalized] || normalized });
-  return item;
-}
-
-function manaCost(value) {
-  const wrap = node('span', { class: 'mana-symbols', 'aria-label': value || '无法术力费用' });
-  const symbols = String(value || '').match(/\{([^}]+)\}/g) || [];
-  for (const symbol of symbols) wrap.append(manaSymbol(symbol.slice(1, -1)));
-  return wrap;
-}
-
 function ruleText(value, className) {
   const wrap = node('p', { class: 'rule-text' + (className ? ' ' + className : '') });
-  const pieces = String(value || '').split(/(\{[^}]+\})/g);
-  for (const piece of pieces) {
-    if (/^\{[^}]+\}$/.test(piece)) wrap.append(manaSymbol(piece.slice(1, -1)));
-    else wrap.append(document.createTextNode(piece));
-  }
-  return wrap;
+  return appendManaText(wrap, value);
 }
 
 function fmt(value) { return Number(value || 0).toLocaleString('zh-CN'); }

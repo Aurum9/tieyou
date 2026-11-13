@@ -321,10 +321,9 @@
 }
 
 .deck-entry-mana .mana-symbol {
-  flex: 0 0 auto;
   min-width: 14px;
+  width: 14px;
   height: 14px;
-  font-size: 10px;
 }
 
 .deck-editor-board .deck-entry-quantity {
@@ -541,6 +540,7 @@
   inset-block-start: 5px;
   inset-inline-end: calc(var(--editor-stack-menu-width) + 5px);
   pointer-events: none;
+  transform: var(--editor-stack-image-transform, none);
 }
 
 .deck-editor-view-stack .deck-editor-image {
@@ -555,6 +555,32 @@
 .deck-editor-view-stack .deck-entry:has(~ .deck-entry) > .deck-editor-image {
   height: var(--editor-strip-height);
   aspect-ratio: auto;
+  overflow: var(--editor-stack-preview-overflow, hidden);
+}
+
+.deck-editor-view-stack .deck-entry:has(~ .deck-entry) > .deck-editor-image > img {
+  max-height: var(--editor-stack-image-max-height, none);
+  transform: var(--editor-stack-image-transform, none);
+  border-radius: 5px;
+  box-shadow: var(--editor-stack-preview-shadow, none);
+}
+
+.deck-editor-view-stack:not(.is-dragging) .deck-entry:has(~ .deck-entry):not(:has(.deck-entry-actions[open])):has(> .deck-editor-image:focus-visible) {
+  --editor-stack-preview-overflow: visible;
+  --editor-stack-preview-shadow: 0 8px 20px #203c3050;
+  --editor-stack-image-transform: translateY(var(--editor-stack-preview-offset, 0px));
+  --editor-stack-image-max-height: var(--editor-stack-preview-height, none);
+  z-index: 10;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .deck-editor-view-stack:not(.is-dragging) .deck-entry:has(~ .deck-entry):not(:has(.deck-entry-actions[open])):has(> .deck-editor-image:hover) {
+    --editor-stack-preview-overflow: visible;
+    --editor-stack-preview-shadow: 0 8px 20px #203c3050;
+    --editor-stack-image-transform: translateY(var(--editor-stack-preview-offset, 0px));
+    --editor-stack-image-max-height: var(--editor-stack-preview-height, none);
+    z-index: 11;
+  }
 }
 
 #deck-view .deck-editor-view-stack .deck-entry-main {

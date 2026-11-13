@@ -43,7 +43,7 @@
         <button class="nav-item active" data-view="decks" aria-current="page"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
         <button class="nav-item" data-view="catalog"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
       </nav>
-      <span class="edition-badge"><span class="status-dot"></span>本地工作台<span class="edition-version">V0.4.8</span></span>
+      <span class="edition-badge"><span class="status-dot"></span>本地工作台<span class="edition-version">V0.4.9</span></span>
     </header>
 
     <main id="catalog-view" class="catalog-layout is-idle filters-collapsed" hidden>
@@ -56,12 +56,12 @@
           <fieldset class="filter-section">
             <legend>颜色</legend>
             <div id="color-filters" class="color-filters">
-              <button class="color-filter" data-color="W" aria-pressed="false" aria-label="白色"><span class="mana-symbol mana-w">☀</span><span>白</span></button>
-              <button class="color-filter" data-color="U" aria-pressed="false" aria-label="蓝色"><span class="mana-symbol mana-u">◆</span><span>蓝</span></button>
-              <button class="color-filter" data-color="B" aria-pressed="false" aria-label="黑色"><span class="mana-symbol mana-b">●</span><span>黑</span></button>
-              <button class="color-filter" data-color="R" aria-pressed="false" aria-label="红色"><span class="mana-symbol mana-r">◆</span><span>红</span></button>
-              <button class="color-filter" data-color="G" aria-pressed="false" aria-label="绿色"><span class="mana-symbol mana-g">♣</span><span>绿</span></button>
-              <button class="color-filter" data-color="C" aria-pressed="false" aria-label="无色"><span class="mana-symbol mana-c">◇</span><span>无</span></button>
+              <button class="color-filter" data-color="W" aria-pressed="false" aria-label="白色"><img class="mana-symbol" src="./assets/mana/W.svg" alt="" draggable="false" /><span>白</span></button>
+              <button class="color-filter" data-color="U" aria-pressed="false" aria-label="蓝色"><img class="mana-symbol" src="./assets/mana/U.svg" alt="" draggable="false" /><span>蓝</span></button>
+              <button class="color-filter" data-color="B" aria-pressed="false" aria-label="黑色"><img class="mana-symbol" src="./assets/mana/B.svg" alt="" draggable="false" /><span>黑</span></button>
+              <button class="color-filter" data-color="R" aria-pressed="false" aria-label="红色"><img class="mana-symbol" src="./assets/mana/R.svg" alt="" draggable="false" /><span>红</span></button>
+              <button class="color-filter" data-color="G" aria-pressed="false" aria-label="绿色"><img class="mana-symbol" src="./assets/mana/G.svg" alt="" draggable="false" /><span>绿</span></button>
+              <button class="color-filter" data-color="C" aria-pressed="false" aria-label="无色"><img class="mana-symbol" src="./assets/mana/C.svg" alt="" draggable="false" /><span>无</span></button>
             </div>
             <label class="small-select-label" for="color-relation">匹配方式<select id="color-relation"><option value="any">包含任一所选色</option><option value="all">包含全部所选色</option><option value="exact">恰好为所选色</option><option value="within">仅在所选色内</option></select></label>
           </fieldset>
