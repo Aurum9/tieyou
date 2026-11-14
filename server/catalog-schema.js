@@ -33,3 +33,9 @@ export const catalogTags = sqliteTable('catalog_tags', {
 export const catalogTypes = sqliteTable('catalog_types', {
   version: text('version').notNull(), cardId: text('card_id').notNull(), faceIndex: integer('face_index').notNull(), term: text('term').notNull(),
 }, t => [primaryKey({ columns: [t.version, t.cardId, t.faceIndex, t.term] }), index('catalog_types_term').on(t.version, t.term, t.cardId, t.faceIndex)]);
+
+export const deckLibraries = sqliteTable('deck_libraries', {
+  account: text('account').notNull().primaryKey(),
+  revision: integer('revision').notNull(),
+  libraryJson: text('library_json').notNull(),
+});

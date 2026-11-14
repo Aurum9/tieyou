@@ -1,4 +1,5 @@
 import { DeckStore, defaultVersion, getVersion, findCardCandidates, getCommanderIdentity, validateDeck, parseDeckText, rowToEntry, exportDeckText, exportDeckBackup, parseDeckBackup } from './decks.js';
+import { createDeckSync, deviceDeckStorageKey } from './deck-sync.js';
 import { createDeckAnalysis } from './deck-analysis-ui.js';
 import { getDeckCategories, getDeckEntryCategory, groupDeckEntries } from './deck-editor-groups.js';
 import { applyDeckCardColor, createDeckCardImage } from './deck-editor-views.js';
@@ -57,7 +58,7 @@ function modal(title, { wide = false, onClose } = {}) {
   return { panel, close, overlay };
 }
 
-export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, loadDeckCards, loadCardsByIds, findCandidates, resolveDeckText, loadCardDetails, renderManaCost = manaCost, onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {} }) {
+export function initDeckUI({ container, cards = [], onInspect = () => {}, onNotify = () => {}, loadCards = async () => cards, loadDeckCards, loadCardsByIds, findCandidates, resolveDeckText, loadCardDetails, renderManaCost = manaCost, onOpenCatalog = () => {}, onLibraryChange = () => {}, onPlaytest = () => {}, syncDeckLibrary = false }) {
   let index = new Map(cards.map(card => [card.id, card]));
   let loadingCards = null;
   let openingId = null;
@@ -69,6 +70,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   let viewMode = 'text';
   let editorDrag;
   let disposeAddSearch;
+  let staleDeckId = null;
+  let deferredLibraryRefresh = false;
   const identitySearchPreferences = new Map();
   const searchDrafts = new Map();
   const pendingCandidateAdds = new Set();
@@ -76,12 +79,59 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   const openFold = new WeakMap();
   let foldId = 0;
   const openModals = new Set();
-  const store = new DeckStore({ onChange: updateStatus });
+  const store = new DeckStore({ key: syncDeckLibrary ? deviceDeckStorageKey() : undefined, onChange: updateStatus });
+  const syncController = syncDeckLibrary ? createDeckSync(store, {
+    onStatusChange: updateStatus,
+    onLibraryChange: onSyncedLibrary,
+    canPull: () => !selectedId && !openingId && !openModals.size,
+  }) : null;
+
+  function displayStatus() {
+    const cloud = syncController?.status;
+    return store.status.state === 'error' || !cloud || cloud.state === 'local' ? store.status : cloud;
+  }
   function updateStatus() {
-    for (const node of container.querySelectorAll('.deck-save-status')) { node.textContent = store.status.message; node.classList.toggle('has-error', store.status.state === 'error'); }
+    const current = displayStatus();
+    for (const node of container.querySelectorAll('.deck-save-status')) {
+      if (node.textContent !== current.message) node.textContent = current.message;
+      node.classList.toggle('has-error', current.state === 'error');
+    }
+    for (const retry of container.querySelectorAll('.deck-sync-retry')) retry.hidden = syncController?.status.state !== 'error';
+    for (const refresh of container.querySelectorAll('.deck-sync-refresh')) refresh.hidden = !staleDeckId;
+  }
+  function onSyncedLibrary(previous, current) {
+    const deckId = openingId || selectedId;
+    if (deckId) {
+      const before = previous.decks.find(deck => deck.id === deckId);
+      const after = current.decks.find(deck => deck.id === deckId);
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        staleDeckId = deckId;
+        editorDrag?.cancel();
+      }
+    } else if (openModals.size) deferredLibraryRefresh = true;
+    else render();
+    updateStatus();
+    onLibraryChange();
+  }
+  function reopenSyncedDeck() {
+    const id = staleDeckId;
+    if (id && store.get(id)) void openDeck(id);
+    else showLibrary();
   }
   function notifyError(error, target) { if (target) { target.textContent = error.message; target.hidden = false; } store.status = { state: 'error', message: `操作未完成：${error.message}` }; updateStatus(); onNotify(error.message, 'error'); }
   function run(action, { success, refresh = true, errorTarget } = {}) {
+    if (syncController && !syncController.canEdit) {
+      const message = '请先完成账号同步，再编辑卡组';
+      if (errorTarget) { errorTarget.textContent = message; errorTarget.hidden = false; }
+      onNotify(message, 'error');
+      return null;
+    }
+    if (staleDeckId) {
+      const message = '这套卡组已有云端更新，请重新打开卡组';
+      if (errorTarget) { errorTarget.textContent = message; errorTarget.hidden = false; }
+      onNotify(message, 'error');
+      return null;
+    }
     try { const result = action(); if (refresh) render(); onLibraryChange(); if (success) onNotify(success, 'success'); return result; }
     catch (error) { notifyError(error, errorTarget); return null; }
   }
@@ -110,10 +160,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   async function openDeck(id) {
     if (!store.get(id)) { onNotify('卡组已不存在，请重新选择', 'error'); return false; }
     const request = ++openRequest;
-    openingId = id; openingError = null; analysisOpen = false; render();
+    openingId = id; openingError = null; analysisOpen = false; staleDeckId = null; render();
     try {
       await ensureCards(store.get(id));
       if (request !== openRequest) return false;
+      if (staleDeckId === id) return false;
       if (!store.get(id)) throw new Error('卡组已不存在，请返回卡组库重新选择');
       openingId = null; selectedId = id; render(); return true;
     } catch (error) {
@@ -123,9 +174,29 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   }
   function dialog(title, options = {}) {
     const originalClose = options.onClose;
-    const current = modal(title, { ...options, onClose: () => { openModals.delete(current); originalClose?.(); } }); openModals.add(current); return current;
+    const current = modal(title, { ...options, onClose: () => {
+      openModals.delete(current);
+      originalClose?.();
+      if (deferredLibraryRefresh) queueMicrotask(() => {
+        if (deferredLibraryRefresh && !selectedId && !openingId && !openModals.size) render();
+      });
+    } });
+    openModals.add(current);
+    return current;
   }
-  function status() { const node = el('p', `deck-save-status${store.status.state === 'error' ? ' has-error' : ''}`, store.status.message); node.setAttribute('role', 'status'); return node; }
+  function status() {
+    const current = displayStatus();
+    const node = el('p', `deck-save-status${current.state === 'error' ? ' has-error' : ''}`, current.message);
+    node.setAttribute('role', 'status');
+    if (!syncController) return node;
+    const line = el('div', 'deck-sync-status');
+    const retry = button('重试同步', () => { void syncController.sync(); }, 'button button-quiet deck-sync-retry');
+    retry.hidden = syncController.status.state !== 'error';
+    const refresh = button('重新打开卡组', reopenSyncedDeck, 'button button-quiet deck-sync-refresh');
+    refresh.hidden = !staleDeckId;
+    line.append(node, retry, refresh);
+    return line;
+  }
   function createDialog() {
     const current = dialog('新建卡组'); const name = input(''); name.placeholder = '卡组名称'; name.maxLength = 200;
     const error = el('p', 'deck-form-error'); error.hidden = true;
@@ -912,6 +983,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     current.panel.append(field('输入格式', format), nameField, field('选择本地文件（可选）', file), hint, source, error, actions, preview);
   }
   function render(expandAfterDrop = false) {
+    if (!openModals.size) deferredLibraryRefresh = false;
     editorDrag?.dispose();
     editorDrag = undefined;
     disposeAddSearch?.();
@@ -920,12 +992,14 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     if (openingId) {
       const pendingId = openingId;
       container.append(button('← 卡组库', showLibrary), el('h1', '', store.get(pendingId)?.name || '卡组编辑'));
+      if (syncController) container.append(status());
       const message = el('p', openingError ? 'deck-form-error' : 'deck-muted', openingError ? `卡牌数据加载失败：${openingError.message}` : '正在加载卡牌数据…'); message.setAttribute('role', 'status'); container.append(message);
       if (openingError) container.append(button('重新加载', () => { void openDeck(pendingId); }, 'button button-primary'));
       return;
     }
     const deck = selectedId ? store.get(selectedId) : null;
     if (deck && analysisOpen) {
+      if (syncController) container.append(status());
       container.append(createDeckAnalysis({
         deck, cards, onInspect,
         onBack: () => {
@@ -935,12 +1009,18 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         },
       }));
     } else if (deck) renderEditor(deck, expandAfterDrop === true);
-    else { selectedId = null; renderLibrary(); }
+    else { selectedId = null; staleDeckId = null; renderLibrary(); }
   }
-  function showLibrary() { ++openRequest; openingId = null; openingError = null; selectedId = null; analysisOpen = false; render(); }
+  function showLibrary() {
+    ++openRequest; openingId = null; openingError = null; selectedId = null; analysisOpen = false; staleDeckId = null; render();
+    void syncController?.sync();
+  }
   render();
+  if (syncController) void syncController.start();
   function destroy() {
     ++openRequest;
+    syncController?.dispose();
+    deferredLibraryRefresh = false;
     editorDrag?.dispose(); editorDrag = undefined;
     disposeAddSearch?.(); disposeAddSearch = undefined;
     for (const current of [...openModals]) current.close();

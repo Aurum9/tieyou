@@ -33,6 +33,7 @@ if ((meta?.datasetVersion ?? meta?.version ?? meta?.activeVersion) !== source.ve
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || '127.0.0.1';
 if (!['127.0.0.1', 'localhost', '::1'].includes(host)) throw new Error('Local preview must listen on loopback');
+const previewAccount = process.env.EDH_PREVIEW_ACCOUNT?.trim();
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.md': 'text/plain; charset=utf-8' };
 const worker = createWorker({ async serveAsset(pathname, request) {
   // Source-only card dumps are never served, including in development.
@@ -51,7 +52,11 @@ const worker = createWorker({ async serveAsset(pathname, request) {
 const server = createServer(async (req, res) => {
   try {
     const headers = new Headers();
-    for (const [name, value] of Object.entries(req.headers)) if (value != null) headers.set(name, Array.isArray(value) ? value.join(', ') : value);
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value == null || name.startsWith('oai-authenticated-')) continue;
+      headers.set(name, Array.isArray(value) ? value.join(', ') : value);
+    }
+    if (previewAccount) headers.set('oai-authenticated-user-id', `local-preview:${previewAccount}`);
     const origin = `http://${headers.get('host') || `${host}:${port}`}`;
     const request = new Request(new URL(req.url, origin), { method: req.method, headers, ...(['GET', 'HEAD'].includes(req.method) ? {} : { body: req, duplex: 'half' }) });
     const response = await worker.fetch(request, { DB: db });

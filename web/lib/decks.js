@@ -60,7 +60,7 @@ function validateRecord(deck, cards) {
   }
   return record;
 }
-function validateState(state) {
+export function validateDeckLibrary(state) {
   if (state?.version !== 1 || !Array.isArray(state.decks) || !Array.isArray(state.trash)) fail('本地卡组数据格式不受支持');
   const ids = new Set();
   const decks = state.decks.map(deck => validateRecord(deck));
@@ -85,7 +85,7 @@ export class DeckStore {
       this.storage = storage === undefined ? globalThis.localStorage : storage;
       if (!this.storage) fail('此环境无法使用浏览器本地存储');
       raw = this.storage.getItem(this.key);
-      if (raw) this.state = validateState(JSON.parse(raw));
+      if (raw) this.state = validateDeckLibrary(JSON.parse(raw));
     } catch (error) {
       this.loadBlocked = true;
       this.recoveryRaw = raw;
@@ -95,12 +95,21 @@ export class DeckStore {
   list() { return clone(this.state.decks); }
   get(id) { const deck = this.state.decks.find(item => item.id === id); return deck ? clone(deck) : null; }
   deleted() { return clone(this.state.trash); }
+  setSyncStorage(write) {
+    this.writeSyncState = write;
+  }
+  replaceFromSync(next) {
+    this.state = validateDeckLibrary(next);
+  }
   commit(next) {
-    const valid = validateState(next);
+    const valid = validateDeckLibrary(next);
     try {
       if (this.loadBlocked) fail('原有数据未能读取，已暂停写入。请先导出原始数据，再使用恢复入口重建本地库');
-      if (!this.storage) fail('浏览器本地存储不可用');
-      this.storage.setItem(this.key, JSON.stringify(valid));
+      if (this.writeSyncState) this.writeSyncState(valid);
+      else {
+        if (!this.storage) fail('浏览器本地存储不可用');
+        this.storage.setItem(this.key, JSON.stringify(valid));
+      }
     } catch (error) {
       this.status = { state: 'error', message: `保存失败：${error.message}。请保留当前输入并检查浏览器存储空间或权限。` };
       this.onChange?.(this.status);
@@ -109,6 +118,7 @@ export class DeckStore {
     this.state = valid;
     this.status = { state: 'saved', message: `已保存 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` };
     this.onChange?.(this.status);
+    this.onCommit?.();
     return clone(valid);
   }
   rebuildAfterCorruption() {

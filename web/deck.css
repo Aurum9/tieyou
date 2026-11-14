@@ -4,6 +4,9 @@
 .deck-recovery{padding:20px;border:1px solid #ca9988;border-radius:10px;background:#f8eee6;margin:18px 0}.deck-recovery>.button{margin-right:10px;margin-bottom:5px}.deck-recovery strong{font-size:14px}
 
 .deck-add-form{display:grid;grid-template-columns:minmax(0,1fr) auto}
+.deck-sync-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.deck-sync-status .deck-save-status{margin-block:3px}
+.deck-sync-status .button{min-height:28px;padding:4px 8px;font-size:12px}
 
 .deck-search-result > .deck-candidate-drag {
   flex: 1;

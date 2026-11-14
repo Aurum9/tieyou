@@ -453,7 +453,7 @@ function switchView(view) {
 function initializeDeckWorkspace() {
   try {
     if (deckUI) deckUI.setCards(allCards);
-    else deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify, renderManaCost: manaCost,
+    else deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify, renderManaCost: manaCost, syncDeckLibrary: true,
       loadDeckCards: async deck => {
         await Promise.all([loadCardsByIds(deck.entries.map(entry => entry.cardId), { versions: deck.entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) }), ensureMetadata()]);
         return allCards;

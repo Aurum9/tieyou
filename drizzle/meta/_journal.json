@@ -15,6 +15,13 @@
       "when": 1793984958219,
       "tag": "0001_square_quentin_quire",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794591821747,
+      "tag": "0002_deck_libraries",
+      "breakpoints": true
     }
   ]
 }

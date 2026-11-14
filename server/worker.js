@@ -1,6 +1,9 @@
 import { createCatalogService, importCatalogBatch, activateCatalogVersion } from './catalog-db.js';
+import { validateDeckLibrary } from '../web/lib/decks.js';
 
 const JSON_LIMIT = 2 * 1024 * 1024;
+const DECK_LIBRARY_LIMIT = 1536 * 1024;
+const DECK_LIBRARY_PATH = '/api/deck-library';
 const ID_LIMIT = 500;
 
 class HttpError extends Error {
@@ -55,6 +58,54 @@ function rejectCrossOrigin(request, url) {
   if (request.headers.get('Sec-Fetch-Site') === 'cross-site' || origin && origin !== url.origin) throw new HttpError(403, 'CROSS_ORIGIN', '不允许跨站请求');
 }
 
+async function sha256(value) {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function readDeckLibrary(db, account) {
+  const row = await db.prepare('SELECT revision, library_json FROM deck_libraries WHERE account = ?').bind(account).first();
+  if (!row) return { account, revision: 0, library: { version: 1, decks: [], trash: [] } };
+  return { account, revision: row.revision, library: JSON.parse(row.library_json) };
+}
+
+async function deckLibraryResponse(request, url, db) {
+  // Sites dispatch injects this server-side identity. Its service bearer has no visitor ID.
+  const visitorId = request.headers.get('oai-authenticated-user-id');
+  if (!visitorId) throw new HttpError(401, 'SIGN_IN_REQUIRED', '请先登录');
+  if (!['GET', 'PUT'].includes(request.method)) throw new HttpError(405, 'METHOD_NOT_ALLOWED', '请求方式无效');
+  if (!db) throw new HttpError(503, 'DECK_LIBRARY_NOT_READY', '云端卡组暂时不可用');
+  const account = await sha256(visitorId);
+  if (request.method === 'GET') return json(await readDeckLibrary(db, account));
+  rejectCrossOrigin(request, url);
+  const body = await readJSON(request, DECK_LIBRARY_LIMIT);
+  if (typeof body.account !== 'string' || !/^[a-f0-9]{64}$/.test(body.account)) {
+    throw new HttpError(400, 'INVALID_PARAMETER', '账户标识无效');
+  }
+  if (body.account !== account) throw new HttpError(409, 'ACCOUNT_CHANGED', '登录账户已切换，请重新同步');
+  const { revision } = body;
+  if (!Number.isSafeInteger(revision) || revision < 0 || revision >= Number.MAX_SAFE_INTEGER) {
+    throw new HttpError(400, 'INVALID_PARAMETER', '同步版本无效');
+  }
+  let library;
+  try { library = validateDeckLibrary(body.library); }
+  catch (error) { throw new HttpError(400, 'INVALID_DECK_LIBRARY', error.message); }
+  const libraryJson = JSON.stringify(library);
+  if (new TextEncoder().encode(libraryJson).byteLength > DECK_LIBRARY_LIMIT) {
+    throw new HttpError(413, 'BODY_TOO_LARGE', '请求内容过大');
+  }
+  const nextRevision = revision + 1;
+  const statement = revision === 0
+    ? db.prepare('INSERT INTO deck_libraries (account, revision, library_json) VALUES (?, ?, ?) ON CONFLICT(account) DO NOTHING')
+      .bind(account, nextRevision, libraryJson)
+    : db.prepare('UPDATE deck_libraries SET revision = ?, library_json = ? WHERE account = ? AND revision = ?')
+      .bind(nextRevision, libraryJson, account, revision);
+  const result = await statement.run();
+  if (result.meta.changes === 1) return json({ account, revision: nextRevision, library });
+  const latest = await readDeckLibrary(db, account);
+  return json({ ...latest, error: { code: 'REVISION_CONFLICT', message: '云端卡组已更新' } }, 409);
+}
+
 /** The deployed Site remains owner-private. Sites dispatch authenticates all requests,
  * including service requests, before this Worker runs. Import is a maintenance API;
  * no credential or import action is included in browser code. */
@@ -75,6 +126,7 @@ export function createWorker({ assets = {}, serveAsset } = {}) {
             headers: { 'Content-Type': asset.type, 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff', 'ETag': asset.etag || '' }
           });
         }
+        if (url.pathname === DECK_LIBRARY_PATH) return await deckLibraryResponse(request, url, env?.DB);
         if (!env?.DB) throw new HttpError(503, 'CATALOG_NOT_READY', '卡库暂时不可用');
         const service = createCatalogService(env.DB);
         if (url.pathname === '/api/catalog/meta' && request.method === 'GET') return json(await service.meta());
@@ -111,8 +163,7 @@ export function createWorker({ assets = {}, serveAsset } = {}) {
         if (body.action !== 'batch') throw new HttpError(400, 'INVALID_PARAMETER', '导入操作无效');
         const { digest, ...payload } = body;
         if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) throw new HttpError(400, 'INVALID_DIGEST', '导入批次缺少校验值');
-        const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)));
-        const actualDigest = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+        const actualDigest = await sha256(JSON.stringify(payload));
         if (digest !== actualDigest) throw new HttpError(400, 'INVALID_DIGEST', '导入批次校验失败');
         return json(await importCatalogBatch(env.DB, body));
       } catch (error) {
@@ -120,9 +171,11 @@ export function createWorker({ assets = {}, serveAsset } = {}) {
         const overloaded = /\bD1 DB is overloaded\b/i.test(error.message || '');
         const importRejected = url.pathname === '/api/catalog/import' && /^(卡库|每批|导入|印刷|已启用|该批次)/.test(error.message || '');
         const status = error.status || (error instanceof URIError ? 400 : preparing || overloaded ? 503 : error.name === 'QueryError' || importRejected ? 400 : 500);
-        if (status >= 500) console.error(JSON.stringify({ route: url.pathname, message: error.message }));
-        const message = overloaded ? '卡库暂时繁忙，请重试' : status < 500 || preparing ? error.message : '卡库请求暂时未完成，请重试';
-        const code = overloaded ? 'CATALOG_BUSY' : error.code || (preparing ? 'CATALOG_NOT_READY' : error.name === 'QueryError' ? 'INVALID_QUERY' : 'SERVER_ERROR');
+        const deckRoute = url.pathname === DECK_LIBRARY_PATH;
+        if (status >= 500) console.error(JSON.stringify({ route: url.pathname, message: deckRoute ? error.name : error.message }));
+        const serviceName = deckRoute ? '云端卡组' : '卡库';
+        const message = overloaded ? `${serviceName}暂时繁忙，请重试` : status < 500 || preparing || error.code === 'DECK_LIBRARY_NOT_READY' ? error.message : `${serviceName}请求暂时未完成，请重试`;
+        const code = overloaded ? (deckRoute ? 'DECK_LIBRARY_BUSY' : 'CATALOG_BUSY') : error.code || (preparing ? 'CATALOG_NOT_READY' : error.name === 'QueryError' ? 'INVALID_QUERY' : 'SERVER_ERROR');
         return json({ error: { code, message, ...(Number.isInteger(error.position) ? { position: error.position } : {}) } }, status);
       }
     }
