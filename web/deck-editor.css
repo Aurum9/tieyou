@@ -729,3 +729,53 @@
     height: 28px;
   }
 }
+
+.deck-five-dh-toggle {
+  width: fit-content;
+  margin: 8px 0;
+}
+
+.deck-budget-price {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 2px 5px;
+  border-radius: 4px;
+  gap: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-budget-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--deck-price-icon);
+}
+
+.is-deck-price-over {
+  --deck-price-icon: color-mix(in srgb, #8c5b0a, #be4b20 var(--deck-price-overage));
+}
+
+.is-deck-price-double { --deck-price-icon: #b92432; }
+.has-no-deck-price { --deck-price-icon: #6954a3; }
+
+.card-set > .deck-budget-price { margin-inline-start: auto; }
+
+.deck-editor-view-stack .deck-entry > .deck-budget-price {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 5px;
+  inset-inline-end: calc(var(--editor-stack-menu-width) + 5px);
+  pointer-events: none;
+  transform: var(--editor-stack-image-transform, none);
+}
+
+.deck-editor-view-stack .deck-entry:has(> .deck-entry-quantity-badge) > .deck-budget-price {
+  inset-inline-end: calc(var(--editor-stack-menu-width) + 42px);
+}

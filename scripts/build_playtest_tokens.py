@@ -1,11 +1,13 @@
 """Build the playtest token index from the cached Scryfall and Chinese snapshots."""
+import argparse
 from collections import defaultdict
 from hashlib import sha256
 import json
+from pathlib import Path
 import re
 import tarfile
 
-from build_catalog import CACHE, OUTPUT, dumps, included, normalize_text, parse_source_row, read_snapshot
+from build_catalog import CACHE, OUTPUT, dumps, freeze_day, included, normalize_text, parse_source_row, read_snapshot, scryfall_snapshot, snapshot_image, snapshot_metadata
 
 
 TOKEN_LAYOUTS = {"token", "double_faced_token", "emblem"}
@@ -35,8 +37,7 @@ def signature(card, side=0):
 
 
 def artwork(card, face):
-    images = face.get("image_uris") or card.get("image_uris") or {}
-    return images.get("normal") or images.get("display")
+    return snapshot_image(face) or snapshot_image(card)
 
 
 def printing_rank(card, side=0):
@@ -44,8 +45,8 @@ def printing_rank(card, side=0):
             card.get("lang") == "en", card.get("released_at", ""), card["id"])
 
 
-def chinese_rows(token_names):
-    with tarfile.open(CACHE / "chinese.tar.gz", "r|gz") as archive:
+def chinese_rows(path, token_names):
+    with tarfile.open(path, "r|gz") as archive:
         for member in archive:
             if member.name.rsplit("/", 1)[-1] != "zhs_oracle.json":
                 continue
@@ -61,14 +62,19 @@ def chinese_rows(token_names):
     raise ValueError("Chinese snapshot is missing zhs_oracle.json")
 
 
-def token_index():
-    freeze_date = json.loads((OUTPUT / "manifest.json").read_text(encoding="utf-8"))["freezeDate"]
+def token_index(cache=CACHE, freeze_date=None, *, strict=False, catalog_ids=None):
+    if not freeze_date:
+        freeze_date = json.loads((OUTPUT / "manifest.json").read_text(encoding="utf-8"))["freezeDate"]
+    chinese_path = cache / "chinese.tar.gz"
+    if strict:
+        snapshot_metadata(chinese_path, required=True)
     printings = {}
     paper_cards = set()
     oracle_parts = {}
     printing_parts = defaultdict(dict)
     for source in ("oracle_cards", "default_cards"):
-        for card in read_snapshot(CACHE / (source + ".jsonl.gz")):
+        source_path, _ = scryfall_snapshot(cache, source, required=strict)
+        for card in read_snapshot(source_path):
             if is_token(card):
                 printings[card["id"]] = card
                 continue
@@ -111,6 +117,8 @@ def token_index():
     by_card = {}
     unresolved = set()
     for card_id in sorted(paper_cards):
+        if catalog_ids is not None and card_id not in catalog_ids:
+            continue
         printing_links = printing_parts.get(card_id, {}).values()
         parts = oracle_parts.get(card_id) or printing_links
         ids = []
@@ -149,7 +157,7 @@ def token_index():
     names = {(face["name"], face["type_line"]) for _, card, side in representatives.values() for face in token_faces(card, side)}
     direct = defaultdict(list)
     by_name = defaultdict(list)
-    for row in chinese_rows(names):
+    for row in chinese_rows(chinese_path, names):
         key = (row["name"], row["type_line"])
         direct[(row.get("oracle_id"), *key)].append(row)
         by_name[key].append(row)
@@ -197,5 +205,29 @@ def token_index():
     return {"version": 1, "byCard": by_card, "tokens": templates}
 
 
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cache", type=Path, default=CACHE)
+    parser.add_argument("--out", type=Path, default=OUTPUT)
+    parser.add_argument("--freeze-date", type=freeze_day)
+    parser.add_argument("--no-legacy", action="store_true", help="Require verified downloaded inputs and a nonempty token index")
+    args = parser.parse_args()
+    manifest_path = args.out / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+    freeze_date = args.freeze_date or manifest.get("freezeDate")
+    if not freeze_date:
+        parser.error("provide --freeze-date or build the catalog in --out first")
+    catalog_ids = None
+    if args.no_legacy and manifest:
+        if args.freeze_date and args.freeze_date != manifest["freezeDate"]:
+            parser.error("--freeze-date does not match the catalog in --out")
+        catalog_ids = {card["id"] for shard in manifest["shards"] for card in read_snapshot(args.out / shard["url"])}
+    result = token_index(args.cache, freeze_date, strict=args.no_legacy, catalog_ids=catalog_ids)
+    if args.no_legacy and (not result["tokens"] or not result["byCard"]):
+        raise ValueError("unattended playtest token build produced empty data")
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "playtest-tokens.json").write_text(dumps(result) + "\n", encoding="utf-8")
+
+
 if __name__ == "__main__":
-    (OUTPUT / "playtest-tokens.json").write_text(dumps(token_index()) + "\n", encoding="utf-8")
+    main()

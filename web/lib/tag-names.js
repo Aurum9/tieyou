@@ -107,9 +107,18 @@ export const LAND_TAG_NAMES = {
   'depletion-land': '消耗式产费地',
 };
 
-export const TAG_NAMES = { ...otherTagNames, ...LAND_TAG_NAMES };
+export const TAG_NAMES = {
+  ...otherTagNames,
+  ...LAND_TAG_NAMES,
+  'castable-from-graveyard': '可从坟场施放',
+};
 
-const localizedTags = new Map(Object.entries(TAG_NAMES).map(([slug, label]) => [label.toLocaleLowerCase('en'), [slug]]));
+export function visibleTagLabel(slug) {
+  return Object.hasOwn(TAG_NAMES, slug) ? TAG_NAMES[slug] : '';
+}
+
+const normalizeLabel = label => String(label ?? '').normalize('NFKC').toLocaleLowerCase('en').replace(/\s+/g, ' ').trim();
+const localizedTags = new Map(Object.entries(TAG_NAMES).map(([slug, label]) => [normalizeLabel(label), [slug]]));
 const localizedAliases = {
   地循环: ['cycle-land'],
   老双地: ['cycle-abu-dual-land'],
@@ -132,6 +141,6 @@ const localizedAliases = {
 for (const [label, slugs] of Object.entries(localizedAliases)) localizedTags.set(label, slugs);
 
 export function localizedTagSlugs(value) {
-  return localizedTags.get(String(value ?? '').normalize('NFKC').toLocaleLowerCase('en').replace(/\s+/g, ' ').trim());
+  return localizedTags.get(normalizeLabel(value));
 }
 

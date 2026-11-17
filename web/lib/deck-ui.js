@@ -2,11 +2,12 @@ import { DeckStore, defaultVersion, getVersion, findCardCandidates, getCommander
 import { createDeckSync, deviceDeckStorageKey } from './deck-sync.js';
 import { createDeckAnalysis } from './deck-analysis-ui.js';
 import { getDeckCategories, getDeckEntryCategory, groupDeckEntries } from './deck-editor-groups.js';
-import { applyDeckCardColor, createDeckCardImage } from './deck-editor-views.js';
+import { applyDeckCardColor, createDeckCardImage, createDeckPriceBadge } from './deck-editor-views.js';
 import { createDeckEditorDrag } from './deck-editor-drag.js';
 import { commanderScopeQuery, deckTagQuery } from './deck-target.js';
 import { normalizeText, searchCards } from './search.js';
 import { manaCost } from './mana-symbols.js';
+import { drawGuideMark, createDeckDemo } from './deck-onboarding.js';
 
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
 const editorZones = { commander: '指挥官', main: '主牌', considering: '备牌' };
@@ -30,7 +31,18 @@ function printingName(version) { return `${String(version.set || '').toUpperCase
 function dragPreview(card, version, name) {
   return { name, image: version?.faceImages?.[0] || version?.image || card?.image || card?.faces?.[0]?.image };
 }
-function download(text, filename, type = 'text/plain') { const url = URL.createObjectURL(new Blob([text], { type })); const link = el('a'); link.href = url; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+function download(text, filename, type = 'text/plain') {
+  if (globalThis.tieyouAndroid && globalThis.TieyouDeckFiles) {
+    globalThis.TieyouDeckFiles.save(filename, text);
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = el('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 function safeFilename(name) { return name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 120) || 'edh-decks'; }
 function modal(title, { wide = false, onClose } = {}) {
   const previousFocus = document.activeElement;
@@ -70,15 +82,18 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   let viewMode = 'text';
   let editorDrag;
   let disposeAddSearch;
+  const deckDemo = createDeckDemo(container);
   let staleDeckId = null;
   let deferredLibraryRefresh = false;
   const identitySearchPreferences = new Map();
+  const fiveDhDecks = new Set();
   const searchDrafts = new Map();
   const pendingCandidateAdds = new Set();
   const collapsedLanes = new Map();
   const openFold = new WeakMap();
   let foldId = 0;
   const openModals = new Set();
+  const coverRequests = new Map();
   const store = new DeckStore({ key: syncDeckLibrary ? deviceDeckStorageKey() : undefined, onChange: updateStatus });
   const syncController = syncDeckLibrary ? createDeckSync(store, {
     onStatusChange: updateStatus,
@@ -204,13 +219,61 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const submit = button('创建卡组', () => {}, 'button button-primary'); submit.type = 'submit';
     form.append(submit); form.addEventListener('submit', event => {
       event.preventDefault(); const deck = run(() => store.importEntries(name.value.trim() || '未命名卡组', []), { refresh: false, errorTarget: error });
-      if (deck) { current.close(); onNotify('卡组已创建', 'success'); void openDeck(deck.id); }
+      if (deck) { current.close(); void openDeck(deck.id); }
     }); current.panel.append(form); queueMicrotask(() => name.focus());
   }
+  function paintCover(banner, label, commander) {
+    const card = index.get(commander?.cardId);
+    label.textContent = card?.zhName || card?.name || (commander ? '已设置统帅' : '尚未设置统帅');
+    const version = getVersion(card, commander?.versionId);
+    const image = version?.faceImages?.[0] || version?.image || card?.faces?.[0]?.image || card?.image;
+    if (!image || !/^https?:\/\//i.test(image)) return;
+    const img = el('img');
+    img.loading = 'lazy';
+    img.alt = '';
+    img.addEventListener('error', () => {
+      const fallback = card?.faces?.[0]?.image || card?.image;
+      if (fallback && /^https?:\/\//i.test(fallback) && img.getAttribute('src') !== fallback) img.src = fallback;
+      else banner.replaceChildren(el('span', '', '♧'));
+    });
+    img.src = image;
+    banner.replaceChildren(img);
+  }
+
+  function loadLibraryCovers(covers) {
+    if (!loadCardsByIds) return;
+    const missing = new Map();
+    for (const { commander } of covers) {
+      const key = JSON.stringify([commander.cardId, commander.versionId]);
+      if (!coverRequests.has(key)) missing.set(key, commander);
+    }
+    if (missing.size) {
+      const versions = [...missing.values()].map(({ cardId, versionId }) => ({ cardId, versionId }));
+      const request = Promise.resolve()
+        .then(() => loadCardsByIds(versions.map(version => version.cardId), { versions, allowMissing: true }))
+        .then(setCards)
+        .catch(() => { /* A cover lookup must not prevent opening the library. */ })
+        .finally(() => { for (const key of missing.keys()) coverRequests.delete(key); });
+      for (const key of missing.keys()) coverRequests.set(key, request);
+    }
+    for (const { banner, label, commander } of covers) {
+      const key = JSON.stringify([commander.cardId, commander.versionId]);
+      void coverRequests.get(key).then(() => {
+        if (banner.isConnected) paintCover(banner, label, commander);
+      });
+    }
+  }
+
   function renderLibrary() {
+    const decks = store.list().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('h1', '', '卡组库'));
-    const actions = el('div', 'deck-actions'); actions.append(button('导入牌表', importDialog), button('备份全部', () => exportDialog()), button('＋ 新建卡组', createDialog, 'button button-primary'));
-    header.append(title, actions); container.append(header, status());
+    header.append(title);
+    if (decks.length || store.loadBlocked) {
+      const actions = el('div', 'deck-actions');
+      actions.append(button('导入牌表', importDialog), button('备份全部', () => exportDialog()), button('＋ 新建卡组', createDialog, 'button button-primary'));
+      header.append(actions);
+    }
+    container.append(header, status());
     if (store.loadBlocked) {
       const recovery = el('div', 'deck-recovery'); recovery.append(el('strong', '', '本地数据读取失败，写入已暂停'), el('p', 'deck-muted', '原始内容仍保留在浏览器中。请先下载原始数据，再决定是否重建空白卡组库。'));
       if (store.recoveryRaw !== null) recovery.append(button('下载原始数据', () => download(store.recoveryRaw, 'edh-library-recovery.txt')), button('保留副本并重建', () => {
@@ -219,28 +282,42 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       }));
       container.append(recovery);
     }
-    const decks = store.list().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    if (!decks.length) {
-      const empty = el('div', 'deck-empty'); empty.append(el('div', 'deck-empty-mark', '♧'), el('h2', '', '暂无卡组'), button('新建卡组', createDialog, 'button button-primary')); container.append(empty);
-    } else {
+    if (!decks.length && !store.loadBlocked) {
+      const empty = el('div', 'deck-empty deck-empty-guide');
+      empty.append(el('h2', '', '暂无卡组'));
+      const paths = el('div', 'deck-guide-paths');
+      for (const [label, hint, action, style] of [
+        ['新建卡组', '从这里组第一套！', createDialog, 'new'],
+        ['导入牌表', '已有牌表？放这里！', importDialog, 'import'],
+      ]) {
+        const path = el('div', 'deck-guide-path deck-guide-path-' + style);
+        const note = el('p', 'deck-guide-note', hint);
+        path.append(note, drawGuideMark('arrow'), button(label, action, style === 'new' ? 'button button-primary' : 'button'));
+        paths.append(path);
+      }
+      empty.append(paths);
+      container.append(empty);
+    } else if (decks.length) {
       const grid = el('div', 'deck-library-grid');
+      const covers = [];
       for (const deck of decks) {
         const count = deck.entries.filter(entry => entry.zone !== 'considering').reduce((sum, entry) => sum + entry.quantity, 0);
         const consideringCount = deck.entries.filter(entry => entry.zone === 'considering').reduce((sum, entry) => sum + entry.quantity, 0);
         const tile = el('article', 'deck-tile');
-        const commander = deck.entries.find(entry => entry.zone === 'commander'); const card = index.get(commander?.cardId);
-        const art = card ? getVersion(card, commander.versionId)?.image || card.image : '';
+        const commander = deck.entries.find(entry => entry.zone === 'commander');
         const banner = el('div', 'deck-tile-art');
-        if (art && /^https?:\/\//.test(art)) { const img = el('img'); img.src = art; img.loading = 'lazy'; img.alt = ''; banner.append(img); }
-        else banner.append(el('span', '', '♧'));
+        banner.append(el('span', '', '♧'));
         const open = button(deck.name, () => { void openDeck(deck.id); }, 'deck-title-button');
-        const commanderLabel = card?.zhName || card?.name || (commander ? (cards.length ? '统帅信息不可用' : '已设置统帅') : '尚未设置统帅');
-        const body = el('div', 'deck-tile-body'); body.append(open, el('p', 'deck-muted deck-clamp', commanderLabel), el('p', 'deck-tile-count', `${count} / 100 张 · ${consideringCount} 张候选`));
+        const label = el('p', 'deck-muted deck-clamp');
+        paintCover(banner, label, commander);
+        if (commander && !getVersion(index.get(commander.cardId), commander.versionId)) covers.push({ banner, label, commander });
+        const body = el('div', 'deck-tile-body'); body.append(open, label, el('p', 'deck-tile-count', `${count} / 100 张 · ${consideringCount} 张候选`));
         if (deck.description) body.append(el('p', 'deck-muted deck-clamp', deck.description));
         const footer = el('div', 'deck-tile-footer'); footer.append(el('span', 'deck-muted', new Date(deck.updatedAt).toLocaleDateString('zh-CN')), button('编辑 →', () => { void openDeck(deck.id); }));
         body.append(footer); tile.append(banner, body); grid.append(tile);
       }
       container.append(grid);
+      loadLibraryCovers(covers);
     }
     const deleted = store.deleted();
     if (deleted.length) {
@@ -311,9 +388,90 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     if (!remove) queueMicrotask(() => name.focus());
   }
 
+  function renderDeckMetadata(deck) {
+    const title = el('div', 'deck-inline-metadata');
+    const heading = el('h1', 'deck-inline-heading');
+    const titleText = el('span', '', deck.name);
+    const editName = button('', () => openEditor(nameForm, name, heading), 'deck-inline-pencil');
+    editName.setAttribute('aria-label', `编辑卡组名称：${deck.name}`);
+    editName.title = '编辑卡组名称';
+    editName.append(titleText, drawGuideMark('pencil'));
+    heading.append(editName);
+
+    const name = input(deck.name);
+    name.maxLength = 200;
+    name.required = true;
+    name.setAttribute('aria-label', '卡组名称');
+    const description = el('textarea', 'deck-input');
+    description.value = deck.description;
+    description.rows = 3;
+    description.maxLength = 10000;
+    description.setAttribute('aria-label', '卡组说明');
+    const descriptionTrigger = button(deck.description || '补充卡组信息',
+      () => openEditor(descriptionForm, description, descriptionTrigger), 'deck-inline-description');
+    descriptionTrigger.classList.toggle('is-placeholder', !deck.description);
+    descriptionTrigger.setAttribute('aria-label', deck.description ? '编辑卡组说明' : '补充卡组信息');
+
+    function openEditor(form, control, trigger) {
+      trigger.hidden = true;
+      form.hidden = false;
+      control.focus();
+      if (control === name) name.select();
+    }
+
+    function editor(control, key, trigger, focusTarget, onSaved) {
+      const form = el('form', 'deck-inline-form deck-inline-' + key + '-form');
+      const actions = el('div', 'deck-inline-form-actions');
+      const save = el('button', 'button button-primary', '保存');
+      save.type = 'submit';
+      const error = el('p', 'deck-form-error');
+      error.hidden = true;
+      error.setAttribute('role', 'alert');
+      function close() {
+        form.hidden = true;
+        error.hidden = true;
+        trigger.hidden = false;
+        focusTarget.focus();
+      }
+      actions.append(save, button('取消', () => { control.value = store.get(deck.id)?.[key] ?? ''; close(); }));
+      form.append(control, actions, error);
+      form.hidden = true;
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        const value = key === 'name' ? control.value.trim() : control.value;
+        const latest = store.get(deck.id);
+        if (!latest) return;
+        if (value !== latest[key] && !run(() => store.save({ ...latest, [key]: value }), { refresh: false, errorTarget: error })) return;
+        control.value = value;
+        onSaved(value);
+        close();
+      });
+      form.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          control.value = store.get(deck.id)?.[key] ?? '';
+          close();
+        }
+      });
+      return form;
+    }
+
+    const nameForm = editor(name, 'name', heading, editName, value => {
+      titleText.textContent = value;
+      editName.setAttribute('aria-label', `编辑卡组名称：${value}`);
+    });
+    const descriptionForm = editor(description, 'description', descriptionTrigger, descriptionTrigger, value => {
+      descriptionTrigger.textContent = value || '补充卡组信息';
+      descriptionTrigger.classList.toggle('is-placeholder', !value);
+      descriptionTrigger.setAttribute('aria-label', value ? '编辑卡组说明' : '补充卡组信息');
+    });
+    title.append(heading, nameForm, descriptionTrigger, descriptionForm);
+    return title;
+  }
+
   function renderEditor(deck, expandAfterDrop) {
     const back = button('← 卡组库', showLibrary); container.append(back);
-    const header = el('div', 'deck-page-heading'); const title = el('div'); title.append(el('h1', '', deck.name));
+    const header = el('div', 'deck-page-heading'); const title = renderDeckMetadata(deck);
     const actions = el('div', 'deck-actions');
     const analyze = button('卡组分析', () => {
       analysisOpen = true;
@@ -323,10 +481,6 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     analyze.setAttribute('data-deck-analysis', '');
     actions.append(analyze, button('手动测试 ↗', () => { const fresh = store.get(deck.id); if (fresh) onPlaytest(fresh); else onNotify('卡组已不存在，请重新选择', 'error'); }, 'button button-primary'), button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
     header.append(title, actions); container.append(header, status());
-    const metadata = el('details', 'deck-metadata'); metadata.append(el('summary', '', '编辑名称与说明'));
-    const name = input(deck.name); name.maxLength = 200; const description = el('textarea', 'deck-input'); description.value = deck.description; description.rows = 2;
-    const metaError = el('p', 'deck-form-error'); metaError.hidden = true;
-    metadata.append(field('卡组名称', name), field('卡组说明', description), metaError, button('保存信息', () => run(() => store.save({ ...store.get(deck.id), name: name.value.trim(), description: description.value }), { success: '卡组信息已保存', errorTarget: metaError }), 'button button-primary')); container.append(metadata);
     const stats = validateDeck(deck, cards); const statsGrid = el('div', 'deck-stats');
     for (const [value, label] of [[`${stats.count} / 100`, '正式卡组'], [stats.commanderCount, '统帅'], [stats.consideringCount, '候选牌'], [stats.colorIdentity.join(' · ') || '—', '统帅标识色']]) { const box = el('div'); box.append(el('strong', '', value), el('span', '', label)); statsGrid.append(box); }
     container.append(statsGrid);
@@ -378,9 +532,24 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       }
       checks.append(list); container.append(checks);
     }
+    const budgetOption = el('label', 'deck-check-label deck-five-dh-toggle');
+    const budgetToggle = input('', 'checkbox');
+    budgetToggle.checked = fiveDhDecks.has(deck.id);
+    budgetToggle.addEventListener('change', () => {
+      if (budgetToggle.checked) fiveDhDecks.add(deck.id);
+      else fiveDhDecks.delete(deck.id);
+      render();
+      container.querySelector('.deck-five-dh-toggle input')?.focus({ preventScroll: true });
+    });
+    budgetOption.append(budgetToggle, el('span', '', '5DH 检查'));
+    container.append(budgetOption);
     const search = renderAddSearch(deck);
-    renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop);
-    search();
+    const target = renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop);
+    search.refresh();
+    deckDemo?.attach({
+      deck, target, ...search,
+      drop: (candidate, signal) => editorDrag.dropHandle(candidate.handle, target, { signal }),
+    });
   }
 
   function renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop) {
@@ -411,6 +580,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     container.append(listHeader);
 
     const board = el('div', `deck-editor-board deck-editor-view-${viewMode}${byCategory ? ' is-category' : ''}`);
+    let mainHeading;
     if (!collapsedLanes.has(deck.id)) collapsedLanes.set(deck.id, new Set());
     const collapsed = collapsedLanes.get(deck.id);
     const folds = [];
@@ -422,7 +592,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     editorDrag = createDeckEditorDrag(board, {
       inputRoot: container,
       onMove: (entryId, destination) => moveEntry(entryId, destination, true),
-      onAdd: (source, destination) => addCandidate(deck.id, source, destination, true),
+      onAdd: (source, destination, options) => addCandidate(deck.id, source, destination, true, options),
       onDragChange: setDragFolding,
     });
     const count = entries => entries.reduce((sum, entry) => sum + entry.quantity, 0);
@@ -517,6 +687,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       const entries = deck.entries.filter(entry => entry.zone === zone);
       const section = el('section', `deck-editor-zone${entries.length ? '' : ' is-empty'}`);
       const heading = el('h3', 'deck-zone-title deck-editor-zone-heading');
+      if (zone === 'main') mainHeading = heading;
       const { fold, inner } = createFold(heading, label, `zone:${zone}`, entries);
       if (!byCategory) editorDrag.registerTarget(heading, { zone });
       if (zone === 'commander') inner.append(buildRows(entries, !byCategory));
@@ -538,6 +709,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       board.getBoundingClientRect();
       requestAnimationFrame(() => { if (board.isConnected) setDragFolding(false); });
     } else if (expandAfterDrop) setDragFolding(false);
+    return mainHeading;
   }
 
   function entryRow(entry, issues = [], categoryNames, canDrag) {
@@ -547,6 +719,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const inspect = () => card && onInspect(card, version);
     wrapper.setAttribute('data-entry-id', entry.id);
     applyDeckCardColor(wrapper, card);
+    const priceBadge = fiveDhDecks.has(selectedId)
+      ? createDeckPriceBadge(card, { highlight: viewMode !== 'stack' }) : null;
     const title = el('div', 'deck-entry-card');
     const inspectButton = button(name, inspect, 'deck-card-link deck-entry-name');
     inspectButton.title = name;
@@ -554,6 +728,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     if (card?.name && card.name !== name) {
       const english = el('span', 'deck-entry-english', card.name); english.title = card.name; title.append(english);
     }
+    if (priceBadge && viewMode === 'text') title.append(priceBadge);
     let badges;
     if (issues.length) {
       wrapper.tabIndex = -1;
@@ -624,6 +799,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         const badge = el('span', 'deck-entry-quantity-badge', `×${entry.quantity}`);
         (viewMode === 'stack' ? wrapper : row).append(badge);
       }
+      if (priceBadge) (viewMode === 'stack' ? wrapper : row).append(priceBadge);
       if (badges) row.append(badges);
       row.append(actions);
     }
@@ -631,7 +807,9 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     return wrapper;
   }
   function renderAddSearch(deck) {
-    const section = el('section', 'deck-add-section'); section.append(el('h2', '', '添加卡牌'));
+    const section = el('section', 'deck-add-section');
+    const heading = el('h2', '', '添加卡牌');
+    section.append(heading);
     const draft = searchDrafts.get(deck.id) || { query: '' }; searchDrafts.set(deck.id, draft);
     const form = el('form', 'deck-add-form'); const query = input(draft.query); query.placeholder = '牌名、系列＋编号或标签（如电震圈）'; query.setAttribute('aria-label', '搜索要加入的卡牌'); query.autocomplete = 'off';
     const advanced = button('高级搜索 ↗', () => {
@@ -650,8 +828,10 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const results = el('div', 'deck-add-results'); section.append(results);
     let candidateRequest = 0, suggestionTimer, scheduledKey, activeRequest, displayedKey;
     const candidateHandles = [];
+    const candidatesForGuide = [];
     function clearResults(...children) {
       for (const remove of candidateHandles.splice(0)) remove();
+      candidatesForGuide.length = 0;
       results.replaceChildren(...children);
     }
     const isCurrent = request => request === candidateRequest && query.isConnected && !container.hidden;
@@ -698,8 +878,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
           });
           candidateHandles.push(remove);
         }
-        row.append(name, add);
+        row.append(name);
+        if (fiveDhDecks.has(deck.id)) row.append(createDeckPriceBadge(card));
+        row.append(add);
         results.append(row);
+        candidatesForGuide.push({ card, row, handle: name, add });
       }
     }
     function showCandidates({ debounce = false, submitted = false } = {}) {
@@ -707,7 +890,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       const normalized = normalizeText(text);
       const colorIdentity = restrictIdentity.checked ? commanderIdentity : null;
       const key = JSON.stringify([normalized, colorIdentity]);
-      if (key === displayedKey || key === activeRequest?.key || (debounce && key === scheduledKey)) return;
+      if (key === activeRequest?.key) return activeRequest.promise;
+      if (key === displayedKey || (debounce && key === scheduledKey)) return;
       cancelSuggestions();
       displayedKey = undefined;
       clearResults();
@@ -737,7 +921,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         const pending = el('p', 'deck-muted', '搜索中…');
         pending.setAttribute('role', 'status');
         results.append(pending);
-        Promise.resolve().then(() => {
+        active.promise = Promise.resolve().then(() => {
           if (isCurrent(request)) return findCandidates(text, { ...options, signal: controller.signal });
         }).then(result => {
           if (!isCurrent(request)) return;
@@ -750,11 +934,12 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         }).finally(() => {
           if (activeRequest === active) activeRequest = undefined;
         });
+        return active.promise;
       };
       if (debounce) {
         scheduledKey = key;
         suggestionTimer = setTimeout(search, findCandidates ? 300 : 200);
-      } else search();
+      } else return search();
     }
     query.addEventListener('input', event => {
       draft.query = query.value;
@@ -784,26 +969,35 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     visibilityObserver?.observe(container, { attributes: true, attributeFilter: ['hidden'] });
     disposeAddSearch = () => { visibilityObserver?.disconnect(); cancelSuggestions(); clearResults(); };
     container.append(section);
-    return () => showCandidates({ debounce: Boolean(findCandidates) });
+    return {
+      section, heading, query, results, candidates: candidatesForGuide,
+      refresh: () => showCandidates({ debounce: Boolean(findCandidates) }),
+      submit: value => {
+        query.value = value;
+        draft.query = value;
+        return showCandidates({ submitted: true });
+      },
+    };
   }
-  async function addCandidate(deckId, { card, versionId }, destination = {}, fromDrag = false) {
+  async function addCandidate(deckId, { card, versionId }, destination = {}, fromDrag = false, { signal } = {}) {
     const key = JSON.stringify([deckId, card.id]);
     if (pendingCandidateAdds.has(key)) return false;
     pendingCandidateAdds.add(key);
     try {
       if (loadCardsByIds) {
-        const loaded = await loadCardsByIds([card.id], { versions: [{ cardId: card.id, versionId }] });
+        const loaded = await loadCardsByIds([card.id], { versions: [{ cardId: card.id, versionId }], ...(signal && { signal }) });
         const ready = loaded.find(item => item.id === card.id);
         if (!ready) throw new Error('卡牌数据未找到，请重试');
         card = ready;
       }
-      return quickAddCard(card, versionId, deckId, { ...destination, skipExisting: true, fromDrag });
+      if (signal?.aborted) return false;
+      return quickAddCard(card, versionId, deckId, { ...destination, skipExisting: true, fromDrag, quiet: Boolean(signal) });
     } catch (error) {
-      onNotify(error.message, 'error');
+      if (!signal?.aborted) onNotify(error.message, 'error');
       return false;
     } finally { pendingCandidateAdds.delete(key); }
   }
-  function quickAddCard(card, version, deckId = selectedId, { zone = 'main', category = null, skipExisting = false, fromDrag = false } = {}) {
+  function quickAddCard(card, version, deckId = selectedId, { zone = 'main', category = null, skipExisting = false, fromDrag = false, quiet = false } = {}) {
     const deck = store.get(deckId);
     if (!deck) { onNotify('目标卡组已不存在，请重新选择卡组', 'error'); return false; }
     if (skipExisting && deck.entries.some(entry => entry.cardId === card.id)) return false;
@@ -816,11 +1010,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const updated = run(() => store.addCard(deckId, card, versionId, zone, 1, category), { refresh: !fromDrag });
     if (!updated) return false;
     if (fromDrag) render(true);
-    onNotify(`已加入「${updated.name}」${category ? `的「${category}」` : `${editorZones[zone]}区`}`, 'success');
+    if (!quiet) onNotify(`已加入「${updated.name}」${category ? `的「${category}」` : `${editorZones[zone]}区`}`, 'success');
     return true;
   }
-  async function addCard(card, version, preferredId = selectedId, { onAdded } = {}) {
-    if (loadCardDetails && !card.versionsComplete) {
+  async function addCard(card, version, preferredId = selectedId, { onAdded, chooseTarget = false, skipExisting = false } = {}) {
+    if (!chooseTarget && loadCardDetails && !card.versionsComplete) {
       try { card = await loadCardDetails(card.id); setCards([card]); }
       catch (error) { onNotify(error.message, 'error'); return false; }
     }
@@ -834,17 +1028,28 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       const versionOptions = card.versions?.length ? card.versions.map(printing => [printing.id, printingName(printing)]) : [[card.id, '默认版本']];
       const printing = select(versionOptions, typeof version === 'string' ? version : version?.id || defaultVersion(card));
       const form = el('form', 'deck-stack'); const error = el('p', 'deck-form-error'); error.hidden = true;
-      form.append(field('目标卡组', target), newNameField, field('加入分区', zone), field('数量', quantity), field('印刷版本', printing), error);
+      form.append(field('目标卡组', target), newNameField);
+      if (!chooseTarget) form.append(field('加入分区', zone), field('数量', quantity), field('印刷版本', printing));
+      form.append(error);
       const submit = button('加入卡组', () => {}, 'button button-primary'); submit.type = 'submit'; form.append(submit);
       form.addEventListener('submit', event => {
         event.preventDefault();
+        const alreadyInDeck = skipExisting && store.get(target.value)?.entries.some(entry => entry.cardId === card.id);
         const updated = run(() => {
           const amount = Number(quantity.value);
           if (!Number.isInteger(amount) || amount < 1 || amount > 999) throw new Error('数量须为 1–999 的整数');
           if (target.value === '__new__') return store.importEntries(newName.value.trim() || '未命名卡组', [{ id: 'new', cardId: card.id, versionId: printing.value, quantity: amount, zone: zone.value, categories: [], notes: '' }]);
+          if (alreadyInDeck) return store.get(target.value);
           return store.addCard(target.value, card, printing.value, zone.value, amount);
         }, { refresh: false, errorTarget: error });
-        if (updated) { didAdd = true; selectedId = updated.id; onAdded?.(updated.id); current.close(); render(); onNotify(`已加入「${updated.name}」`, 'success'); }
+        if (updated) {
+          didAdd = !alreadyInDeck;
+          selectedId = updated.id;
+          onAdded?.(updated.id);
+          current.close();
+          render();
+          onNotify(alreadyInDeck ? `已在「${updated.name}」` : `已加入「${updated.name}」`, 'success');
+        }
       }); current.panel.append(form);
     });
   }
@@ -983,6 +1188,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     current.panel.append(field('输入格式', format), nameField, field('选择本地文件（可选）', file), hint, source, error, actions, preview);
   }
   function render(expandAfterDrop = false) {
+    deckDemo?.detach();
     if (!openModals.size) deferredLibraryRefresh = false;
     editorDrag?.dispose();
     editorDrag = undefined;
@@ -990,6 +1196,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     disposeAddSearch = undefined;
     container.replaceChildren();
     if (openingId) {
+      deckDemo?.stop();
       const pendingId = openingId;
       container.append(button('← 卡组库', showLibrary), el('h1', '', store.get(pendingId)?.name || '卡组编辑'));
       if (syncController) container.append(status());
@@ -999,6 +1206,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }
     const deck = selectedId ? store.get(selectedId) : null;
     if (deck && analysisOpen) {
+      deckDemo?.stop();
       if (syncController) container.append(status());
       container.append(createDeckAnalysis({
         deck, cards, onInspect,
@@ -1009,7 +1217,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
         },
       }));
     } else if (deck) renderEditor(deck, expandAfterDrop === true);
-    else { selectedId = null; staleDeckId = null; renderLibrary(); }
+    else { deckDemo?.stop(); selectedId = null; staleDeckId = null; renderLibrary(); }
   }
   function showLibrary() {
     ++openRequest; openingId = null; openingError = null; selectedId = null; analysisOpen = false; staleDeckId = null; render();
@@ -1021,10 +1229,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     ++openRequest;
     syncController?.dispose();
     deferredLibraryRefresh = false;
+    deckDemo?.dispose();
     editorDrag?.dispose(); editorDrag = undefined;
     disposeAddSearch?.(); disposeAddSearch = undefined;
     for (const current of [...openModals]) current.close();
     container.replaceChildren();
   }
-  return { render, addCard, quickAddCard, showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, cancelEditorDrag: () => editorDrag?.cancel(), destroy };
+  return { render, addCard, quickAddCard, isFiveDhEnabled: id => fiveDhDecks.has(id), showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, cancelEditorDrag: () => editorDrag?.cancel(), stopDeckDemo: () => deckDemo?.stop(), flushCloudDecks: () => syncController?.sync(false), destroy };
 }

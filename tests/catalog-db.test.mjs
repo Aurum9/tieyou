@@ -12,8 +12,8 @@ function card(id, name, zhName, extra = {}) {
 }
 const face = (name, power, toughness, typeLine = 'Creature — Human', extra = {}) => ({ name, power, toughness, typeLine, zhTypeLine: typeLine.includes('Creature') ? '生物～人类' : '地', oracleText: '', zhText: '', ...extra });
 const cards = [
-  card('scholar', 'Grove Scholar', '林地学者', { aliases: ['旧译学者'], manaValue: 2, colors: ['G'], colorIdentity: ['G'], power: '1', toughness: '2', typeLine: 'Creature — Elf', zhTypeLine: '生物～精灵', oracleText: 'Draw a card.', zhText: '抓一张牌。', tags: ['draw', 'cycle-rav-shockland'], edhrecRank: 1, versions: [{ id: 'v-a', set: 'a', collectorNumber: '12a', lang: 'en', rarity: 'rare' }, { id: 'v-b', set: 'b', collectorNumber: '21', lang: 'zhs', rarity: 'common' }] }),
-  card('stone', 'Tidal Stone', '潮汐石', { aliases: ['旧译学者候补', 'b/21'], manaValue: 1, oracleText: 'Add one mana.', zhText: '加一点法术力。', tags: ['ramp', 'cycle-rav-shockland'], edhrecRank: 2, releasedAt: '2022-02-02' }),
+  card('scholar', 'Grove Scholar', '林地学者', { aliases: ['旧译学者'], manaValue: 2, colors: ['G'], colorIdentity: ['G'], power: '1', toughness: '2', typeLine: 'Creature — Elf', zhTypeLine: '生物～精灵', oracleText: 'Draw a card.', zhText: '抓一张牌。', tags: ['draw', 'cycle-rav-shockland'], edhrecRank: 1, versions: [{ id: 'v-a', set: 'a', collectorNumber: '12a', lang: 'en', rarity: 'rare', usd: 30 }, { id: 'v-b', set: 'b', collectorNumber: '21', lang: 'zhs', rarity: 'common', usd: 2 }] }),
+  card('stone', 'Tidal Stone', '潮汐石', { aliases: ['旧译学者候补', 'b/21'], manaValue: 1, oracleText: 'Add one mana.', zhText: '加一点法术力。', tags: ['ramp', 'cycle-rav-shockland'], edhrecRank: 2, releasedAt: '2022-02-02', versions: [{ id: 'stone-a', set: 'a', usd: 15 }] }),
   card('counter', 'Counter Thought', '反击思绪', { manaValue: 3, colors: ['U'], colorIdentity: ['U'], typeLine: 'Instant', zhTypeLine: '瞬间', oracleText: 'Counter target spell.', zhText: '反击目标咒语。', tags: ['counterspell', 'cycle-rav-shockland'], edhrecRank: 3 }),
   card('banned', 'Broken Charm', '破损符咒', { manaValue: 8, colors: ['B'], colorIdentity: ['B'], legalities: { commander: 'banned' }, oracleText: 'Return a card from your graveyard.', zhText: '', tags: ['recursion', 'cycle-rav-shockland'], edhrecRank: 1 }),
   card('modal', 'Morning // Evening', '晨光 // 夜幕', { manaValue: 4, colors: ['U'], colorIdentity: ['U', 'G'], faces: [face('Morning', '1', '8', 'Creature — Human', { zhName: '晨光', oracleText: 'Draw two cards.', zhText: '抓两张牌。' }), face('Evening', '8', '1', 'Land', { zhName: '夜幕', oracleText: 'Add green mana.', zhText: '加绿色法术力。' })], tags: ['draw', 'ramp'] }),
@@ -70,6 +70,38 @@ for (const query of queries) test('D1 SQLite matches the existing query language
 for (const sort of ['name', 'mana-asc', 'mana-desc', 'released', 'edhrec']) for (const direction of ['', 'dir:asc', 'dir:desc']) test(`D1 SQLite preserves ${sort} ${direction} and stable ties`, async () => {
   const expected = searchCards(cards, direction, {}, sort), actual = await service.search({ q: direction, sort, limit: 100 });
   assert.deepEqual(actual.cards.map(card => card.id), expected.cards.map(card => card.id));
+});
+
+test('USD sorting uses the cheapest matching printing and leaves unknown prices at the end', async () => {
+  for (const [query, prices] of [['order:usd', [2, 15]], ['set:a order:usd', [15, 30]], ['set:a order:usd dir:desc', [30, 15]]]) {
+    const result = await service.search({ q: query, limit: 3 });
+    assert.deepEqual(result.cards.map(card => card.usdPrice), [...prices, null]);
+    assert.deepEqual(result.cards.map(card => card.id), searchCards(cards, query).cards.slice(0, 3).map(card => card.id));
+  }
+});
+
+test('deck lookup exposes the lowest global price even when loading a different printing', async () => {
+  const suggested = (await service.suggest('Grove Scholar')).cards[0];
+  const matched = (await service.search({ q: 'set:a cn:12a order:usd' })).cards[0];
+  assert.equal(suggested.versions[0].usd, 30);
+  assert.equal(suggested.usd, 2);
+  assert.equal(matched.usd, 2);
+  assert.equal(matched.usdPrice, 30);
+});
+
+test('CNY prices filter the full catalog before pagination and respect printing conditions', async () => {
+  for (const [query, expected] of [
+    ['cny<=13.33', []],
+    ['cny<=13.34', ['scholar']],
+    ['set:a cny<=13.34', []],
+    ['set:b cny<=13.34', ['scholar']],
+  ]) {
+    const result = await service.search({ q: query, limit: 1 });
+    assert.deepEqual(result.cards.map(card => card.id), expected);
+    assert.equal(result.total, expected.length);
+    assert.deepEqual(result.cards.map(card => card.cnyPrice), expected.map(() => 13.34));
+    assert.deepEqual(result.cards.map(card => card.id), searchCards(cards, query).cards.map(card => card.id));
+  }
 });
 
 test('SQLite paginates identity rows without printing duplicates and omits full rules', async () => {

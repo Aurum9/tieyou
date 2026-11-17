@@ -1,9 +1,10 @@
+import { usdToCny } from './catalog-price.js';
 import { localizedTagSlugs } from './tag-names.js';
 
 const textCache = new WeakMap();
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
 const typeAliases = { 生物: 'creature', 地: 'land', 地牌: 'land', 神器: 'artifact', 结界: 'enchantment', 瞬间: 'instant', 法术: 'sorcery', 鹏洛客: 'planeswalker', 战役: 'battle', 亲缘: 'kindred', 部族: 'tribal', 传奇: 'legendary', 基本: 'basic', 雪境: 'snow', 雪: 'snow', 世界: 'world', 持续: 'ongoing', 人类: 'human', 精灵: 'elf', 妖精: 'elf', 龙: 'dragon', 灵俑: 'zombie', 地精: 'goblin' };
-const fieldAliases = { 名称: 'name', 规则: 'o', 类型: 't', 颜色: 'c', 标识色: 'ci', 法术力值: 'mv', 攻击力: 'pow', 力量: 'pow', 防御力: 'tou', 防御: 'tou', 系列: 'set', 编号: 'cn', 稀有度: 'r', 语言: 'lang', 赛制: 'f', 功能: 'tag', oracle: 'o', type: 't', color: 'c', id: 'ci', identity: 'ci', cmc: 'mv', power: 'pow', toughness: 'tou', e: 'set', number: 'cn', rarity: 'r', language: 'lang', format: 'f', otag: 'tag', function: 'tag' };
+const fieldAliases = { 名称: 'name', 规则: 'o', 类型: 't', 类别: 't', 法术力费用: 'm', 画家: 'a', mana: 'm', manacost: 'm', artist: 'a', 颜色: 'c', 标识色: 'ci', 法术力值: 'mv', 攻击力: 'pow', 力量: 'pow', 防御力: 'tou', 防御: 'tou', 系列: 'set', 编号: 'cn', 稀有度: 'r', 语言: 'lang', 赛制: 'f', 功能: 'tag', oracle: 'o', type: 't', color: 'c', id: 'ci', identity: 'ci', cmc: 'mv', power: 'pow', toughness: 'tou', e: 'set', number: 'cn', rarity: 'r', language: 'lang', format: 'f', otag: 'tag', function: 'tag' };
 const tagAliases = {
   抓牌: ['card-draw', 'draw'], draw: ['card-draw', 'draw'],
   加速: ['mana-ramp', 'ramp'], ramp: ['mana-ramp', 'ramp'],
@@ -15,7 +16,11 @@ const tagAliases = {
 };
 const colorAliases = { 白: 'w', 蓝: 'u', 黑: 'b', 红: 'r', 绿: 'g', white: 'w', blue: 'u', black: 'b', red: 'r', green: 'g', colorless: '', 无色: '', c: '' };
 const rarityAliases = { 普通: 'common', 非普通: 'uncommon', 稀有: 'rare', 秘稀: 'mythic', c: 'common', u: 'uncommon', r: 'rare', m: 'mythic' };
-const printingFields = new Set(['set', 'cn', 'lang', 'r']);
+const printingFields = new Set(['set', 'cn', 'lang', 'r', 'a']);
+
+export function normalizeManaCost(value) {
+  return normalizeText(value).replace(/\s+/g, '').replace(/{([^{}]+)}|\d+|[wubrgcsxyz]/g, (token, braced) => '{' + (braced ?? token) + '}');
+}
 
 export class QueryError extends Error {
   constructor(message, position = 0) { super(message); this.name = 'QueryError'; this.position = position; }
@@ -83,7 +88,7 @@ export function extractSearchOptions(query = '', fallbackSort = 'name') {
       direction = value;
     } else {
       if (order !== null) throw new QueryError('只能指定一个排序方式', token.start);
-      if (!['name', 'cmc', 'mv', 'released', 'edhrec'].includes(value)) throw new QueryError('排序可用 name / mv / released / edhrec', token.start);
+      if (!['name', 'cmc', 'mv', 'released', 'edhrec', 'usd'].includes(value)) throw new QueryError('排序可用 name / mv / released / edhrec / usd', token.start);
       order = value;
     }
     metadata.push(i);
@@ -102,10 +107,11 @@ export function extractSearchOptions(query = '', fallbackSort = 'name') {
     const token = tokens[index];
     stripped = stripped.slice(0, token.start) + ' '.repeat(token.end - token.start) + stripped.slice(token.end);
   }
-  let sort = ['name', 'mana-asc', 'mana-desc', 'released', 'edhrec'].includes(fallbackSort) ? fallbackSort : 'name';
-  if (order !== null) sort = ['cmc', 'mv'].includes(order) ? 'mana-asc' : order;
-  const descending = direction === null ? ['mana-desc', 'released'].includes(sort) : direction === 'desc';
+  let sort = ['name', 'mana-asc', 'mana-desc', 'released', 'edhrec', 'usd-asc', 'usd-desc'].includes(fallbackSort) ? fallbackSort : 'name';
+  if (order !== null) sort = ['cmc', 'mv'].includes(order) ? 'mana-asc' : order === 'usd' ? 'usd-asc' : order;
+  const descending = direction === null ? ['mana-desc', 'usd-desc', 'released'].includes(sort) : direction === 'desc';
   if (sort.startsWith('mana-')) sort = descending ? 'mana-desc' : 'mana-asc';
+  if (sort.startsWith('usd-')) sort = descending ? 'usd-desc' : 'usd-asc';
   return { query: stripped.trim(), sort, descending, hasOrder: order !== null, hasDirection: direction !== null };
 }
 
@@ -131,7 +137,7 @@ export function parseQuery(query = '') {
     if (!match) return { type: 'term', field: 'all', op: ':', value: normalizeText(token.value), position: token.start };
     const fieldName = normalizeText(match[1]);
     const field = fieldAliases[fieldName] || fieldName;
-    if (!['name', 'o', 't', 'c', 'ci', 'mv', 'pow', 'tou', 'set', 'cn', 'r', 'lang', 'f', 'tag', 'is'].includes(field)) throw new QueryError(`不支持字段“${match[1]}”，可打开语法帮助查看`, token.start);
+    if (!['name', 'o', 't', 'c', 'ci', 'mv', 'pow', 'tou', 'set', 'cn', 'r', 'lang', 'f', 'tag', 'is', 'm', 'a', 'cny'].includes(field)) throw new QueryError(`不支持字段“${match[1]}”，可打开语法帮助查看`, token.start);
     if (!match[3]) throw new QueryError(`字段“${match[1]}”缺少查询值`, token.start + match[1].length + match[2].length);
     return { type: 'term', field, op: match[2], value: normalizeText(match[3]), position: token.start };
   }
@@ -150,12 +156,14 @@ export function parseQuery(query = '') {
   }
   const tree = or();
   if (i !== tokens.length) throw new QueryError('多余的右括号', tokens[i].start);
-  tree.hasPrinting = containsPrinting(tree);
+  tree.hasPrinting = containsField(tree, printingFields);
+  tree.hasCnyPrice = containsField(tree, cnyFields);
   return tree;
 }
-function containsPrinting(node) {
-  if (node.type === 'term') return printingFields.has(node.field);
-  return ['left', 'right', 'value'].some(key => node[key] && typeof node[key] === 'object' && containsPrinting(node[key]));
+const cnyFields = new Set(['cny']);
+function containsField(node, fields) {
+  if (node.type === 'term') return fields.has(node.field);
+  return ['left', 'right', 'value'].some(key => node[key] && typeof node[key] === 'object' && containsField(node[key], fields));
 }
 function compare(actual, expected, op) {
   switch (op) {
@@ -203,7 +211,7 @@ function compile(node, hasTags) {
     return node.type === 'and' ? (card, version) => left(card, version) && right(card, version) : (card, version) => left(card, version) || right(card, version);
   }
   const { field, value, op, position } = node;
-  if (!['c', 'ci', 'mv', 'pow', 'tou'].includes(field) && ![':', '='].includes(op)) throw new QueryError(`字段“${field}”不支持运算符 ${op}`, position);
+  if (!['c', 'ci', 'mv', 'pow', 'tou', 'cny'].includes(field) && ![':', '='].includes(op)) throw new QueryError(`字段“${field}”不支持运算符 ${op}`, position);
   if (field === 'pow' || field === 'tou') {
     const number = characteristicNumber(value);
     if (number === null) throw new QueryError(`${field === 'pow' ? '攻击力' : '防御力'}需要有限数字，例如 ${field}>=-1`, position);
@@ -212,6 +220,14 @@ function compile(node, hasTags) {
       const actual = characteristicNumber(row[property]);
       return actual !== null && compare(actual, number, op);
     });
+  }
+  if (field === 'cny') {
+    const limit = characteristicNumber(value);
+    if (limit === null || limit < 0) throw new QueryError('人民币价格需要非负数字，例如 cny<=5', position);
+    return (card, version) => {
+      const price = usdToCny(version ? version.usd : lowestUsdPrice(card));
+      return price !== null && compare(price, limit, op);
+    };
   }
   if (field === 'mv') {
     if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) throw new QueryError('法术力值需要非负数字，例如 mv<=3', position);
@@ -241,9 +257,21 @@ function compile(node, hasTags) {
   }
   if (field === 'tag') {
     if (!hasTags) throw new QueryError('当前卡库尚未载入功能标签', position);
-    const candidates = tagAliases[value] || localizedTagSlugs(value) || [value.replace(/ /g, '-')];
+    const candidates = tagAliases[value] || localizedTagSlugs(value) || [value, value.replace(/ /g, '-')];
     return card => (card.tags || []).some(tag => candidates.includes(normalizeText(typeof tag === 'string' ? tag : tag.slug || tag.name)));
   }
+  if (field === 'm') {
+    const cost = normalizeManaCost(value);
+    if (!/^(?:\{[a-z0-9½∞]+(?:\/[a-z0-9]+)*\})+$/.test(cost)) throw new QueryError('请输入法术力符号，例如 {2}{G}{G}', position);
+    return card => (card.faces?.length ? card.faces : [card]).some(face => {
+      const actual = normalizeManaCost(face.manaCost);
+      return op === '=' ? actual === cost : actual.includes(cost);
+    });
+  }
+  if (field === 'a') return (card, version) => {
+    const name = normalizeText(version?.artist ?? card.artist);
+    return op === '=' ? name === value : name.includes(value);
+  };
   if (field === 'r') {
     const rarity = rarityAliases[value] || value;
     if (!['common', 'uncommon', 'rare', 'mythic', 'special', 'bonus'].includes(rarity)) throw new QueryError('稀有度可用 common / uncommon / rare / mythic', position);
@@ -353,6 +381,11 @@ export function validateSearch(query = '', filters = {}) {
   }
 }
 
+function lowestUsdPrice(card, versions = card.versions?.length ? card.versions : [card]) {
+  const prices = versions.map(version => version.usd).filter(price => Number.isFinite(price) && price >= 0);
+  return prices.length ? Math.min(...prices) : null;
+}
+
 export function searchCards(cards, query = '', filters = {}, sort = 'name') {
   try {
     const preparedFilters = prepareFilters(filters);
@@ -365,17 +398,29 @@ export function searchCards(cards, query = '', filters = {}, sort = 'name') {
       test = (card, version) => faceTest(card, version).length > 0;
     }
     const matches = [];
+    const sortByPrice = options.sort.startsWith('usd-');
+    function withPrice(card, versions) {
+      if (!sortByPrice && !tree.hasCnyPrice) return card;
+      const usdPrice = lowestUsdPrice(card, versions);
+      return { ...card, usdPrice, ...(tree.hasCnyPrice ? { cnyPrice: usdToCny(usdPrice) } : {}) };
+    }
     for (const card of cards) {
       if (!filterCard(card, preparedFilters)) continue;
-      if (!tree.hasPrinting) { if (test(card, null)) matches.push(card); continue; }
+      if (!tree.hasPrinting) {
+        if (test(card, null)) matches.push(withPrice(card));
+        continue;
+      }
       const versions = card.versions?.length ? card.versions : [card];
       const matchingVersions = versions.filter(version => test(card, version));
-      if (matchingVersions.length) matches.push({ ...card, matchingVersions });
+      if (matchingVersions.length) matches.push(withPrice({ ...card, matchingVersions }, matchingVersions));
     }
     const byName = (a, b) => collator.compare(a.zhName || a.name, b.zhName || b.name) || collator.compare(a.name, b.name) || String(a.id || '').localeCompare(String(b.id || ''));
     const direction = options.descending ? -1 : 1;
     const ranked = card => Number.isInteger(card.edhrecRank) && card.edhrecRank > 0;
-    const sorter = options.sort.startsWith('mana-') ? (a, b) => direction * ((a.manaValue || 0) - (b.manaValue || 0)) || byName(a, b)
+    const sorter = sortByPrice ? (a, b) => {
+      if (a.usdPrice === null || b.usdPrice === null) return (a.usdPrice === null) - (b.usdPrice === null) || byName(a, b);
+      return direction * (a.usdPrice - b.usdPrice) || byName(a, b);
+    } : options.sort.startsWith('mana-') ? (a, b) => direction * ((a.manaValue || 0) - (b.manaValue || 0)) || byName(a, b)
       : options.sort === 'released' ? (a, b) => direction * String(a.releasedAt || '').localeCompare(String(b.releasedAt || '')) || byName(a, b)
       : options.sort === 'edhrec' ? (a, b) => {
         if (ranked(a) !== ranked(b)) return ranked(a) ? -1 : 1;

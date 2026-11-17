@@ -25,9 +25,7 @@ test('tag counts merge canonical slugs and aliases while retaining all contribut
     count: 4, entryIds: ['main-a', 'main-a-other-printing', 'commander-b'],
   });
   assert.equal(tags.find(tag => tag.slug === 'landfall').count, 3);
-  assert.equal(tags.find(tag => tag.slug === 'unknown-tag').label, 'unknown-tag');
-  assert.equal(tags.find(tag => tag.slug === 'combat-trick').label, 'combat trick');
-  assert.ok(!tags.some(tag => ['manarock', 'mana rock', 'candidate-only'].includes(tag.slug)));
+  assert.ok(!tags.some(tag => ['manarock', 'mana rock', 'candidate-only', 'unknown-tag', 'combat-trick'].includes(tag.slug)));
 });
 
 test('linked tokens are grouped by template and count source cards without counting candidate entries', () => {

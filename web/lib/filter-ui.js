@@ -1,11 +1,10 @@
+import { CNY_PER_USD, FIVE_DH_BUDGET } from './catalog-price.js';
 import { CONDITION_FIELDS, createCondition, createGroup, buildConditionQuery, buildFilterQuery } from './query-builder.js';
-import { loadTagVocabulary, TAG_NAMES } from './tag-vocabulary.js';
+import { TYPE_NAMES, SUPERTYPE_NAMES } from './type-vocabulary.js';
+import { normalizeText } from './search.js';
+import { loadTagVocabulary, TAG_NAMES, visibleTagLabel } from './tag-vocabulary.js';
 
 const COLOR_NAMES = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿', C: '无色' };
-const TYPE_NAMES = { Creature: '生物', Instant: '瞬间', Sorcery: '法术', Artifact: '神器', Enchantment: '结界', Planeswalker: '鹏洛客', Land: '地', Battle: '战役' };
-const SUPERTYPE_NAMES = { Basic: '基本', Legendary: '传奇', Snow: '雪境', World: '世界', Ongoing: '持续' };
-const RELATIONS = { any: '包含任一', all: '包含全部', exact: '恰好', within: '仅限' };
-
 function el(tag, attrs = {}, text) {
   const element = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -29,49 +28,195 @@ function toggleColor(selected, color) {
   if (selected.includes(color)) return selected.filter(value => value !== color);
   return color === 'C' ? ['C'] : [...selected.filter(value => value !== 'C'), color];
 }
-function meaningfulRules(group) {
-  return group.children.flatMap(child => child.kind === 'group' ? meaningfulRules(child) : String(child.value ?? '').trim() ? [child] : []);
+const directFields = [
+  ['#card-name-filter', 'name', ':'], ['#oracle-filter', 'o', ':'],
+  ['#mana-cost-filter', 'm', '='], ['#artist-filter', 'a', ':'], ['#set-filter', 'set', ':'],
+];
+const bounds = [['#power-min', 'minPower'], ['#power-max', 'maxPower'],
+  ['#toughness-min', 'minToughness'], ['#toughness-max', 'maxToughness']];
+const typeOptions = [
+  ...Object.entries(TYPE_NAMES).map(([value, label]) => ({ value, label, detail: '类别' })),
+  ...Object.entries(SUPERTYPE_NAMES).map(([value, label]) => ({ value, label, detail: '超类别' })),
+];
+const tagOptions = rows => {
+  const options = new Map(Object.entries(TAG_NAMES).map(([value, label]) => [value, { value, label, detail: value }]));
+  for (const tag of rows) {
+    const value = tag.slug;
+    const label = visibleTagLabel(value);
+    if (label) options.set(value, { value, label, aliases: tag.aliases, detail: value });
+  }
+  return [...options.values()];
+};
+
+function createRepeatingFilter(container, label, changed, initialOptions) {
+  const list = el('div', { class: 'repeat-filter-list' });
+  const matchLabel = el('label', { class: 'checkbox-label repeat-match' });
+  const match = el('input', { type: 'checkbox' });
+  matchLabel.append(match, document.createTextNode('允许部分匹配'));
+  container.append(list, matchLabel);
+  match.addEventListener('change', changed);
+  let options, rows = [], nextId = 0;
+  const activeRows = () => rows.filter(row => row.input.value.trim());
+  function updateRows() {
+    if (rows.at(-1)?.input.value.trim() || !rows.length) addRow();
+    matchLabel.hidden = activeRows().length < 2;
+    if (matchLabel.hidden) match.checked = false;
+  }
+  function addRow() {
+    const id = container.id + '-' + ++nextId;
+    const wrap = el('div', { class: 'repeat-filter-row' });
+    const input = el('input', { class: 'condition-value', role: 'combobox', type: 'text', autocomplete: 'off', 'aria-label': label, 'aria-autocomplete': 'list', 'aria-controls': id, 'aria-expanded': 'false' });
+    const menu = el('div', { class: 'filter-suggestions', role: 'listbox', id, hidden: '' });
+    const mode = button('属于', () => {
+      row.exclude = !row.exclude;
+      mode.textContent = row.exclude ? '排除' : '属于';
+      mode.setAttribute('aria-pressed', String(row.exclude));
+      changed();
+    }, 'repeat-filter-mode');
+    mode.setAttribute('aria-label', '排除' + label);
+    mode.setAttribute('aria-pressed', 'false');
+    mode.disabled = true;
+    const row = { input, exclude: false, selection: null, suggest };
+    rows.push(row);
+    wrap.append(mode, input, menu);
+    list.append(wrap);
+    let suggestions = [], selected = -1;
+    function close() {
+      menu.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+      selected = -1;
+    }
+    function selectOption(option) {
+      input.value = option.label;
+      row.selection = option;
+      mode.disabled = false;
+      close();
+      updateRows();
+      changed();
+    }
+    function suggest() {
+      const needle = normalizeText(input.value);
+      if (!needle || row.selection || document.activeElement !== input) { close(); return; }
+      const ranked = options.flatMap(option => {
+        const score = Math.min(...option.terms.map(term => term === needle ? 0 : term.startsWith(needle) ? 1 : term.includes(needle) ? 2 : Infinity));
+        return Number.isFinite(score) ? [{ option, score }] : [];
+      });
+      suggestions = ranked.sort((left, right) => left.score - right.score).slice(0, 8).map(item => item.option);
+      if (!suggestions.length) { close(); return; }
+      selected = -1;
+      input.removeAttribute('aria-activedescendant');
+      menu.replaceChildren(...suggestions.map((option, index) => {
+        const item = button('', () => selectOption(option), 'filter-suggestion');
+        item.id = id + '-' + index;
+        item.tabIndex = -1;
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', 'false');
+        item.append(el('span', {}, option.label));
+        if (option.detail) item.append(el('small', {}, option.detail));
+        item.addEventListener('pointerdown', event => event.preventDefault());
+        return item;
+      }));
+      menu.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+    input.addEventListener('focus', suggest);
+    input.addEventListener('blur', close);
+    input.addEventListener('input', () => {
+      row.selection = null;
+      mode.disabled = !input.value.trim();
+      if (mode.disabled) {
+        row.exclude = false;
+        mode.textContent = '属于';
+        mode.setAttribute('aria-pressed', 'false');
+      }
+      updateRows();
+      suggest();
+      changed();
+    });
+    input.addEventListener('keydown', event => {
+      if (event.isComposing || menu.hidden) return;
+      if (event.key === 'Escape') { event.stopPropagation(); close(); return; }
+      if (event.key === 'Enter' && selected >= 0) { event.preventDefault(); selectOption(suggestions[selected]); return; }
+      if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+      event.preventDefault();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      selected = selected < 0 ? (step === 1 ? 0 : suggestions.length - 1) : (selected + step + suggestions.length) % suggestions.length;
+      Array.from(menu.children).forEach((item, index) => item.setAttribute('aria-selected', String(index === selected)));
+      input.setAttribute('aria-activedescendant', menu.children[selected].id);
+      menu.children[selected].scrollIntoView({ block: 'nearest' });
+    });
+    wrap.addEventListener('focusout', event => {
+      if (wrap.contains(event.relatedTarget) || input.value.trim() || rows.at(-1) === row) return;
+      rows = rows.filter(item => item !== row);
+      wrap.remove();
+    });
+  }
+  function setOptions(values) {
+    options = values.map(option => ({ ...option, terms: [...new Set([option.label, option.value, ...(Array.isArray(option.aliases) ? option.aliases : [])].map(normalizeText))] }));
+    for (const row of rows) if (document.activeElement === row.input) row.suggest();
+  }
+  function clear() {
+    rows = [];
+    list.replaceChildren();
+    match.checked = false;
+    updateRows();
+  }
+  setOptions(initialOptions);
+  clear();
+  return { clear, setOptions, count: () => activeRows().length, group(field) {
+    const group = createGroup();
+    group.mode = match.checked ? 'any' : 'all';
+    group.children = activeRows().map(({ input, exclude, selection }) => ({
+      ...createCondition(field), value: selection?.value ?? input.value, exclude,
+    }));
+    return group;
+  } };
 }
 
 export function initSearchFilters({ onChange }) {
   const $ = selector => document.querySelector(selector);
   const $$ = selector => Array.from(document.querySelectorAll(selector));
-  const defaults = () => ({ colors: [], colorRelation: 'any', identities: [], identityRelation: 'within', types: [], supertypes: [], subtype: '', minManaValue: '', maxManaValue: '', minPower: '', maxPower: '', minToughness: '', maxToughness: '', commanderOnly: true, translation: 'all' });
+  const defaults = () => ({ colors: [], colorRelation: 'any', identities: [], identityRelation: 'within', commanderOnly: true });
   let filters = defaults();
   let conditionRoot = createGroup();
-  let tags = [];
-  let tagMatch = 'any';
-  let mode = 'simple';
   let vocabularyPromise;
   const datalist = el('datalist', { id: 'tag-vocabulary' });
   const setlist = el('datalist', { id: 'set-vocabulary' });
-  const subtypelist = el('datalist', { id: 'subtype-vocabulary' });
-  document.body.append(datalist, setlist, subtypelist);
+  document.body.append(datalist, setlist);
+  const types = createRepeatingFilter($('#type-conditions'), '类别', changed, typeOptions);
+  const tags = createRepeatingFilter($('#tag-conditions'), '功能标签', changed, tagOptions([]));
+  const mana = $('#mana-values');
+  for (let value = 0; value <= 9; value++) {
+    const label = el('label', { class: 'mana-value-option' });
+    label.append(el('input', { type: 'checkbox', value }), el('span', {}, value === 9 ? '9+' : value));
+    mana.append(label);
+  }
+  const rarities = CONDITION_FIELDS.find(field => field.value === 'r').options.slice(0, 4);
+  for (const {value, label} of rarities) {
+    const item = el('label', { class: 'checkbox-label' });
+    item.append(el('input', { type: 'checkbox', value }), el('span', {}, label));
+    $('#rarity-filters').append(item);
+  }
+
+  const fiveDh = $('#five-dh');
+  const fiveDhOverage = $('#five-dh-overage');
+  const fiveDhPercent = $('#five-dh-percent');
+  const fiveDhSettings = $('#five-dh-settings');
+  const defaultOverage = '20';
+  fiveDhSettings.title = `按固定参考汇率 1 USD ≈ ${CNY_PER_USD} CNY 估算`;
 
   function changed() {
-    syncSummary();
+    syncChoices();
     onChange();
   }
   function loadVocabulary() {
-    if (vocabularyPromise) return vocabularyPromise;
-    vocabularyPromise = loadTagVocabulary().then(rows => {
-      const fragment = document.createDocumentFragment();
-      for (const [slug, name] of Object.entries(TAG_NAMES)) fragment.append(el('option', { value: slug, label: name + ' · ' + slug }));
-      for (const tag of rows) {
-        if (!Object.hasOwn(TAG_NAMES, tag.slug)) fragment.append(el('option', { value: tag.slug, label: tag.label || tag.slug }));
-      }
-      datalist.replaceChildren(fragment);
+    vocabularyPromise ??= loadTagVocabulary().then(rows => {
+      const options = tagOptions(rows);
+      tags.setOptions(options);
+      datalist.replaceChildren(...options.map(option => el('option', { value: option.value, label: option.label })));
     }).catch(() => { vocabularyPromise = null; });
     return vocabularyPromise;
-  }
-  function setMode(value) {
-    mode = value === 'advanced' ? 'advanced' : 'simple';
-    $('#advanced-filters').hidden = mode !== 'advanced';
-    $('#catalog-view').classList.toggle('is-advanced', mode === 'advanced');
-    $('#filter-simple').setAttribute('aria-pressed', String(mode === 'simple'));
-    $('#filter-advanced').setAttribute('aria-pressed', String(mode === 'advanced'));
-    if (mode === 'advanced') loadVocabulary();
-    syncSummary();
   }
   function makeExclude(model, label) {
     const wrap = el('label', { class: 'condition-exclude' });
@@ -164,122 +309,97 @@ export function initSearchFilters({ onChange }) {
     return wrap;
   }
   function renderBuilder() { $('#condition-builder').replaceChildren(renderGroup(conditionRoot)); }
-  function advancedQuery() {
-    const built = buildConditionQuery(conditionRoot);
-    const parts = [];
-    if (tags.length) parts.push('(' + tags.map(tag => 'tag:' + tag).join(tagMatch === 'any' ? ' OR ' : ' AND ') + ')');
-    if (built.query) parts.push(built.query);
-    return { query: parts.join(' AND '), error: built.error, count: tags.length + meaningfulRules(conditionRoot).length + (filters.identities.length ? 1 : 0) + (filters.translation !== 'all' ? 1 : 0) + filters.supertypes.length + (filters.subtype.trim() ? 1 : 0) + ['minPower', 'maxPower', 'minToughness', 'maxToughness'].filter(key => filters[key] !== '').length };
+  function getSearch() {
+    const root = createGroup();
+    for (const [selector, field, op] of directFields) root.children.push({ ...createCondition(field), op, value: $(selector).value });
+    const rarityGroup = createGroup();
+    rarityGroup.mode = 'any';
+    rarityGroup.children = $$('#rarity-filters input:checked').map(input => ({ ...createCondition('r'), value: input.value }));
+    root.children.push(types.group('t'), tags.group('tag'), rarityGroup, conditionRoot);
+    const advanced = buildConditionQuery(root);
+    const stats = Object.fromEntries(bounds.map(([selector, key]) => [key, $(selector).value]));
+    const manaValues = $$('#mana-values input:checked').map(input => Number(input.value));
+    const identities = $('#identity-controls').hidden ? [] : filters.identities;
+    const basic = buildFilterQuery({ ...filters, identities, ...stats, manaValues, commanderOnly: false });
+    const overage = Number(fiveDhPercent.value);
+    const invalidOverage = fiveDh.checked && fiveDhOverage.checked &&
+      (!fiveDhPercent.value || fiveDhPercent.validity.badInput || !Number.isFinite(overage) || overage < 0);
+    const limit = FIVE_DH_BUDGET + (fiveDhOverage.checked ? overage / 20 : 0);
+    const budget = fiveDh.checked && !invalidOverage ? `cny<=${limit.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 12 })}` : '';
+    const error = invalidOverage ? '请输入非负的超预算百分比。' : bounds.some(([selector]) => $(selector).validity.badInput)
+      ? '力量与防御力需要填写数字，留空表示不限。' : basic.error || advanced.error;
+    const displayQuery = [advanced.query, basic.query, budget].filter(Boolean).join(' AND ');
+    return { filters, displayQuery, hasUserConditions: !!(basic.explicitCount || advanced.count || budget || error), error };
   }
-  function syncSummary() {
-    const result = advancedQuery();
-    $('#advanced-count').textContent = result.count;
-    $('#advanced-count').hidden = !result.count;
-    $('#advanced-retained').hidden = mode !== 'simple' || !result.count;
-    $('#advanced-retained').textContent = result.count + ' 项高级条件仍在生效 · 点击查看';
-    const complete = getSearch();
-    $('#generated-query').textContent = complete.error || complete.query || '尚未添加搜索条件';
-  }
-  function sync() {
+  function syncChoices() {
     for (const [selector, key] of [['#color-filters', 'colors'], ['#identity-filters', 'identities']]) {
       $$(selector + ' button').forEach(pick => pick.setAttribute('aria-pressed', String(filters[key].includes(pick.dataset.color))));
     }
-    $$('#type-filters input').forEach(input => { input.checked = filters.types.includes(input.value); });
-    $$('#supertype-filters input').forEach(input => { input.checked = filters.supertypes.includes(input.value); });
-    $('#subtype-filter').value = filters.subtype;
     $('#color-relation').value = filters.colorRelation;
     $('#identity-relation').value = filters.identityRelation;
-    $('#mana-min').value = filters.minManaValue;
-    $('#mana-max').value = filters.maxManaValue;
-    for (const [selector, key] of [['#power-min', 'minPower'], ['#power-max', 'maxPower'], ['#toughness-min', 'minToughness'], ['#toughness-max', 'maxToughness']]) $(selector).value = filters[key];
-    $('#mana-label').textContent = filters.minManaValue === '' && filters.maxManaValue === '' ? '不限' : (filters.minManaValue === '' ? '0' : filters.minManaValue) + ' – ' + (filters.maxManaValue === '' ? '不限' : filters.maxManaValue);
-    $('#translation-filter').value = filters.translation;
     $('#commander-filter').checked = filters.commanderOnly;
-    $('#tag-match').value = tagMatch;
-    $$('[data-tag]').forEach(pick => pick.setAttribute('aria-pressed', String(tags.includes(pick.dataset.tag))));
-    syncSummary();
+    fiveDhSettings.hidden = !fiveDh.checked;
+    fiveDhPercent.disabled = !fiveDh.checked || !fiveDhOverage.checked;
   }
-  function reset() { filters = defaults(); conditionRoot = createGroup(); tags = []; tagMatch = 'any'; renderBuilder(); sync(); changed(); }
   function clear({ commanderOnly = false, silent = false } = {}) {
-    filters = { ...defaults(), commanderOnly }; conditionRoot = createGroup(); tags = []; tagMatch = 'any'; renderBuilder(); sync();
+    filters = { ...defaults(), commanderOnly };
+    fiveDh.checked = false;
+    fiveDhOverage.checked = false;
+    fiveDhPercent.value = defaultOverage;
+    fiveDhSettings.open = false;
+    conditionRoot = createGroup();
+    types.clear();
+    tags.clear();
+    for (const [selector] of [...directFields, ...bounds]) $(selector).value = '';
+    for (const input of $$('#mana-values input').concat($$('#rarity-filters input'))) input.checked = false;
+    renderBuilder();
+    syncChoices();
     if (!silent) changed();
   }
-  function getSearch() {
-    const result = advancedQuery();
-    const basic = buildFilterQuery(filters);
-    const display = buildFilterQuery({ ...filters, commanderOnly: false });
-    const badMana = ['#mana-min', '#mana-max'].some(selector => $(selector).validity.badInput);
-    const badStats = ['#power-min', '#power-max', '#toughness-min', '#toughness-max'].some(selector => $(selector).validity.badInput);
-    const error = badMana ? '法术力值需要填写非负数字，留空表示不限。' : badStats ? '力量与防御力需要填写数字，留空表示不限。' : basic.error || result.error;
-    return {
-      filters: { ...filters, colors: [...filters.colors], identities: [...filters.identities], types: [...filters.types], supertypes: [...filters.supertypes] },
-      query: [basic.query, result.query].filter(Boolean).join(' AND '), advancedQuery: result.query,
-      displayQuery: [display.query, result.query].filter(Boolean).join(' AND '),
-      hasUserConditions: !!(basic.explicitCount || tags.length || meaningfulRules(conditionRoot).length || error), error,
-    };
-  }
   function renderActiveFilters() {
-    const wrap = $('#active-filters');
     const items = [];
-    if (filters.colors.length) items.push({ label: '颜色：' + RELATIONS[filters.colorRelation] + filters.colors.map(color => COLOR_NAMES[color]).join(' / '), remove: () => { filters.colors = []; } });
-    if (filters.identities.length) items.push({ label: '标识色：' + RELATIONS[filters.identityRelation] + filters.identities.map(color => COLOR_NAMES[color]).join(' / '), advanced: true, remove: () => { filters.identities = []; } });
-    for (const type of filters.types) items.push({ label: TYPE_NAMES[type], remove: () => { filters.types = filters.types.filter(value => value !== type); } });
-    for (const type of filters.supertypes) items.push({ label: SUPERTYPE_NAMES[type], advanced: true, remove: () => { filters.supertypes = filters.supertypes.filter(value => value !== type); } });
-    if (filters.subtype.trim()) items.push({ label: '副类别：' + filters.subtype.trim(), advanced: true, remove: () => { filters.subtype = ''; } });
-    for (const [key, label] of [['minPower', '力量 ≥ '], ['maxPower', '力量 ≤ '], ['minToughness', '防御力 ≥ '], ['maxToughness', '防御力 ≤ ']]) {
-      if (filters[key] !== '') items.push({ label: label + filters[key], advanced: true, remove: () => { filters[key] = ''; } });
+    const add = (label, remove) => items.push(button(label + ' ×', () => { remove(); changed(); }, 'filter-pill'));
+    for (const [selector, label] of [['#card-name-filter', '卡名'], ['#oracle-filter', '规则'], ['#mana-cost-filter', '费用'], ['#artist-filter', '画家'], ['#set-filter', '系列'],
+      ['#power-min', '力量 ≥'], ['#power-max', '力量 ≤'], ['#toughness-min', '防御力 ≥'], ['#toughness-max', '防御力 ≤']]) {
+      if ($(selector).value.trim()) add(label + ' ' + $(selector).value, () => { $(selector).value = ''; });
     }
-    if (filters.minManaValue !== '') items.push({ label: '法术力值 ≥ ' + filters.minManaValue, remove: () => { filters.minManaValue = ''; } });
-    if (filters.maxManaValue !== '') items.push({ label: '法术力值 ≤ ' + filters.maxManaValue, remove: () => { filters.maxManaValue = ''; } });
-    if (filters.commanderOnly) items.push({ label: 'EDH 合法', remove: () => { filters.commanderOnly = false; } });
-    if (filters.translation !== 'all') items.push({ label: filters.translation === 'translated' ? '已有中文' : '中文待补', advanced: true, remove: () => { filters.translation = 'all'; } });
-    for (const tag of tags) items.push({ label: (tagMatch === 'any' ? '任选标签：' : '必需标签：') + tag, advanced: true, remove: () => { tags = tags.filter(value => value !== tag); } });
-    const rules = meaningfulRules(conditionRoot);
-    if (rules.length) items.push({ label: (conditionRoot.exclude ? '排除组合：' : '组合条件：') + rules.length + ' 项', advanced: true, remove: () => { conditionRoot = createGroup(); renderBuilder(); } });
-    wrap.replaceChildren();
-    for (const item of items) {
-      const pill = button(item.label + ' ×', () => { item.remove(); sync(); changed(); }, 'filter-pill' + (item.advanced ? ' advanced-pill' : ''));
-      pill.setAttribute('aria-label', '移除筛选：' + item.label);
-      wrap.append(pill);
+    for (const [key, label] of [['colors', '颜色'], ['identities', '标识色']]) {
+      if (filters[key].length && (key !== 'identities' || !$('#identity-controls').hidden)) {
+        add(label + ' ' + filters[key].map(color => COLOR_NAMES[color]).join(' / '), () => { filters[key] = []; });
+      }
     }
-    wrap.hidden = !items.length;
-    $('#filter-count').hidden = !items.length;
+    for (const [group, label] of [[types, '类别'], [tags, '功能标签']]) {
+      if (group.count()) add(label + ' ' + group.count() + ' 项', group.clear);
+    }
+    const manaSelected = $$('#mana-values input:checked');
+    if (manaSelected.length) {
+      add('法术力值 ' + manaSelected.map(input => input.value === '9' ? '9+' : input.value).join(' / '),
+        () => { for (const input of manaSelected) input.checked = false; });
+    }
+    for (const input of $$('#rarity-filters input:checked')) {
+      add(rarities.find(option => option.value === input.value).label, () => { input.checked = false; });
+    }
+    if (fiveDh.checked) add('5DH 可用', () => { fiveDh.checked = false; });
+    if (filters.commanderOnly) add('EDH 合法', () => { filters.commanderOnly = false; });
+    if (conditionRoot.children.length) add('更多条件', () => { conditionRoot = createGroup(); renderBuilder(); });
+    $('#active-filters').replaceChildren(...items);
+    $('#active-filters').hidden = !items.length;
     $('#filter-count').textContent = items.length;
+    $('#filter-count').hidden = !items.length;
   }
   function showError(message) { $('#filter-error').hidden = !message; $('#filter-error').textContent = message || ''; }
-  function setMetadata({ sets = [], subtypes = [] } = {}) {
-    const fragment = document.createDocumentFragment();
-    for (const item of sets) {
+  function setMetadata({ sets = [], subtypes = [], typeVocabulary = [] } = {}) {
+    setlist.replaceChildren(...sets.map(item => {
       const code = typeof item === 'string' ? item : item.code;
-      if (typeof code !== 'string') continue;
-      const name = typeof item === 'string' ? item : item.name || code;
-      fragment.append(el('option', { value: code, label: name + ' · ' + code.toUpperCase() }));
-    }
-    setlist.replaceChildren(fragment);
-    const subtypeFragment = document.createDocumentFragment();
-    for (const subtype of subtypes) if (typeof subtype === 'string') subtypeFragment.append(el('option', { value: subtype }));
-    subtypelist.replaceChildren(subtypeFragment);
+      return el('option', { value: code, label: item.name || code });
+    }));
+    types.setOptions([...typeOptions, ...(typeVocabulary.length ? typeVocabulary : subtypes.map(value => ({ value, label: value, detail: '副类别' })))]);
   }
-  function setCatalog(cards) {
-    const sets = new Map();
-    const subtypes = new Set();
-    for (const card of cards) {
-      for (const version of card.versions || []) {
-        if (version.set && !sets.has(version.set)) sets.set(version.set, version.setName || version.set);
-      }
-      for (const face of [card, ...(card.faces || [])]) for (const line of [face.typeLine, face.zhTypeLine]) {
-        for (const part of String(line || '').split(/\s*\/\/\s*/)) {
-          const suffix = part.split(/[—–～~]/).slice(1).join(' ');
-          for (const subtype of suffix.match(/Time Lord|[^\s／/]+/g) || []) subtypes.add(subtype);
-        }
-      }
-    }
-    const fragment = document.createDocumentFragment();
-    for (const [code, name] of [...sets].sort((a, b) => a[0].localeCompare(b[0]))) fragment.append(el('option', { value: code, label: name + ' · ' + code.toUpperCase() }));
-    setlist.replaceChildren(fragment);
-    const subtypeFragment = document.createDocumentFragment();
-    for (const subtype of [...subtypes].sort((a, b) => a.localeCompare(b, 'zh-CN'))) subtypeFragment.append(el('option', { value: subtype }));
-    subtypelist.replaceChildren(subtypeFragment);
+  function setCommanderScope(identity, enabled) {
+    $('#catalog-scope-label').hidden = identity === null;
+    $('#catalog-scope-filter').checked = enabled;
+    $('#catalog-scope-text').textContent = '和指挥官保持一致';
+    $('#identity-controls').hidden = identity !== null && enabled;
   }
 
   for (const original of $$('#color-filters button')) {
@@ -288,25 +408,18 @@ export function initSearchFilters({ onChange }) {
     $('#identity-filters').append(copy);
   }
   for (const [selector, key] of [['#color-filters', 'colors'], ['#identity-filters', 'identities']]) {
-    $$(selector + ' button').forEach(pick => pick.addEventListener('click', () => { filters[key] = toggleColor(filters[key], pick.dataset.color); sync(); changed(); }));
+    $$(selector + ' button').forEach(pick => pick.addEventListener('click', () => { filters[key] = toggleColor(filters[key], pick.dataset.color); changed(); }));
   }
-  for (const [selector, key] of [['#color-relation', 'colorRelation'], ['#identity-relation', 'identityRelation'], ['#translation-filter', 'translation']]) {
+  for (const [selector, key] of [['#color-relation', 'colorRelation'], ['#identity-relation', 'identityRelation']]) {
     $(selector).addEventListener('change', event => { filters[key] = event.target.value; changed(); });
   }
-  for (const [selector, key] of [['#mana-min', 'minManaValue'], ['#mana-max', 'maxManaValue']]) {
-    $(selector).addEventListener('input', event => { filters[key] = event.target.value; $('#mana-label').textContent = filters.minManaValue === '' && filters.maxManaValue === '' ? '不限' : (filters.minManaValue || '0') + ' – ' + (filters.maxManaValue || '不限'); changed(); });
-  }
-  $$('#type-filters input').forEach(input => input.addEventListener('change', () => { filters.types = $$('#type-filters input:checked').map(item => item.value); changed(); }));
-  $$('#supertype-filters input').forEach(input => input.addEventListener('change', () => { filters.supertypes = $$('#supertype-filters input:checked').map(item => item.value); changed(); }));
-  $('#subtype-filter').addEventListener('input', event => { filters.subtype = event.target.value; changed(); });
-  for (const [selector, key] of [['#power-min', 'minPower'], ['#power-max', 'maxPower'], ['#toughness-min', 'minToughness'], ['#toughness-max', 'maxToughness']]) $(selector).addEventListener('input', event => { filters[key] = event.target.value; changed(); });
+  for (const [selector] of [...directFields, ...bounds]) $(selector).addEventListener('input', changed);
+  mana.addEventListener('change', changed);
+  $('#rarity-filters').addEventListener('change', changed);
+  fiveDh.addEventListener('change', changed);
+  fiveDhOverage.addEventListener('change', changed);
+  fiveDhPercent.addEventListener('input', changed);
   $('#commander-filter').addEventListener('change', event => { filters.commanderOnly = event.target.checked; changed(); });
-  $('#tag-match').addEventListener('change', event => { tagMatch = event.target.value; changed(); });
-  $$('[data-tag]').forEach(pick => pick.addEventListener('click', () => { tags = tags.includes(pick.dataset.tag) ? tags.filter(tag => tag !== pick.dataset.tag) : [...tags, pick.dataset.tag]; sync(); changed(); }));
-  $('#add-tag-condition').addEventListener('click', () => addRule(conditionRoot, 'tag'));
-  $('#filter-simple').addEventListener('click', () => setMode('simple'));
-  $('#filter-advanced').addEventListener('click', () => setMode('advanced'));
-  $('#advanced-retained').addEventListener('click', () => setMode('advanced'));
-  renderBuilder(); sync(); setMode('simple');
-  return { getSearch, renderActiveFilters, reset, clear, setMode, showError, setCatalog, setMetadata };
+  clear({ commanderOnly: true, silent: true });
+  return { getSearch, renderActiveFilters, reset: () => clear({ commanderOnly: true }), clear, showError, setMetadata, setCommanderScope, loadVocabulary };
 }

@@ -1,14 +1,20 @@
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
+import { collectSubtypes, describeSubtypes } from '../web/lib/type-vocabulary.js';
 import { buildNameRanks } from '../server/catalog-db.js';
 
-export async function readCatalogSource(sourcePath) {
-  const directory = resolve(sourcePath);
-  const source = await readFile(resolve(directory, 'manifest.json'), 'utf8');
+export async function readCatalogManifest(sourcePath) {
+  const source = await readFile(resolve(sourcePath, 'manifest.json'), 'utf8');
   const manifest = JSON.parse(source);
   if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.shards) || !manifest.counts) throw new Error('卡库清单无效');
   const version = 'catalog-' + createHash('sha256').update('server-schema-3\n' + source).digest('hex').slice(0, 24);
+  return { version, manifest };
+}
+
+export async function readCatalogSource(sourcePath) {
+  const directory = resolve(sourcePath);
+  const { version, manifest } = await readCatalogManifest(directory);
   function inside(filename) {
     if (typeof filename !== 'string' || !filename) throw new Error('卡库文件地址无效');
     const path = resolve(directory, filename);
@@ -19,7 +25,7 @@ export async function readCatalogSource(sourcePath) {
   if (manifest.searchMetadata.sha256 && createHash('sha256').update(metadataBytes).digest('hex') !== manifest.searchMetadata.sha256) throw new Error('补充数据校验失败');
   const metadata = JSON.parse(metadataBytes.toString('utf8'));
   if (metadata.oracleDate !== manifest.snapshot.oracleDate || Object.keys(metadata.cards || {}).length !== manifest.counts.cards) throw new Error('补充数据与卡库不一致');
-  const names = [], sets = new Map(), subtypes = new Set();
+  const names = [], sets = new Map(), subtypes = new Set(), typeVocabulary = new Map();
   for (const shard of manifest.shards) {
     const cards = JSON.parse(await readFile(inside(shard.url), 'utf8'));
     if (!Array.isArray(cards) || cards.length !== shard.count) throw new Error('卡库分片数量不一致');
@@ -28,6 +34,7 @@ export async function readCatalogSource(sourcePath) {
       if (!extra || !Array.isArray(extra.faces) || extra.faces.length !== card.faces?.length || extra.faces.some((face, index) => face.name !== card.faces[index].name)) throw new Error('补充数据牌面与卡库不一致');
       names.push({ id: card.id, name: card.name, zhName: card.zhName });
       for (const printing of card.versions || []) if (printing.set && !sets.has(printing.set)) sets.set(printing.set, printing.setName || printing.set);
+      for (const face of card.faces || []) collectSubtypes(typeVocabulary, face);
       for (const face of card.faces || []) for (const line of [face.typeLine, face.zhTypeLine]) {
         const suffix = String(line || '').split(/[—～]/).slice(1).join(' ');
         for (const subtype of suffix.match(/Time Lord|[^\s／/]+/g) || []) subtypes.add(subtype);
@@ -37,7 +44,7 @@ export async function readCatalogSource(sourcePath) {
   if (names.length !== manifest.counts.cards || new Set(names.map(card => card.id)).size !== names.length) throw new Error('卡库身份数量不一致');
   const nameRanks = buildNameRanks(names);
   const { shards, searchMetadata, ...publicManifest } = manifest;
-  const meta = { ...publicManifest, searchMetadata: { oracleDate: searchMetadata.oracleDate, cards: searchMetadata.cards, rankedCards: searchMetadata.rankedCards }, sets: [...sets].sort((a, b) => a[0].localeCompare(b[0])).map(([code, name]) => ({ code, name })), subtypes: [...subtypes].sort((a, b) => a.localeCompare(b, 'zh-CN')) };
+  const meta = { ...publicManifest, searchMetadata: { oracleDate: searchMetadata.oracleDate, cards: searchMetadata.cards, rankedCards: searchMetadata.rankedCards }, typeVocabulary: describeSubtypes(typeVocabulary), sets: [...sets].sort((a, b) => a[0].localeCompare(b[0])).map(([code, name]) => ({ code, name })), subtypes: [...subtypes].sort((a, b) => a.localeCompare(b, 'zh-CN')) };
   async function* batches() {
     let cardCount = 0;
     for (let shardIndex = 0; shardIndex < manifest.shards.length; shardIndex++) {

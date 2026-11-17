@@ -43,16 +43,16 @@ export function replaceClause(text, oldClause, nextQuery) {
   if (!nextClause) return remaining;
   return remaining ? `${topLevelOr(remaining) ? `(${remaining})` : remaining} AND ${nextClause}` : nextClause;
 }
-export const SORT_QUERIES = Object.freeze({ name: 'order:name', 'mana-asc': 'order:mv dir:asc', 'mana-desc': 'order:mv dir:desc', released: 'order:released', edhrec: 'order:edhrec' });
-export function sortingQuery(options) {
-  if (options.sort === 'name' && !options.hasOrder && !options.hasDirection) return '';
+export const SORT_QUERIES = Object.freeze({ name: 'order:name', 'mana-asc': 'order:mv dir:asc', 'mana-desc': 'order:mv dir:desc', 'usd-asc': 'order:usd dir:asc', 'usd-desc': 'order:usd dir:desc', released: 'order:released', edhrec: 'order:edhrec' });
+export function sortingQuery(options, defaultSort = 'name') {
+  if (options.sort === defaultSort && !options.hasOrder && !options.hasDirection) return '';
   let query = SORT_QUERIES[options.sort] || SORT_QUERIES.name;
-  if (options.hasDirection && !options.sort.startsWith('mana-')) query += ` dir:${options.descending ? 'desc' : 'asc'}`;
+  if (options.hasDirection && !/^(mana|usd)-/.test(options.sort)) query += ` dir:${options.descending ? 'desc' : 'asc'}`;
   return query;
 }
-export function syncQueryClauses(text, { oldVisual = '', visual = '', oldScope = '', scope = '', fallbackSort = 'name' } = {}) {
+export function syncQueryClauses(text, { oldVisual = '', visual = '', oldScope = '', scope = '', fallbackSort = 'name', defaultSort = 'name' } = {}) {
   const options = extractSearchOptions(text, fallbackSort);
   let query = replaceClause(options.query, oldVisual, visual);
   query = replaceClause(query, oldScope, scope);
-  return { query: [query, sortingQuery(options)].filter(Boolean).join(' '), generatedClause: queryClause(visual), scopeClause: queryClause(scope) };
+  return { query: [query, sortingQuery(options, defaultSort)].filter(Boolean).join(' '), generatedClause: queryClause(visual), scopeClause: queryClause(scope) };
 }

@@ -184,11 +184,16 @@ export function createDeckEditorDrag(root, { inputRoot = root, onMove, onAdd, on
 
   function finishDrop(event, { clientX, clientY }) {
     const target = drag.started && drag.moved ? targetAt(clientX, clientY) : null;
-    const { source, onDrop } = handles.get(drag.handle);
-    const destination = targets.get(target);
+    const handle = drag.handle;
     if (drag.started) event.preventDefault();
     cancel();
-    if (target) onDrop?.(source, destination);
+    if (target) dropHandle(handle, target);
+  }
+
+  function dropHandle(handle, target, ...options) {
+    const registration = handles.get(handle);
+    if (!registration || !targets.has(target)) return false;
+    return registration.onDrop?.(registration.source, targets.get(target), ...options);
   }
 
   function pointerCancel(event) {
@@ -285,6 +290,7 @@ export function createDeckEditorDrag(root, { inputRoot = root, onMove, onAdd, on
     registerHandle(handle, entryId, options) { return registerSource(handle, entryId, onMove, options); },
     registerExternalHandle(handle, source, options) { return registerSource(handle, source, onAdd, options); },
     registerTarget(target, payload) { targets.set(target, payload); },
+    dropHandle,
     cancel,
     dispose() {
       disposed = true;

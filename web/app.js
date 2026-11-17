@@ -1,20 +1,26 @@
+import './lib/browser-compat.js';
+import { createDeckPriceBadge } from './lib/deck-editor-views.js';
+import { CNY_PER_USD, FIVE_DH_BUDGET } from './lib/catalog-price.js';
 import { createRemoteCatalog } from './lib/remote-catalog.js';
+import { createOfflineCatalogStorage } from './lib/offline-catalog.js';
 import { validateSearch, extractSearchOptions } from './lib/search.js';
 import { initDeckUI } from './lib/deck-ui.js';
 import { initSearchFilters } from './lib/filter-ui.js';
 import { getCommanderIdentity } from './lib/decks.js';
 import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from './lib/deck-target.js';
 import { buildDeckMembership } from './lib/deck-membership.js';
-import { LAND_TAG_NAMES, TAG_NAMES } from './lib/tag-vocabulary.js';
+import { LAND_TAG_NAMES, visibleTagLabel } from './lib/tag-vocabulary.js';
 import { clauseRange, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
 import { hasCatalogQueryIntent } from './lib/catalog-query-policy.js';
 import { PlaytestStorage } from './lib/playtest-storage.js';
 import { appendManaText, manaCost } from './lib/mana-symbols.js';
+import { wireAccount } from './lib/account-ui.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const PAGE_SIZE = 48;
-const remoteCatalog = createRemoteCatalog();
+const androidApp = window.tieyouAndroid === true;
+const remoteCatalog = createRemoteCatalog({ offlineStorage: androidApp ? createOfflineCatalogStorage() : undefined });
 const COLOR_NAMES = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿', C: '无色' };
 let allCards = [];
 let manifest = null;
@@ -37,10 +43,12 @@ let metadataPromise = null;
 let searchController = null;
 let searchTotal = 0;
 let pageLoading = false;
+const DEFAULT_CATALOG_SORT = 'edhrec';
 let lastSearch = null;
 let detailRevision = 0;
 let detailLoading = false;
 let targetRevision = 0;
+let catalogDeckChoicePending = false;
 let playtestRevision = 0;
 let searchRevision = 0;
 let mobileFilterFocus = null;
@@ -48,21 +56,24 @@ let filterUI = null;
 let generatedClause = '';
 let scopeClause = '';
 let catalogMembership = new Map();
-const pickerAdditions = new Map();
 const pendingResultAdds = new Set();
 
 function synchronizeQuery() {
   if (!filterUI) return;
   const input = $('#search-input'), visual = filterUI.getSearch();
-  try { const result = syncQueryClauses(input.value, { oldVisual: generatedClause, visual: visual.displayQuery, oldScope: scopeClause, scope: currentCommanderScope(), fallbackSort: $('#sort-select').value }); input.value = result.query; generatedClause = result.generatedClause; scopeClause = result.scopeClause; }
+  try { const result = syncQueryClauses(input.value, { oldVisual: generatedClause, visual: visual.displayQuery, oldScope: scopeClause, scope: currentCommanderScope(), fallbackSort: $('#sort-select').value, defaultSort: DEFAULT_CATALOG_SORT }); input.value = result.query; generatedClause = result.generatedClause; scopeClause = result.scopeClause; }
   catch { /* Keep incomplete handwritten syntax available for correction. */ }
 }
 
 function acceptQueryEdit() {
   const text = $('#search-input').value;
   if (generatedClause && !clauseRange(text, generatedClause)) { filterUI.clear({ commanderOnly: filterUI.getSearch().filters.commanderOnly, silent: true }); generatedClause = ''; }
-  if (scopeClause && !clauseRange(text, scopeClause)) { scopeClause = ''; catalogScopeEnabled = false; $('#catalog-scope-filter').checked = false; }
-  try { const options = extractSearchOptions(text, 'name'); if (SORT_QUERIES[options.sort]) $('#sort-select').value = options.sort; } catch { /* Search validation shows the exact error. */ }
+  if (scopeClause && !clauseRange(text, scopeClause)) {
+    scopeClause = '';
+    catalogScopeEnabled = false;
+    updateCommanderScope();
+  }
+  try { const options = extractSearchOptions(text, DEFAULT_CATALOG_SORT); if (SORT_QUERIES[options.sort]) $('#sort-select').value = options.sort; } catch { /* Search validation shows the exact error. */ }
 }
 
 function hasCatalogSearchIntent() {
@@ -158,7 +169,7 @@ function catalogAddKey(cardId, targetId) {
 }
 
 function catalogCardQuantity(cardId, target) {
-  return target ? catalogMembership.get(cardId)?.total || 0 : pickerAdditions.get(cardId)?.quantity || 0;
+  return target ? catalogMembership.get(cardId)?.total || 0 : 0;
 }
 
 function updateCatalogAddButton(button, cardId, target) {
@@ -188,10 +199,6 @@ function refreshCatalogAddButtons(target = resolveDeckTarget(deckUI?.listDecks()
   }
 }
 
-function pickerDeckQuantity(deck, cardId) {
-  return (deck?.entries || []).reduce((total, entry) => total + (entry.cardId === cardId ? entry.quantity : 0), 0);
-}
-
 async function addCatalogResult(card, version) {
   if (currentView !== 'catalog') return;
   const target = resolveDeckTarget(deckUI?.listDecks() || [], catalogTargetId);
@@ -200,13 +207,7 @@ async function addCatalogResult(card, version) {
   pendingResultAdds.add(key);
   refreshCatalogAddButtons(target);
   try {
-    await addCard(card, version, {
-      skipExisting: true,
-      onAdded(deckId) {
-        const quantity = pickerDeckQuantity(deckUI.getDeck(deckId), card.id);
-        if (quantity) pickerAdditions.set(card.id, { deckId, quantity });
-      },
-    });
+    await addCard(card, version, { skipExisting: true });
   } finally {
     pendingResultAdds.delete(key);
     refreshCatalogAddButtons();
@@ -224,6 +225,17 @@ function renderCard(card, target) {
   updateCatalogAddButton(add, card.id, target);
   const type = node('p', { class: 'card-type' }, [node('span', { text: card.zhTypeLine || card.typeLine || '类别待补全' }), manaCost(card.manaCost)]);
   const set = node('div', { class: 'card-set' }, [node('span', { class: 'set-code', text: version?.set || card.set || '—' }), node('span', { text: (version?.collectorNumber || card.collectorNumber) ? '#' + (version?.collectorNumber || card.collectorNumber) : '' })]);
+  if (target && deckUI?.isFiveDhEnabled(target.id)) {
+    set.append(createDeckPriceBadge(card));
+  } else if (Number.isFinite(card.cnyPrice)) {
+    set.append(node('span', {
+      class: 'usd-price cny-price' + (card.cnyPrice > FIVE_DH_BUDGET ? ' is-over-budget' : ''),
+      title: `符合筛选条件的最低普通版报价，1 USD ≈ ${CNY_PER_USD} CNY`,
+      text: '¥' + card.cnyPrice.toFixed(2),
+    }));
+  } else if (lastSearch?.sort.startsWith('usd-') && Number.isFinite(card.usdPrice)) {
+    set.append(node('span', { class: 'usd-price', title: '符合筛选条件的最低普通版报价', text: '$' + card.usdPrice.toFixed(2) }));
+  }
   if (!hasChineseText(card)) set.append(node('span', { class: 'card-translation-missing', text: '中文待补' }));
   else if (card.translation?.stale || cardFaces(card).some((face) => face.translation?.stale)) set.append(node('span', { class: 'card-translation-missing', text: '译文待更新' }));
   const info = node('div', { class: 'card-info' }, [title, node('p', { class: 'card-english', text: card.name, title: card.name }), add, type, set]);
@@ -303,12 +315,7 @@ async function runSearch() {
   const query = $('#search-input').value.trim();
   const visual = filterUI.getSearch();
   if (!hasCatalogSearchIntent()) { renderActiveFilters(); showIdleCatalog(); return; }
-  const wasIdle = $('#catalog-view').classList.contains('is-idle');
   $('#catalog-view').classList.remove('is-idle');
-  if (wasIdle && !window.matchMedia('(max-width: 700px)').matches) {
-    $('#catalog-view').classList.remove('filters-collapsed');
-    $('#filter-toggle').setAttribute('aria-expanded', 'true');
-  }
   const combinedQuery = query;
   const errorBox = $('#search-error');
   let result;
@@ -375,9 +382,9 @@ function resetFilters() {
   filterUI.reset();
 }
 
-function clearSearch() { $('#search-input').value = ''; generatedClause = ''; scopeClause = ''; catalogScopeEnabled = false; $('#catalog-scope-filter').checked = false; $('#sort-select').value = 'name'; resetFilters(); }
+function clearSearch() { $('#search-input').value = ''; generatedClause = ''; scopeClause = ''; catalogScopeEnabled = false; updateCommanderScope(); $('#sort-select').value = DEFAULT_CATALOG_SORT; resetFilters(); }
 function setQuery(query) {
-  filterUI.clear({ commanderOnly: true, silent: true }); generatedClause = ''; scopeClause = ''; catalogScopeEnabled = false; $('#catalog-scope-filter').checked = false;
+  filterUI.clear({ commanderOnly: true, silent: true }); generatedClause = ''; scopeClause = ''; catalogScopeEnabled = false; updateCommanderScope();
   $('#search-input').value = query;
   synchronizeQuery();
   $$('dialog[open]').forEach((dialog) => dialog.close());
@@ -385,9 +392,32 @@ function setQuery(query) {
   $('#search-input').focus();
 }
 
-function openFilters() {
+function setFiltersExpanded(expanded) {
+  $('#advanced-open').setAttribute('aria-expanded', String(expanded));
+}
+
+function closeFilters() {
+  $('#catalog-view').classList.remove('filters-mobile-open', 'idle-filters-open');
+  $('#catalog-view').classList.add('filters-collapsed');
+  $('#filter-scrim').hidden = true;
+  $('#filters').inert = true;
+  $('#filters').removeAttribute('role');
+  $('#filters').removeAttribute('aria-modal');
+  if ($('#detail-layer').hidden && !$('.deck-modal-overlay')) document.body.classList.remove('modal-open');
+  setFiltersExpanded(false);
+  if (mobileFilterFocus) mobileFilterFocus.focus();
+  else if ($('#filters').contains(document.activeElement)) $('#advanced-open').focus();
+  mobileFilterFocus = null;
+}
+
+function showAdvancedFilters() {
+  ensureMetadata().catch(error => notify(error.message || '筛选选项加载失败。', 'error'));
+  filterUI.loadVocabulary();
   const layout = $('#catalog-view');
-  if (window.matchMedia('(max-width: 700px)').matches) {
+  layout.classList.add('idle-filters-open');
+  layout.classList.remove('filters-collapsed');
+  $('#filters').inert = false;
+  if (window.matchMedia('(max-width: 700px)').matches && !layout.classList.contains('filters-mobile-open')) {
     mobileFilterFocus = document.activeElement;
     layout.classList.add('filters-mobile-open');
     $('#filter-scrim').hidden = false;
@@ -395,40 +425,16 @@ function openFilters() {
     $('#filters').setAttribute('aria-modal', 'true');
     document.body.classList.add('modal-open');
     $('#filter-close').focus();
-    $('#filter-toggle').setAttribute('aria-expanded', 'true');
-  } else {
-    const collapsed = layout.classList.toggle('filters-collapsed');
-    $('#filter-toggle').setAttribute('aria-expanded', String(!collapsed));
   }
-}
-
-function closeFilters() {
-  $('#catalog-view').classList.remove('filters-mobile-open');
-  $('#catalog-view').classList.remove('idle-filters-open');
-  $('#filter-scrim').hidden = true;
-  $('#filters').removeAttribute('role');
-  $('#filters').removeAttribute('aria-modal');
-  if ($('#detail-layer').hidden && !$('.deck-modal-overlay')) document.body.classList.remove('modal-open');
-  if (window.matchMedia('(max-width: 700px)').matches) $('#filter-toggle').setAttribute('aria-expanded', 'false');
-  mobileFilterFocus?.focus();
-  mobileFilterFocus = null;
-}
-
-function showAdvancedFilters() {
-  ensureMetadata().catch(error => notify(error.message || '筛选选项加载失败。', 'error'));
-  $('#catalog-view').classList.add('idle-filters-open');
-  filterUI.setMode('advanced');
-  if (window.matchMedia('(max-width: 700px)').matches) {
-    if (!$('#catalog-view').classList.contains('filters-mobile-open')) openFilters();
-  } else {
-    $('#catalog-view').classList.remove('filters-collapsed');
-    $('#filter-toggle').setAttribute('aria-expanded', 'true');
-  }
+  setFiltersExpanded(true);
 }
 
 function switchView(view) {
   if (currentView === 'catalog' && view !== 'catalog') cancelCatalogSearch();
-  if (currentView === 'decks' && view !== 'decks') deckUI?.cancelEditorDrag();
+  if (currentView === 'decks' && view !== 'decks') {
+    deckUI?.cancelEditorDrag();
+    deckUI?.stopDeckDemo();
+  }
   if (view !== 'playtest') playtestRevision++;
   if (view !== 'playtest') playtestUI?.closeOverlays({ restoreFocus: false });
   closeFilters();
@@ -455,7 +461,14 @@ function initializeDeckWorkspace() {
     if (deckUI) deckUI.setCards(allCards);
     else deckUI = initDeckUI({ container: $('#deck-view'), cards: allCards, onInspect: openDetail, onNotify: notify, renderManaCost: manaCost, syncDeckLibrary: true,
       loadDeckCards: async deck => {
-        await Promise.all([loadCardsByIds(deck.entries.map(entry => entry.cardId), { versions: deck.entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) }), ensureMetadata()]);
+        const metadata = ensureMetadata();
+        await Promise.all([
+          loadCardsByIds(deck.entries.map(entry => entry.cardId), {
+            versions: deck.entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })),
+            allowMissing: androidApp,
+          }),
+          androidApp ? metadata.catch(() => {}) : metadata,
+        ]);
         return allCards;
       },
       loadCardsByIds,
@@ -495,19 +508,31 @@ async function openPlaytest(deck) {
   } catch (error) { if (revision === playtestRevision) notify(error.message || '手动测试暂时无法打开，请重试。', 'error'); }
 }
 
-async function addCard(card, version, { skipExisting = false, onAdded } = {}) {
+async function addCard(card, version, { skipExisting = false } = {}) {
   if (currentView === 'playtest') return;
   if (!deckUI) { notify('卡组工作台暂时不可用，请刷新后重试。', 'error'); return; }
-  const targetId = currentView === 'decks' ? deckUI.getSelectedDeckId() : catalogTargetId;
+  const view = currentView;
+  const targetId = view === 'decks' ? deckUI.getSelectedDeckId() : catalogTargetId;
+  const needsCatalogTarget = view === 'catalog' && !targetId;
+  if (needsCatalogTarget && catalogDeckChoicePending) return;
+  if (needsCatalogTarget) catalogDeckChoicePending = true;
   try {
     const [core] = await loadCardsByIds([card.id], { versions: version ? [{ cardId: card.id, versionId: version.id }] : [] });
+    if (view !== currentView) return;
     if (core) card = core;
     const target = resolveDeckTarget(deckUI.listDecks(), targetId);
     if (targetId && !target) { if (catalogTargetId === targetId) catalogTargetId = null; refreshCatalogTarget(); notify('目标卡组已不存在，请重新选择。', 'error'); return; }
     if (target) deckUI.quickAddCard(card, version, target.id, { skipExisting });
-    else await deckUI.addCard(card, version, undefined, { onAdded });
+    else if (needsCatalogTarget) {
+      await deckUI.addCard(card, version, undefined, {
+        chooseTarget: true, skipExisting,
+        onAdded: id => selectCatalogTarget(id),
+      });
+    } else await deckUI.addCard(card, version);
   } catch (error) {
     notify(error.message || '卡牌暂时无法加入卡组，请重试。', 'error');
+  } finally {
+    if (needsCatalogTarget) catalogDeckChoicePending = false;
   }
 }
 
@@ -521,39 +546,53 @@ function currentCommanderScope() {
   return target && catalogScopeEnabled ? commanderScopeQuery(getCommanderIdentity(target, allCards)) : '';
 }
 
+function updateCommanderScope() {
+  const target = deckUI && resolveDeckTarget(deckUI.listDecks(), catalogTargetId);
+  filterUI.setCommanderScope(target ? getCommanderIdentity(target, allCards) : null, catalogScopeEnabled);
+}
+
 function refreshCatalogTarget() {
   const decks = deckUI?.listDecks() || [];
   const target = resolveDeckTarget(decks, catalogTargetId);
   if (catalogTargetId && !target) catalogTargetId = null;
   const picker = $('#catalog-target-select');
-  picker.replaceChildren(node('option', { value: '', text: '未选择（添加时询问）' }));
-  for (const deck of decks) picker.append(node('option', { value: deck.id, text: deck.name }));
-  picker.value = catalogTargetId || '';
-  $('#catalog-target-label').textContent = target ? '添加到「' + target.name + '」· 主牌区' : '未选择添加目标 · 添加时选择卡组';
-  $('#catalog-target-toggle').textContent = target ? '切换目标卡组' : '选择目标卡组';
-  $('#catalog-return-deck').hidden = !target;
-  const identity = target ? getCommanderIdentity(target, allCards) : null;
-  $('#catalog-scope-label').hidden = identity === null;
-  $('#catalog-scope-filter').checked = catalogScopeEnabled;
-  $('#catalog-scope-text').textContent = '按主将标识色限制搜索：' + (identity?.map(color => COLOR_NAMES[color]).join(' / ') || '无色');
+  $('#catalog-target').hidden = !target;
+  if (target) {
+    picker.replaceChildren(...decks.map(deck => node('option', { value: deck.id, text: deck.name })));
+    picker.value = target.id;
+  }
+  updateCommanderScope();
   const detailTarget = currentAddTarget();
   $$('.detail-add').forEach(button => { button.textContent = detailTarget ? '加入「' + detailTarget.name + '」主牌区' : '选择卡组并加入'; });
   catalogMembership = target ? buildDeckMembership(decks, target.id) : new Map();
-  for (const [cardId, addition] of pickerAdditions) {
-    const quantity = pickerDeckQuantity(resolveDeckTarget(decks, addition.deckId), cardId);
-    if (quantity) addition.quantity = quantity;
-    else pickerAdditions.delete(cardId);
-  }
   refreshCatalogAddButtons(target);
   synchronizeQuery();
 }
 
+async function selectCatalogTarget(id) {
+  const revision = ++targetRevision;
+  const target = resolveDeckTarget(deckUI?.listDecks() || [], id);
+  if (!target) { refreshCatalogTarget(); return; }
+  catalogTargetId = target.id;
+  catalogScopeEnabled = true;
+  const entries = target.entries.filter(entry => entry.zone === 'commander');
+  refreshCatalogTarget();
+  try {
+    if (entries.length) await loadCardsByIds(entries.map(entry => entry.cardId), { versions: entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) });
+  } catch (error) {
+    if (revision === targetRevision) notify(error.message, 'error');
+  }
+  if (revision !== targetRevision) return;
+  refreshCatalogTarget();
+  scheduleCatalogSearch(0);
+}
+
 async function openCatalogFromDeck({ deckId, query = '', restrictIdentity = true }) {
   try { await ensureMetadata(); } catch (error) { notify(error.message, 'error'); return; }
+  targetRevision++;
   catalogTargetId = deckId;
   catalogScopeEnabled = restrictIdentity;
   filterUI.clear({ commanderOnly: true, silent: true }); generatedClause = ''; scopeClause = '';
-  filterUI.setMode('advanced');
   $('#search-input').value = catalogQueryFromDeckSearch(query, knownSetCodes);
   refreshCatalogTarget();
   switchView('catalog');
@@ -665,15 +704,20 @@ function renderDetail() {
   const legality = card.legalities?.commander;
   const legalityLabel = legality === 'legal' ? 'EDH 合法' : legality === 'banned' ? 'EDH 禁用' : legality === 'not_legal' ? 'EDH 不合法' : legality === 'restricted' ? 'EDH 限制' : 'EDH 合法性未知';
   meta.append(node('span', { class: 'legality-pill' + (legality === 'legal' ? '' : legality ? ' bad' : ' unknown') }, [icon(legality === 'legal' ? 'check' : 'info'), legalityLabel]));
-  if (card.tags?.length) {
-    const tags = [...new Set(card.tags.map(tag => typeof tag === 'string' ? tag : tag?.slug || tag?.id || tag?.label || tag?.name).filter(Boolean))];
-    const landTags = tags.filter(tag => Object.hasOwn(LAND_TAG_NAMES, tag))
+  const visibleTags = [...new Set((card.tags || []).map(tag => typeof tag === 'string' ? tag : tag?.slug || tag?.id || tag?.label || tag?.name))]
+    .filter(slug => visibleTagLabel(slug));
+  if (visibleTags.length) {
+    const landTags = visibleTags.filter(tag => Object.hasOwn(LAND_TAG_NAMES, tag))
       .sort((a, b) => b.split('-').length - a.split('-').length);
-    const translatedTags = tags.filter(tag => Object.hasOwn(TAG_NAMES, tag) || tag === 'castable-from-graveyard');
-    const preview = [...new Set([...landTags, ...translatedTags, ...tags])].slice(0, 4);
-    const chip = tag => node('span', { text: TAG_NAMES[tag] || (tag === 'castable-from-graveyard' ? '可从坟场施放' : tag) });
-    if (preview.length) meta.append(node('div', { class: 'detail-tags' }, preview.map(chip)));
-    if (tags.length > preview.length) meta.append(node('details', { class: 'detail-more-tags' }, [node('summary', { text: '查看全部 ' + tags.length + ' 个标签' }), node('div', { class: 'detail-tags' }, tags.map(chip))]));
+    const preview = [...new Set([...landTags, ...visibleTags])].slice(0, 4);
+    const chip = tag => node('span', { text: visibleTagLabel(tag) });
+    meta.append(node('div', { class: 'detail-tags' }, preview.map(chip)));
+    if (visibleTags.length > preview.length) {
+      meta.append(node('details', { class: 'detail-more-tags' }, [
+        node('summary', { text: '查看全部 ' + visibleTags.length + ' 个标签' }),
+        node('div', { class: 'detail-tags' }, visibleTags.map(chip)),
+      ]));
+    }
   }
   root.append(node('div', { class: 'detail-overview' }, [images, meta]));
   if (detailLoading) { root.append(node('p', { id: 'detail-pending', class: 'data-note', role: 'status', text: '正在加载详情…' })); return; }
@@ -701,7 +745,6 @@ function renderDataStatus() {
   const hasCoverage = Number.isFinite(required) && required >= 0 && Number.isFinite(translated) && translated >= 0;
   const coveragePercent = hasCoverage ? (required ? Math.min(100, translated / required * 100) : 100).toFixed(1).replace(/\.0$/, '') : null;
   const tagged = manifest?.tagCoverage?.cards || 0;
-  $('#tag-coverage').textContent = tagged ? 'Scryfall Oracle Tags · ' + fmt(tagged) + ' 张牌' : '暂无标签数据';
   const content = $('#data-dialog-content');
   content.replaceChildren();
   content.append(node('div', { class: 'data-facts' }, [node('div', { class: 'data-fact' }, [node('strong', { text: fmt(manifest?.counts?.cards) }), node('span', { text: '独立卡牌身份' })]), node('div', { class: 'data-fact' }, [node('strong', { text: coveragePercent !== null ? coveragePercent + '%' : '待统计' }), node('span', { text: '中文规则覆盖率' })]), node('div', { class: 'data-fact' }, [node('strong', { text: fmt(tagged) }), node('span', { text: '已有功能标签' })])]));
@@ -736,10 +779,9 @@ function wireEvents() {
     if (window.matchMedia('(max-width: 700px)').matches) $('#search-input').blur();
   });
   $('#search-input').addEventListener('input', () => { acceptQueryEdit(); scheduleCatalogSearch(200); });
-  $('#sort-select').addEventListener('change', () => { try { const sort = $('#sort-select').value; $('#search-input').value = [extractSearchOptions($('#search-input').value).query, sort === 'name' ? '' : SORT_QUERIES[sort]].filter(Boolean).join(' '); runSearch(); } catch (error) { notify(error.message, 'error'); } });
+  $('#sort-select').addEventListener('change', () => { try { const sort = $('#sort-select').value; $('#search-input').value = [extractSearchOptions($('#search-input').value).query, sort === DEFAULT_CATALOG_SORT ? '' : SORT_QUERIES[sort]].filter(Boolean).join(' '); runSearch(); } catch (error) { notify(error.message, 'error'); } });
   $('#load-more').addEventListener('click', appendResults);
   $('#filter-reset').addEventListener('click', resetFilters);
-  $('#filter-toggle').addEventListener('click', openFilters);
   $('#filter-close').addEventListener('click', closeFilters);
   $('#filter-results').addEventListener('click', closeFilters);
   $('#filter-scrim').addEventListener('click', closeFilters);
@@ -748,21 +790,8 @@ function wireEvents() {
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => switchView(button.dataset.view)));
   $('.brand').addEventListener('click', (event) => { event.preventDefault(); deckUI?.showLibrary(); switchView('decks'); });
   $('.skip-link').addEventListener('click', (event) => { event.preventDefault(); switchView('catalog'); $('#search-input').focus(); });
-  $('#catalog-target-toggle').addEventListener('click', () => { const picker = $('#catalog-target-picker'); picker.hidden = !picker.hidden; $('#catalog-target-toggle').setAttribute('aria-expanded', String(!picker.hidden)); if (!picker.hidden) $('#catalog-target-select').focus(); });
-  $('#catalog-target-select').addEventListener('change', async event => {
-    const revision = ++targetRevision;
-    const nextId = event.target.value || null;
-    try {
-      const target = resolveDeckTarget(deckUI.listDecks(), nextId);
-      const entries = target?.entries.filter(entry => entry.zone === 'commander') || [];
-      await loadCardsByIds(entries.map(entry => entry.cardId), { versions: entries.map(entry => ({ cardId: entry.cardId, versionId: entry.versionId })) });
-      if (revision !== targetRevision) return;
-      catalogTargetId = nextId; catalogScopeEnabled = true;
-      refreshCatalogTarget(); runSearch();
-    } catch (error) { if (revision === targetRevision) { event.target.value = catalogTargetId || ''; notify(error.message, 'error'); } }
-  });
-  $('#catalog-scope-filter').addEventListener('change', event => { catalogScopeEnabled = event.target.checked; synchronizeQuery(); runSearch(); });
-  $('#catalog-return-deck').addEventListener('click', async () => { const id = catalogTargetId; switchView('decks'); if (id) await deckUI.openDeck(id); });
+  $('#catalog-target-select').addEventListener('change', event => selectCatalogTarget(event.target.value));
+  $('#catalog-scope-filter').addEventListener('change', event => { catalogScopeEnabled = event.target.checked; updateCommanderScope(); synchronizeQuery(); runSearch(); });
   $('#view-grid').addEventListener('click', () => setResultView('grid'));
   $('#view-list').addEventListener('click', () => setResultView('list'));
   $('#detail-close').addEventListener('click', closeDetail);
@@ -776,20 +805,22 @@ function wireEvents() {
     }
   });
   $$('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => document.getElementById(button.dataset.closeDialog).close()));
-  $$('.app-dialog').forEach((dialog) => dialog.addEventListener('click', (event) => { const box = dialog.getBoundingClientRect(); if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) dialog.close(); }));
+  $$('.app-dialog:not(#account-dialog)').forEach((dialog) => dialog.addEventListener('click', (event) => { const box = dialog.getBoundingClientRect(); if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) dialog.close(); }));
   document.addEventListener('keydown', (event) => {
     if ($('.deck-modal-overlay')) return;
     const openNativeDialog = $('dialog[open]');
     if (openNativeDialog) return;
     if (detailCard) { if (event.key === 'Escape') { event.preventDefault(); closeDetail(); } else trapFocus(event, $('#card-detail')); return; }
+    if (event.key === 'Escape' && $('#filters').contains(document.activeElement)) { event.preventDefault(); closeFilters(); return; }
     if ($('#catalog-view').classList.contains('filters-mobile-open')) { if (event.key === 'Escape') { event.preventDefault(); closeFilters(); } else trapFocus(event, $('#filters')); return; }
     const editing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
     if (event.key === '/' && !editing && currentView === 'catalog' && !event.ctrlKey && !event.metaKey) { event.preventDefault(); $('#search-input').focus(); }
   });
   const mq = window.matchMedia('(max-width: 700px)');
-  const updateMobile = () => { closeFilters(); $('#filter-toggle').setAttribute('aria-expanded', String(!mq.matches && !$('#catalog-view').classList.contains('filters-collapsed'))); };
-  mq.addEventListener('change', updateMobile);
-  if (mq.matches) $('#filter-toggle').setAttribute('aria-expanded', 'false');
+  const updateMobile = () => closeFilters();
+  if (mq.addEventListener) mq.addEventListener('change', updateMobile);
+  else mq.addListener(updateMobile);
+  setFiltersExpanded(false);
 }
 
 function setResultView(view) {
@@ -814,7 +845,7 @@ function ensureMetadata() {
   if (!metadataPromise) metadataPromise = remoteCatalog.meta().then(meta => {
     manifest = meta.manifest || meta;
     knownSetCodes = new Set((meta.sets || manifest.sets || []).map(item => typeof item === 'string' ? item : item.code));
-    filterUI.setMetadata({ sets: meta.sets || manifest.sets || [], subtypes: meta.subtypes || manifest.subtypes || [] });
+    filterUI.setMetadata({ sets: meta.sets || manifest.sets || [], subtypes: meta.subtypes || manifest.subtypes || [], typeVocabulary: meta.typeVocabulary || [] });
     renderDataStatus();
     return manifest;
   }).finally(() => { metadataPromise = null; });
@@ -825,3 +856,20 @@ wireEvents();
 showIdleCatalog();
 initializeDeckWorkspace();
 switchView('decks');
+wireAccount({ flushDecks: () => deckUI?.flushCloudDecks() });
+
+if (androidApp) window.tieyouHandleBack = () => {
+  const dialog = $('dialog[open]');
+  if (dialog) { dialog.close(); return true; }
+  const closeModal = $('.deck-modal-header button, .deck-demo-controls .button-quiet');
+  if (closeModal) { closeModal.click(); return true; }
+  if (detailCard) { closeDetail(); return true; }
+  if ($('#catalog-view').classList.contains('filters-mobile-open')) { closeFilters(); return true; }
+  if (currentView === 'playtest') { $('.pt-back')?.click(); return true; }
+  if (currentView === 'catalog') { switchView('decks'); return true; }
+  if (!deckUI?.getSelectedDeckId()) return false;
+  const analysisBack = $('.deck-analysis-heading button');
+  if (analysisBack) analysisBack.click();
+  else deckUI.showLibrary();
+  return true;
+};

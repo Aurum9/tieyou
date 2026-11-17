@@ -4,13 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#20533f" />
-    <meta name="description" content="为中文万智牌玩家准备的 EDH 卡查与组牌工作台。" />
-    <title>牌库 · EDH ATELIER</title>
-    <link rel="stylesheet" href="./styles.css" />
-    <link rel="stylesheet" href="./deck.css" />
+    <meta name="description" content="铁有是万智牌 EDH 组牌工具，支持卡牌检索、套牌编辑和试牌。" />
+    <title>铁有 · 万智牌 EDH 组牌工具</title>
+    <link rel="icon" type="image/svg+xml" href="./assets/tieyou.svg" />
+    <link rel="stylesheet" href="./styles.css?v=0.5.12" />
+    <link rel="stylesheet" href="./deck.css?v=0.5.12" />
     <link rel="stylesheet" href="./deck-editor.css" />
+    <link rel="stylesheet" href="./deck-onboarding.css" />
     <link rel="stylesheet" href="./deck-analysis.css" />
-    <link rel="stylesheet" href="./filter.css" />
+    <link rel="stylesheet" href="./filter.css?v=0.5.11" />
     <link rel="stylesheet" href="./playtest.css" />
   </head>
   <body>
@@ -25,6 +27,7 @@
       <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/></symbol>
       <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.6 2.25c-.8.4-1.1.85-1.1 1.75M12 17h.01"/></symbol>
       <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v11m-4-4 4 4 4-4M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
       <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></symbol>
       <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m3 16 5-5 4 4 3-3 6 6"/></symbol>
@@ -35,24 +38,34 @@
 
     <a class="skip-link" href="#search-input">跳到卡牌搜索</a>
     <header class="app-header">
-      <a class="brand" href="#decks" aria-label="牌库首页">
-        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
-        <span class="brand-name">牌库<span class="brand-en">EDH ATELIER</span></span>
+      <a class="brand" href="#decks" aria-label="铁有首页">
+        <img class="brand-mark" src="./assets/tieyou.svg" width="42" height="42" alt="" />
+        <span class="brand-name">铁有<span class="brand-subtitle">万智牌 EDH 组牌工具</span></span>
       </a>
       <nav class="main-nav" aria-label="主导航">
         <button class="nav-item active" data-view="decks" aria-current="page"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
         <button class="nav-item" data-view="catalog"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
       </nav>
-      <span class="edition-badge"><span class="status-dot"></span>EDH 工作台<span class="edition-version">V0.5.0</span></span>
+      <div class="header-actions">
+        <a class="button header-app-download" href="./downloads/tieyou-android.apk" download="tieyou-android.apk" aria-label="下载 Android 测试版" title="下载 Android 测试版"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span>下载 App</span></a>
+        <button id="account-open" class="button account-open" type="button" hidden>登录</button>
+      </div>
     </header>
 
     <main id="catalog-view" class="catalog-layout is-idle filters-collapsed" hidden>
       <button id="filter-scrim" class="filter-scrim" aria-label="关闭筛选" hidden></button>
-      <aside id="filters" class="filters-panel" aria-label="筛选条件">
-        <div class="filter-heading"><h2><svg class="icon"><use href="#i-filter"/></svg>筛选条件</h2><button id="filter-reset" class="text-button">重置</button><button id="filter-close" class="icon-button mobile-only" aria-label="关闭筛选"><svg class="icon"><use href="#i-close"/></svg></button></div>
-        <div class="filter-mode" role="group" aria-label="搜索模式"><button id="filter-simple" type="button" aria-pressed="true">简略搜索</button><button id="filter-advanced" type="button" aria-pressed="false" aria-controls="advanced-filters">高级搜索<span id="advanced-count" hidden></span></button></div>
+      <aside id="filters" class="filters-panel" inert aria-label="高级搜索">
+        <div class="filter-heading"><h2><svg class="icon"><use href="#i-filter"/></svg>高级搜索</h2><button id="filter-reset" class="text-button" type="button">重置</button><button id="filter-close" type="button" class="icon-button" aria-label="关闭高级搜索"><svg class="icon"><use href="#i-close"/></svg></button></div>
         <div class="filter-scroll">
-          <button id="advanced-retained" class="advanced-retained" type="button" hidden></button>
+          <div class="filter-section"><label class="filter-field-label" for="card-name-filter">卡牌名称</label><input id="card-name-filter" class="condition-value" type="text" autocomplete="off" /></div>
+          <div class="filter-section"><label class="filter-field-label" for="oracle-filter">规则文本</label><input id="oracle-filter" class="condition-value" type="text" autocomplete="off" /></div>
+          <fieldset class="filter-section"><legend>类别</legend><div id="type-conditions"></div></fieldset>
+          <fieldset class="filter-section">
+            <legend>法术力费用</legend>
+            <input id="mana-cost-filter" class="condition-value" type="text" aria-label="法术力费用" placeholder="例如 {2}{G}{G}" autocomplete="off" />
+            <div class="filter-field-label mana-value-label" id="mana-value-label">总法术力值</div>
+            <div id="mana-values" class="mana-values" role="group" aria-labelledby="mana-value-label"></div>
+          </fieldset>
           <fieldset class="filter-section">
             <legend>颜色</legend>
             <div id="color-filters" class="color-filters">
@@ -66,40 +79,14 @@
             <label class="small-select-label" for="color-relation">匹配方式<select id="color-relation"><option value="any">包含任一所选色</option><option value="all">包含全部所选色</option><option value="exact">恰好为所选色</option><option value="within">仅在所选色内</option></select></label>
           </fieldset>
           <fieldset class="filter-section">
-            <legend>卡牌类别</legend>
-            <div class="type-filters" id="type-filters">
-              <label><input type="checkbox" value="Creature"/><span>生物</span></label>
-              <label><input type="checkbox" value="Instant"/><span>瞬间</span></label>
-              <label><input type="checkbox" value="Sorcery"/><span>法术</span></label>
-              <label><input type="checkbox" value="Artifact"/><span>神器</span></label>
-              <label><input type="checkbox" value="Enchantment"/><span>结界</span></label>
-              <label><input type="checkbox" value="Planeswalker"/><span>鹏洛客</span></label>
-              <label><input type="checkbox" value="Land"/><span>地</span></label>
-              <label><input type="checkbox" value="Battle"/><span>战役</span></label>
+            <legend>标识色</legend>
+            <label id="catalog-scope-label" class="catalog-scope" hidden><input id="catalog-scope-filter" type="checkbox" checked/><span id="catalog-scope-text">按主将标识色限制搜索</span></label>
+            <div id="identity-controls">
+              <div id="identity-filters" class="color-filters" aria-label="标识色选择"></div>
+              <label class="small-select-label" for="identity-relation">匹配方式<select id="identity-relation"><option value="within">仅在所选色内（含无色）</option><option value="any">包含任一所选色</option><option value="all">包含全部所选色</option><option value="exact">恰好为所选色</option></select></label>
             </div>
           </fieldset>
-          <fieldset class="filter-section">
-            <legend>法术力值<span id="mana-label" class="legend-value">不限</span></legend>
-            <div class="mana-bounds"><label for="mana-min">最低<input id="mana-min" type="number" min="0" step="any" inputmode="decimal" placeholder="不限" aria-label="最低法术力值"/></label><span aria-hidden="true">—</span><label for="mana-max">最高<input id="mana-max" type="number" min="0" step="any" inputmode="decimal" placeholder="不限" aria-label="最高法术力值"/></label></div>
-          </fieldset>
-          <div class="filter-section legal-filter"><label class="checkbox-label"><input id="commander-filter" type="checkbox" checked/><span>仅看 EDH 合法牌</span></label></div>
-          <div id="advanced-filters" hidden>
-          <fieldset class="filter-section">
-            <legend>超类别</legend>
-            <div class="type-filters supertype-filters" id="supertype-filters">
-              <label><input type="checkbox" value="Basic"/><span>基本</span></label>
-              <label><input type="checkbox" value="Legendary"/><span>传奇</span></label>
-              <label><input type="checkbox" value="Snow"/><span>雪境</span></label>
-              <label><input type="checkbox" value="World"/><span>世界</span></label>
-              <label><input type="checkbox" value="Ongoing"/><span>持续</span></label>
-            </div>
-            <p class="filter-note">多选时匹配任一超类别。</p>
-          </fieldset>
-          <fieldset class="filter-section">
-            <legend>副类别</legend>
-            <label class="sr-only" for="subtype-filter">副类别名称</label>
-            <input id="subtype-filter" class="condition-value" type="text" list="subtype-vocabulary" placeholder="例如：妖精、龙、武具、Elf" autocomplete="off"/>
-          </fieldset>
+          <fieldset class="filter-section"><legend>功能标签</legend><div id="tag-conditions"></div></fieldset>
           <fieldset class="filter-section">
             <legend>力量</legend>
             <div class="mana-bounds"><label for="power-min">最低<input id="power-min" type="number" step="any" inputmode="decimal" placeholder="不限" aria-label="最低力量"/></label><span aria-hidden="true">—</span><label for="power-max">最高<input id="power-max" type="number" step="any" inputmode="decimal" placeholder="不限" aria-label="最高力量"/></label></div>
@@ -107,51 +94,52 @@
           <fieldset class="filter-section">
             <legend>防御力</legend>
             <div class="mana-bounds"><label for="toughness-min">最低<input id="toughness-min" type="number" step="any" inputmode="decimal" placeholder="不限" aria-label="最低防御力"/></label><span aria-hidden="true">—</span><label for="toughness-max">最高<input id="toughness-max" type="number" step="any" inputmode="decimal" placeholder="不限" aria-label="最高防御力"/></label></div>
-            <p class="filter-note">力量与防御力支持负数、0 和小数。数值筛选不包含 * 等未定值。</p>
           </fieldset>
-          <fieldset class="filter-section">
-            <legend>标识色</legend>
-            <div id="identity-filters" class="color-filters" aria-label="标识色选择"></div>
-            <label class="small-select-label" for="identity-relation">匹配方式<select id="identity-relation"><option value="within">仅在所选色内（含无色）</option><option value="any">包含任一所选色</option><option value="all">包含全部所选色</option><option value="exact">恰好为所选色</option></select></label>
-            <p class="filter-note">标识色还包含规则文字与其他牌面的颜色，用于判断 EDH 组牌范围。</p>
-          </fieldset>
-          <div class="filter-section tag-section">
-            <h3>功能标签</h3>
-            <div class="tag-filters"><button type="button" data-tag="抓牌" aria-pressed="false">抓牌</button><button type="button" data-tag="加速" aria-pressed="false">加速</button><button type="button" data-tag="找地" aria-pressed="false">找地</button><button type="button" data-tag="单体去除" aria-pressed="false">单体去除</button><button type="button" data-tag="清场" aria-pressed="false">清场</button><button type="button" data-tag="反击" aria-pressed="false">反击</button><button type="button" data-tag="坟场互动" aria-pressed="false">坟场互动</button></div>
-            <label class="small-select-label" for="tag-match">标签关系<select id="tag-match"><option value="any">具有任一标签</option><option value="all">具有全部标签</option></select></label>
-            <p id="tag-coverage">正在读取功能标签覆盖情况。</p>
-            <button id="add-tag-condition" type="button" class="text-button">＋ 查找更多标签</button>
-          </div>
-          <fieldset class="filter-section">
-            <legend>中文内容</legend>
-            <select id="translation-filter" class="field-select" aria-label="中文内容"><option value="all">全部卡牌</option><option value="translated">已有中文规则</option><option value="missing">待补中文规则</option></select>
-          </fieldset>
-          <section class="filter-section condition-section" aria-labelledby="conditions-heading"><h3 id="conditions-heading">更多搜索条件</h3><p class="filter-note">牌名、规则文字、系列、编号、稀有度、语言等可进一步组合，也可以建立任选或排除条件组。</p><div id="condition-builder"></div><p class="filter-note">系列、编号、稀有度与语言会匹配同一个印刷版本；当前版本语言主要为英文及简体中文。</p></section>
-          <details class="generated-query"><summary>查看自动生成的语法</summary><code id="generated-query">尚未添加高级条件</code></details>
+          <details class="filter-section condition-section">
+            <summary>更多</summary>
+            <fieldset class="more-filter"><legend>稀有度</legend><div id="rarity-filters" class="rarity-filters"></div></fieldset>
+            <div class="more-filter"><label class="filter-field-label" for="artist-filter">画家</label><input id="artist-filter" class="condition-value" type="text" autocomplete="off" /></div>
+            <div class="more-filter"><label class="filter-field-label" for="set-filter">系列</label><input id="set-filter" class="condition-value" type="text" list="set-vocabulary" placeholder="输入系列代码" autocomplete="off" /></div>
+            <div class="more-filter five-dh-filter">
+              <label class="checkbox-label"><input id="five-dh" type="checkbox"/><span>5DH 可用</span></label>
+              <details id="five-dh-settings" hidden>
+                <summary>进阶设置</summary>
+                <div class="five-dh-overage">
+                  <label class="checkbox-label"><input id="five-dh-overage" type="checkbox"/><span>允许超预算</span></label>
+                  <label class="five-dh-percentage"><input id="five-dh-percent" class="condition-value" type="number" inputmode="decimal" min="0" step="any" value="20" aria-label="允许超预算百分比" disabled/>%</label>
+                </div>
+              </details>
+            </div>
+            <div class="legal-filter"><label class="checkbox-label"><input id="commander-filter" type="checkbox" checked/><span>仅看 EDH 合法牌</span></label></div>
+            <div id="condition-builder"></div>
+          </details>
           <button id="help-open" type="button" class="text-button syntax-reference">查看完整语法参考</button>
-          </div>
           <p id="filter-error" class="filter-error" role="alert" hidden></p>
         </div>
         <div class="filter-footer"><button id="filter-results" type="button" class="button button-primary mobile-only">查看结果</button></div>
       </aside>
 
       <section class="catalog-content" aria-label="卡牌检索">
-        <section class="catalog-target" aria-label="卡牌添加目标">
-          <div class="catalog-target-heading"><span id="catalog-target-label">未选择添加目标</span><div class="catalog-target-actions"><button id="catalog-target-toggle" type="button" class="button button-quiet" aria-expanded="false" aria-controls="catalog-target-picker">选择目标卡组</button><button id="catalog-return-deck" type="button" class="button button-quiet" hidden>返回卡组编辑</button></div></div>
-          <div id="catalog-target-picker" class="catalog-target-picker" hidden><label for="catalog-target-select">添加到卡组<select id="catalog-target-select" class="field-select" aria-label="添加到卡组"><option value="">未选择（添加时询问）</option></select></label></div>
-          <label id="catalog-scope-label" class="catalog-scope" hidden><input id="catalog-scope-filter" type="checkbox" checked/><span id="catalog-scope-text">按主将标识色限制搜索</span></label>
-        </section>
-        <div class="page-heading"><div><h1>卡牌检索</h1></div><button id="advanced-open" class="button button-quiet advanced-open"><svg class="icon"><use href="#i-filter"/></svg>高级搜索</button></div>
+        <label id="catalog-target" class="catalog-target" hidden>
+          <span>当前编辑卡组：</span><select id="catalog-target-select" aria-label="当前编辑卡组"></select>
+        </label>
+        <div class="page-heading"><div><h1>卡牌检索</h1></div><button id="advanced-open" aria-controls="filters" aria-expanded="false" class="button button-quiet advanced-open"><svg class="icon"><use href="#i-filter"/></svg>高级搜索<span id="filter-count" class="filter-count" hidden>0</span></button></div>
         <form id="search-form" class="search-form" role="search">
           <svg class="icon search-icon"><use href="#i-search"/></svg>
           <label class="sr-only" for="search-input">搜索卡名、规则文字或高级语法</label>
           <input id="search-input" type="search" placeholder="输入中文 / 英文卡名或规则文字…" autocomplete="off" spellcheck="false"/>
           <kbd class="search-shortcut">/</kbd><button type="submit" class="search-submit">搜索<svg class="icon"><use href="#i-arrow"/></svg></button>
         </form>
-        <div class="search-hints"><span>试试</span><button data-query="t:生物 c<=ug mv<=3">蓝绿低费生物</button><span class="hint-dot">·</span><button data-query="o:抓一张牌">抓一张牌</button><span class="hint-dot">·</span><button data-query="set:neo">神河：霓朝纪</button></div>
+        <p class="catalog-idle-sources">
+          数据来源：英文卡牌资料、功能标签与卡图 <a href="https://scryfall.com/" target="_blank" rel="noreferrer">Scryfall</a>；
+          中文卡牌资料 <a href="https://github.com/HeliumOctahelide/magic-cards-zhs" target="_blank" rel="noreferrer">大学院废墟 · magic-cards-zhs</a>
+          （<a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hans" target="_blank" rel="noreferrer">CC BY-SA 4.0</a>）。
+          <a href="./data/DATA-LICENSE.md" target="_blank" rel="noreferrer">来源与修改说明</a>
+          <span class="catalog-unofficial">铁有是非官方组牌工具，部分素材版权归 Wizards of the Coast LLC 所有。</span>
+        </p>
         <div class="results-toolbar">
-          <div class="results-count-wrap"><button id="filter-toggle" class="button filter-toggle" aria-expanded="true" aria-controls="filters"><svg class="icon"><use href="#i-filter"/></svg><span>筛选</span><span id="filter-count" class="filter-count" hidden>0</span></button><p id="results-count" aria-live="polite">正在加载卡库…</p><button id="data-info-open" class="button button-quiet data-info-button" aria-label="查看数据来源与覆盖情况">数据来源</button></div>
-          <div class="result-options"><label class="sort-label" for="sort-select">排序<select id="sort-select"><option value="name">名称 A–Z</option><option value="edhrec">EDHREC 热度</option><option value="mana-asc">法术力值 ↑</option><option value="mana-desc">法术力值 ↓</option><option value="released">最新发行</option></select></label><div class="view-toggle" role="group" aria-label="结果显示方式"><button id="view-grid" class="active" aria-label="网格显示" aria-pressed="true"><svg class="icon"><use href="#i-grid"/></svg></button><button id="view-list" aria-label="列表显示" aria-pressed="false"><svg class="icon"><use href="#i-list"/></svg></button></div></div>
+          <div class="results-count-wrap"><p id="results-count" aria-live="polite">正在加载卡库…</p><button id="data-info-open" class="button button-quiet data-info-button" aria-label="查看数据来源与覆盖情况">数据来源</button></div>
+          <div class="result-options"><label class="sort-label" for="sort-select">排序<select id="sort-select"><option value="edhrec" selected>EDHREC 热度</option><option value="name">名称 A–Z</option><option value="mana-asc">法术力值 ↑</option><option value="mana-desc">法术力值 ↓</option><option value="released">最新发行</option><option value="usd-asc">USD 价格 ↑</option><option value="usd-desc">USD 价格 ↓</option></select></label><div class="view-toggle" role="group" aria-label="结果显示方式"><button id="view-grid" class="active" aria-label="网格显示" aria-pressed="true"><svg class="icon"><use href="#i-grid"/></svg></button><button id="view-list" aria-label="列表显示" aria-pressed="false"><svg class="icon"><use href="#i-list"/></svg></button></div></div>
         </div>
         <div id="active-filters" class="active-filters" hidden></div>
         <div id="search-error" class="inline-error" role="alert" hidden></div>
@@ -161,7 +149,13 @@
       </section>
     </main>
 
-    <main id="deck-view"></main>
+    <main id="deck-view">
+      <div id="startup-status" class="result-state" role="status">
+        <p id="startup-message">正在加载卡组…</p>
+        <a id="startup-retry" class="button" href="./" hidden>重新加载</a>
+        <noscript><p>请启用 JavaScript 后重新加载。</p></noscript>
+      </div>
+    </main>
     <main id="playtest-view" hidden></main>
 
     <div id="detail-layer" class="detail-layer" hidden>
@@ -175,13 +169,47 @@
     <dialog id="help-dialog" class="app-dialog help-dialog" aria-labelledby="help-title">
       <header class="dialog-header"><div><h2 id="help-title">搜索语法</h2></div><button class="icon-button" data-close-dialog="help-dialog" aria-label="关闭检索帮助"><svg class="icon"><use href="#i-close"/></svg></button></header>
       <p class="dialog-intro">直接输入中文、英文牌名或规则文字。多个条件用空格连接，也可以使用下面的高级语法。</p>
-      <div class="syntax-table"><div><code>name: / o: / t:</code><span>牌名 / 规则文字 / 类别（含超类别及副类别）</span></div><div><code>c: / ci:</code><span>牌面颜色 / 标识色，支持 =、&lt;=、&gt;=</span></div><div><code>mv&lt;=3</code><span>法术力值比较</span></div><div><code>pow&gt;=2 tou&lt;=4</code><span>力量与防御力范围，支持负数与小数</span></div><div><code>set: / cn:</code><span>系列代码 / 收藏编号</span></div><div><code>r: / lang:</code><span>稀有度 / 版本语言</span></div><div><code>f:commander</code><span>EDH 合法卡牌</span></div><div><code>is:translated / is:untranslated</code><span>已有中文规则 / 待补中文规则</span></div><div><code>tag:抓牌</code><span>功能标签，当前覆盖范围见数据说明</span></div><div><code>order:edhrec</code><span>按照 EDHREC 热度排序</span></div><div><code>AND / OR / - / ( )</code><span>组合、任选、排除、条件分组</span></div></div>
+      <div class="syntax-table"><div><code>name: / o: / t:</code><span>牌名 / 规则文字 / 类别（含超类别及副类别）</span></div><div><code>c: / ci:</code><span>牌面颜色 / 标识色，支持 =、&lt;=、&gt;=</span></div><div><code>mv&lt;=3 / m:{G}</code><span>法术力值比较 / 法术力费用</span></div><div><code>a:&quot;Rebecca Guay&quot;</code><span>画家</span></div><div><code>pow&gt;=2 tou&lt;=4</code><span>力量与防御力范围，支持负数与小数</span></div><div><code>set: / cn:</code><span>系列代码 / 收藏编号</span></div><div><code>r: / lang:</code><span>稀有度 / 版本语言</span></div><div><code>f:commander</code><span>EDH 合法卡牌</span></div><div><code>is:translated / is:untranslated</code><span>已有中文规则 / 待补中文规则</span></div><div><code>tag:抓牌</code><span>功能标签，当前覆盖范围见数据说明</span></div><div><code>order:edhrec / order:usd</code><span>按 EDHREC 热度 / USD 价格排序</span></div><div><code>AND / OR / - / ( )</code><span>组合、任选、排除、条件分组</span></div></div>
       <div class="syntax-example"><span>组合示例</span><button data-query="t:生物 ci<=ug mv<=3 (tag:抓牌 OR tag:加速)"><code>t:生物 ci&lt;=ug mv&lt;=3 (tag:抓牌 OR tag:加速)</code><svg class="icon"><use href="#i-arrow"/></svg></button></div>
       <p class="help-note">短语可以用英文双引号括起。</p>
     </dialog>
 
     <dialog id="data-dialog" class="app-dialog" aria-labelledby="data-title"><header class="dialog-header"><div><h2 id="data-title">数据来源</h2></div><button class="icon-button" data-close-dialog="data-dialog" aria-label="关闭数据说明"><svg class="icon"><use href="#i-close"/></svg></button></header><div id="data-dialog-content"><p>卡库正在加载。</p></div></dialog>
+    <dialog id="account-dialog" class="app-dialog account-dialog" aria-labelledby="account-title">
+      <header class="dialog-header">
+        <h2 id="account-title">登录</h2>
+        <button id="account-close" class="icon-button" type="button" aria-label="关闭账户窗口"><svg class="icon"><use href="#i-close"/></svg></button>
+      </header>
+      <form id="account-form">
+        <label class="deck-field">用户名<input id="account-username" class="deck-input" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+        <label class="deck-field">密码<input id="account-password" class="deck-input" name="password" type="password" autocomplete="current-password" required></label>
+        <p id="account-register-hint" class="deck-muted" hidden>用户名 3–32 字，可用字母、数字、下划线和连字符。密码至少 8 字。</p>
+        <div class="deck-actions">
+          <button id="account-submit" class="button button-primary" type="submit">登录</button>
+          <button id="account-mode" class="button" type="button">注册账号</button>
+        </div>
+      </form>
+      <section id="account-signed-in" hidden>
+        <p id="account-name"></p>
+        <button id="account-logout" class="button" type="button">退出登录</button>
+      </section>
+      <p id="account-error" class="deck-form-error" role="alert" hidden></p>
+    </dialog>
     <div id="toast-stack" class="toast-stack" aria-live="polite" aria-relevant="additions"></div>
-    <script type="module" src="./app.js"></script>
+    <script id="app-entry" type="module" src="./app.js?v=0.5.12"></script>
+    <script>
+      (function () {
+        function showStartupError() {
+          if (!document.getElementById('startup-status')) return;
+          document.getElementById('startup-message').textContent = '卡组页面暂时无法加载。请重试，或在系统浏览器中打开。';
+          document.getElementById('startup-retry').hidden = false;
+        }
+        document.getElementById('app-entry').addEventListener('error', showStartupError);
+        window.addEventListener('error', function (event) {
+          if (event.filename && event.filename.indexOf(location.origin + '/') === 0) showStartupError();
+        });
+        setTimeout(showStartupError, 15000);
+      }());
+    </script>
   </body>
 </html>

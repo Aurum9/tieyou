@@ -33,6 +33,8 @@ export const CONDITION_FIELDS = [
   { value: 'c', label: '颜色', input: 'colors', operators: colorOperators, options: colorOptions, help: '按卡牌自身颜色筛选；选择无色时不同时选择其他颜色。' },
   { value: 'ci', label: '标识色', input: 'colors', operators: colorOperators, options: colorOptions, help: '包含规则文字中的颜色信息。要找能加入主将卡组的牌，选择“仅使用所选颜色（含无色）”。' },
   { value: 'mv', label: '法术力值', input: 'number', operators: numberOperators, placeholder: '例如：0、3、0.5', help: '允许 0 和非负小数；添加两条条件可以设置上下限。' },
+  { value: 'm', label: '法术力费用', input: 'text', operators: textOperators },
+  { value: 'a', label: '画家', input: 'text', operators: textOperators },
   { value: 'pow', label: '力量', input: 'number', signed: true, operators: numberOperators, placeholder: '例如：-1、0、3', help: '允许负数和小数；数值筛选不包含 * 等未定值。' },
   { value: 'tou', label: '防御力', input: 'number', signed: true, operators: numberOperators, placeholder: '例如：0、4、6', help: '添加两条条件可以设置上下限；数值筛选不包含 * 等未定值。' },
   { value: 'set', label: '系列代码', input: 'text', operators: exactOperators, placeholder: '例如：m21', help: '系列、编号、稀有度和语言会共同匹配同一个印刷版本。' },
@@ -144,6 +146,12 @@ export function buildFilterQuery(filters = {}) {
         const unique = [...new Set(colors)].join('').toLowerCase();
         add(relation === 'any' ? `(${[...unique].map(color => `${field}:${color}`).join(' OR ')})` : `${field}${{ all: '>=', exact: '=', within: '<=' }[relation]}${unique}`);
       }
+    }
+    const manaValues = filters.manaValues || [];
+    if (manaValues.length) {
+      if (manaValues.some(value => !Number.isInteger(value) || value < 0 || value > 9)) throw new Error('法术力值选项无效。');
+      const clauses = [...new Set(manaValues)].sort((a, b) => a - b).map(value => value === 9 ? 'mv>=9' : `mv=${value}`);
+      add(clauses.length === 1 ? clauses[0] : `(${clauses.join(' OR ')})`);
     }
     for (const key of ['types', 'supertypes']) {
       const values = filters[key] || [];

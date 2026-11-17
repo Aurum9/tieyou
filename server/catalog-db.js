@@ -1,4 +1,5 @@
-import { parseQuery, extractSearchOptions, validateSearch, normalizeText, QueryError } from '../web/lib/search.js';
+import { CNY_FEN_PER_USD, usdToCny } from '../web/lib/catalog-price.js';
+import { parseQuery, extractSearchOptions, validateSearch, normalizeText, normalizeManaCost, QueryError } from '../web/lib/search.js';
 import { parseDeckText } from '../web/lib/decks.js';
 import { commanderScopeQuery, deckTagQuery } from '../web/lib/deck-target.js';
 import { localizedTagSlugs } from '../web/lib/tag-names.js';
@@ -71,6 +72,8 @@ export function normalizeCatalogBatch(cards, { metadata = null, nameRanks = null
     const defaultVersion = versions.find(version => version.id === card.defaultVersionId) || versions.find(version => version.set === card.set && String(version.collectorNumber) === String(card.collectorNumber) && (!card.lang || version.lang === card.lang)) || versions[0];
     const core = strip(card, ['versions', 'matchingVersions', 'matchingVersionIds', 'versionsComplete', 'nameRank']);
     core.defaultVersionId = defaultVersion.id;
+    const usd = versions.map(printing => number(printing.usd)).filter(price => price !== null && price >= 0);
+    if (usd.length) core.usd = Math.min(...usd);
     core.translationComplete = translated(card);
     const summary = { ...pick(core, ['id', 'name', 'zhName', 'manaCost', 'manaValue', 'colors', 'colorIdentity', 'typeLine', 'zhTypeLine', 'legalities', 'set', 'collectorNumber', 'defaultVersionId', 'releasedAt', 'image', 'layout', 'rarity', 'lang', 'edhrecRank']), faces: faces.map(face => pick(face, ['name', 'zhName', 'typeLine', 'zhTypeLine'])), translationComplete: core.translationComplete, ...(core.translation?.stale ? { translation: { stale: true } } : {}) };
     const nameRank = nameRanks?.[card.id] ?? card.nameRank;
@@ -84,7 +87,7 @@ export function normalizeCatalogBatch(cards, { metadata = null, nameRanks = null
     versions.forEach((version, ordinal) => {
       if (typeof version.id !== 'string' || !version.id || printingIds.has(version.id)) throw new Error('印刷版本身份无效或重复');
       printingIds.add(version.id);
-      result.printings.push({ cardId: card.id, id: version.id, ordinal, setCode: normalizeText(version.set ?? card.set), collectorNumber: normalizeText(version.collectorNumber ?? card.collectorNumber), lang: normalizeText(version.lang ?? card.lang), rarity: normalizeText(version.rarity ?? card.rarity), payload: json(version) });
+      result.printings.push({ cardId: card.id, id: version.id, ordinal, setCode: normalizeText(version.set ?? card.set), collectorNumber: normalizeText(version.collectorNumber ?? card.collectorNumber), lang: normalizeText(version.lang ?? card.lang), rarity: normalizeText(version.rarity ?? card.rarity), payload: json(version.artist ? { ...version, artistSearch: normalizeText(version.artist) } : version) });
     });
     for (const slug of new Set((card.tags || []).map(tag => normalizeText(typeof tag === 'string' ? tag : tag.slug || tag.name)).filter(Boolean))) result.tags.push({ cardId: card.id, slug });
     result.fts.push({ cardId: card.id, name: searchGrams(text.name), oracle: searchGrams(text.o), type: searchGrams(text.t) });
@@ -111,6 +114,8 @@ export function compileCatalogQuery(query = '', { sort = 'name', commanderOnly =
   if (error) throw new QueryError(error.message, error.position);
   const options = extractSearchOptions(query, sort), tree = parseQuery(options.query), faceMode = hasCharacteristic(tree), params = parameterList([]);
   let aliasIndex = 0, tagPosition = null;
+  const cardUsd = "json_extract(c.core_json,'$.usd')";
+  const printingUsd = alias => `json_extract(${alias}.payload_json,'$.usd')`;
   function expression(node, face = null, printing = 'v') {
     if (node.type === 'all') return '1';
     if (node.type === 'and' || node.type === 'or') return `(${expression(node.left, face, printing)} ${node.type.toUpperCase()} ${expression(node.right, face, printing)})`;
@@ -121,6 +126,11 @@ export function compileCatalogQuery(query = '', { sort = 'name', commanderOnly =
     }
     const { field, value, op } = node;
     if (['pow', 'tou'].includes(field)) return comparison(`${face}.${field === 'pow' ? 'power' : 'toughness'}`, params.add(Number(value)), op);
+    if (field === 'cny') {
+      const usd = tree.hasPrinting ? printingUsd(printing) : cardUsd;
+      const cny = `(round(round(${usd}*100)*${CNY_FEN_PER_USD}/100.0)/100.0)`;
+      return `coalesce(${comparison(cny, params.add(Number(value)), op)}, 0)`;
+    }
     if (field === 'mv') return comparison('c.mana_value', params.add(Number(value)), op);
     if (field === 'c' || field === 'ci') {
       const actual = `c.${field === 'c' ? 'color_mask' : 'identity_mask'}`, expectedMask = colorMask(value), expected = params.add(expectedMask);
@@ -137,11 +147,21 @@ export function compileCatalogQuery(query = '', { sort = 'name', commanderOnly =
       const recall = ftsQuery(needle, field);
       return `(${recall ? `c.rowid IN (SELECT rowid FROM catalog_fts WHERE catalog_fts MATCH ${params.add(recall)}) AND ` : ''}instr(${column},${params.add(needle)})>0)`;
     }
+    if (field === 'm') {
+      const cost = params.add(normalizeManaCost(value));
+      const mana = "lower(replace(json_extract(mana_face.value,'$.manaCost'),' ',''))";
+      return `EXISTS (SELECT 1 FROM json_each(c.core_json,'$.faces') mana_face WHERE ${op === '=' ? `${mana}=${cost}` : `instr(${mana},${cost})>0`})`;
+    }
+    if (field === 'a') {
+      const artist = `coalesce(json_extract(${printing}.payload_json,'$.artistSearch'),'')`;
+      const needle = params.add(value);
+      return op === '=' ? `${artist}=${needle}` : `instr(${artist},${needle})>0`;
+    }
     if (field === 'f') return 'c.commander_legal=1';
     if (field === 'is') return `c.translated=${value === 'translated' ? 1 : 0}`;
     if (field === 'tag') {
       tagPosition ??= node.position;
-      const candidates = tagAliases[value] || localizedTagSlugs(value) || [value.replace(/ /g, '-')];
+      const candidates = tagAliases[value] || localizedTagSlugs(value) || [value, value.replace(/ /g, '-')];
       return `EXISTS (SELECT 1 FROM catalog_tags tg WHERE tg.version=c.version AND tg.card_id=c.id AND tg.slug IN (SELECT value FROM json_each(${params.add(json(candidates))})))`;
     }
     const column = { set: 'set_code', cn: 'collector_number', lang: 'lang', r: 'rarity' }[field];
@@ -151,8 +171,12 @@ export function compileCatalogQuery(query = '', { sort = 'name', commanderOnly =
   const inner = faceMode ? `EXISTS (SELECT 1 FROM catalog_faces f WHERE f.version=c.version AND f.card_id=c.id AND ${expression(tree, 'f')})` : expression(tree);
   const predicate = `${commanderOnly ? 'c.commander_legal=1 AND ' : ''}${tree.hasPrinting ? `EXISTS (SELECT 1 FROM catalog_printings v WHERE v.version=c.version AND v.card_id=c.id AND ${inner})` : inner}`;
   const direction = options.descending ? 'DESC' : 'ASC';
-  const orderBy = options.sort.startsWith('mana-') ? `c.mana_value ${direction},c.name_rank ASC,c.id ASC` : options.sort === 'released' ? `c.released_at ${direction},c.name_rank ASC,c.id ASC` : options.sort === 'edhrec' ? `(c.edhrec_rank IS NULL) ASC,c.edhrec_rank ${direction},c.name_rank ASC,c.id ASC` : `c.name_rank ${direction},c.id ${direction}`;
-  return { params: params.values, predicate, printingPredicate: inner, hasPrinting: tree.hasPrinting, tagPosition, orderBy, options, prefix: 'WITH qp AS (SELECT ? AS j)' };
+  const sortByUsd = options.sort.startsWith('usd-');
+  const price = sortByUsd || tree.hasCnyPrice ? (tree.hasPrinting
+    ? `(SELECT MIN(${printingUsd('v')}) FROM catalog_printings v WHERE v.version=c.version AND v.card_id=c.id AND ${inner})`
+    : cardUsd) : null;
+  const orderBy = sortByUsd ? `(usd_price IS NULL) ASC,usd_price ${direction},c.name_rank ASC,c.id ASC` : options.sort.startsWith('mana-') ? `c.mana_value ${direction},c.name_rank ASC,c.id ASC` : options.sort === 'released' ? `c.released_at ${direction},c.name_rank ASC,c.id ASC` : options.sort === 'edhrec' ? `(c.edhrec_rank IS NULL) ASC,c.edhrec_rank ${direction},c.name_rank ASC,c.id ASC` : `c.name_rank ${direction},c.id ${direction}`;
+  return { params: params.values, predicate, printingPredicate: inner, hasPrinting: tree.hasPrinting, tagPosition, orderBy, price, hasCnyPrice: tree.hasCnyPrice, options, prefix: 'WITH qp AS (SELECT ? AS j)' };
 }
 
 function checkedPage(value, fallback, maximum) { const parsed = value ?? fallback; if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > maximum) throw new QueryError('分页参数无效'); return parsed; }
@@ -186,12 +210,16 @@ export function createCatalogService(db) {
     ids = distinctIds(ids);
     if (!ids.length) return [];
     const version = requestedSnapshot || await activeVersion(db);
-    const found = rows(await db.prepare(`SELECT id,${summary ? 'summary_json' : 'core_json'} AS core_json,default_version_id FROM catalog_cards WHERE version=? AND id IN (SELECT value FROM json_each(?))`).bind(version, json(ids)).all());
+    const found = rows(await db.prepare(`SELECT id,${summary ? "summary_json AS card_json,json_extract(core_json,'$.usd') AS min_usd" : 'core_json AS card_json'} FROM catalog_cards WHERE version=? AND id IN (SELECT value FROM json_each(?))`).bind(version, json(ids)).all());
     const requested = versions.filter(row => plain(row) && ids.includes(row.cardId) && typeof row.versionId === 'string').map(row => ({ cardId: row.cardId, versionId: row.versionId }));
     const printings = rows(await db.prepare(`SELECT p.card_id,p.payload_json FROM catalog_printings p JOIN catalog_cards c ON c.version=p.version AND c.id=p.card_id WHERE p.version=? AND p.card_id IN (SELECT value FROM json_each(?))${full ? '' : ' AND (p.id=c.default_version_id OR EXISTS (SELECT 1 FROM json_each(?) r WHERE json_extract(r.value,\'$.cardId\')=p.card_id AND json_extract(r.value,\'$.versionId\')=p.id))'} ORDER BY p.ordinal`).bind(...(full ? [version, json(ids)] : [version, json(ids), json(requested)])).all());
     const byCard = new Map();
     for (const printing of printings) { const collection = byCard.get(printing.card_id) || []; collection.push(JSON.parse(printing.payload_json)); byCard.set(printing.card_id, collection); }
-    const indexed = new Map(found.map(row => [row.id, withVersions(JSON.parse(row.core_json), byCard.get(row.id) || [], full)]));
+    const indexed = new Map(found.map(row => {
+      const card = JSON.parse(row.card_json);
+      if (summary) card.usd = row.min_usd;
+      return [row.id, withVersions(card, byCard.get(row.id) || [], full)];
+    }));
     return ids.map(id => indexed.get(id)).filter(Boolean);
   }
   async function batch(ids, options = {}) {
@@ -212,7 +240,7 @@ export function createCatalogService(db) {
       const from = `FROM catalog_cards c CROSS JOIN qp WHERE c.version=${versionRef} AND ${compiled.predicate}`;
       const count = await bindJSON(db, `${compiled.prefix} SELECT COUNT(*) AS total ${from}`, values).first();
       const total = Number(count?.total || 0);
-      const found = rows(await bindJSON(db, `${compiled.prefix} SELECT c.id ${from} ORDER BY ${compiled.orderBy} LIMIT ${limit} OFFSET ${offset}`, values).all());
+      const found = rows(await bindJSON(db, `${compiled.prefix} SELECT c.id${compiled.price ? `, ${compiled.price} AS usd_price` : ''} ${from} ORDER BY ${compiled.orderBy} LIMIT ${limit} OFFSET ${offset}`, values).all());
       const ids = found.map(row => row.id);
       let cards = await hydrateCards(ids, { summary: true, version });
       if (compiled.hasPrinting && ids.length) {
@@ -220,6 +248,13 @@ export function createCatalogService(db) {
         const byCard = new Map();
         for (const row of matched) { const entry = byCard.get(row.card_id) || { ids: [], versions: [] }; entry.ids.push(row.id); if (row.payload_json) entry.versions.push(JSON.parse(row.payload_json)); byCard.set(row.card_id, entry); }
         cards = cards.map(card => ({ ...withVersions(card, card.versions, false, byCard.get(card.id)?.versions || []), matchingVersionIds: byCard.get(card.id)?.ids || [] }));
+      }
+      if (compiled.price) {
+        const prices = new Map(found.map(row => [row.id, row.usd_price]));
+        cards = cards.map(card => {
+          const usdPrice = prices.get(card.id) ?? null;
+          return { ...card, usdPrice, ...(compiled.hasCnyPrice ? { cnyPrice: usdToCny(usdPrice) } : {}) };
+        });
       }
       return { cards, total, offset, hasMore: offset + cards.length < total, error: null, datasetVersion: version };
     } catch (error) {
@@ -272,13 +307,13 @@ export function createCatalogService(db) {
         WHERE matches.is_exact=(stats.exact_total>0)
         ORDER BY matches.name_rank, matches.id LIMIT ?5
       )
-      SELECT page.total, c.summary_json, p.payload_json
+      SELECT page.total, c.summary_json, json_extract(c.core_json,'$.usd') AS min_usd, p.payload_json
       FROM page
       JOIN catalog_cards c ON c.rowid=page.rowid
       LEFT JOIN catalog_printings p ON p.version=c.version AND p.card_id=c.id AND p.id=c.default_version_id
       ORDER BY page.name_rank, page.id
     `).bind(recall, normalized, version, identityMask, limit).all());
-    const cards = found.map(row => withVersions(JSON.parse(row.summary_json), row.payload_json ? [JSON.parse(row.payload_json)] : []));
+    const cards = found.map(row => withVersions({ ...JSON.parse(row.summary_json), usd: row.min_usd }, row.payload_json ? [JSON.parse(row.payload_json)] : []));
     const total = found[0]?.total ?? 0;
     return { cards, total, offset: 0, hasMore: cards.length < total, error: null, datasetVersion: version };
   }

@@ -1,4 +1,4 @@
-export { LAND_TAG_NAMES, TAG_NAMES, localizedTagSlugs } from './tag-names.js';
+export { LAND_TAG_NAMES, TAG_NAMES, visibleTagLabel, localizedTagSlugs } from './tag-names.js';
 
 let request;
 

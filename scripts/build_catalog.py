@@ -17,13 +17,14 @@ import io
 import json
 import re
 import tarfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CACHE = HERE / ".cache"
 OUTPUT = HERE.parent / "web" / "data"
 LEGACY = Path("C:/Users/1482/Documents/New project 2")
+SCRYFALL_SOURCES = ("oracle_cards", "default_cards", "oracle_tags")
 EXCLUDED_LAYOUTS = {"token", "double_faced_token", "emblem", "art_series", "planar", "scheme", "vanguard"}
 EXCLUDED_SET_TYPES = {"token", "memorabilia", "art_series", "minigame"}
 
@@ -125,6 +126,53 @@ def read_snapshot(path: Path):
         yield from json.loads(path.read_text(encoding="utf-8"))
 
 
+def freeze_day(value: str) -> str:
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("freeze date must be a valid YYYY-MM-DD date") from error
+
+
+def snapshot_metadata(path: Path, *, required: bool = False) -> dict:
+    sidecar = path.with_name(path.name + ".metadata.json")
+    if not sidecar.is_file() and not required:
+        return {}
+    metadata = json.loads(sidecar.read_text(encoding="utf-8"))
+    if not isinstance(metadata.get("source"), dict):
+        raise ValueError(f"invalid source metadata: {sidecar}")
+    if required:
+        info = metadata["download"]
+        if info["name"] != path.name or info["bytes"] != path.stat().st_size:
+            raise ValueError(f"source does not match its metadata: {path}")
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if info["sha256"] != digest.hexdigest():
+            raise ValueError(f"source digest mismatch: {path}")
+    return metadata["source"]
+
+
+def scryfall_snapshot(cache: Path, kind: str, *, required: bool = False) -> tuple[Path, dict]:
+    candidates = [cache / (kind + suffix) for suffix in (".jsonl.gz", ".json")]
+    existing = [path for path in candidates if path.is_file()]
+    if not existing:
+        if required:
+            raise FileNotFoundError(f"missing cached Scryfall snapshot: {kind} in {cache}")
+        return candidates[0], {}
+    indexed = [(path, snapshot_metadata(path)) for path in existing]
+    path, metadata = max(indexed, key=lambda item: item[1].get("updated_at", ""))
+    if required:
+        metadata = snapshot_metadata(path, required=True)
+        if not metadata.get("updated_at") or metadata.get("type") != kind:
+            raise ValueError(f"missing or incorrect Scryfall source date/type: {path}")
+    return path, metadata
+
+
+def source_url(source: dict, default: str = "") -> str:
+    return source.get("jsonl_download_uri") or source.get("download_uri") or default
+
+
 def included(card: dict, freeze_date: str) -> bool:
     return ("paper" in (card.get("games") or []) and not card.get("digital")
             and not card.get("oversized")
@@ -133,16 +181,20 @@ def included(card: dict, freeze_date: str) -> bool:
             and card.get("released_at", "9999") <= freeze_date)
 
 
-def image_uri(card: dict, print_id: str = "", face_index: int = 0) -> str:
+def snapshot_image(card: dict) -> str:
     uris = card.get("image_uris") or {}
-    image = uris.get("normal") or uris.get("display") or ""
+    return uris.get("normal") or uris.get("display") or uris.get("grid") or uris.get("jpeg") or ""
+
+
+def image_uri(card: dict, print_id: str = "") -> str:
+    image = snapshot_image(card)
     if image:
         return image
-    if card.get("card_faces"):
-        return image_uri(card["card_faces"][face_index], card.get("id", print_id), face_index)
-    if print_id:
-        side = "front" if face_index == 0 else "back"
-        return f"https://cards.scryfall.io/normal/{side}/{print_id[0]}/{print_id[1]}/{print_id}.jpg"
+    faces = card.get("card_faces") or []
+    if faces:
+        return snapshot_image(faces[0])
+    if print_id and len(print_id) > 1 and "image_uris" not in card:
+        return f"https://cards.scryfall.io/normal/front/{print_id[0]}/{print_id[1]}/{print_id}.jpg"
     return ""
 
 
@@ -151,15 +203,18 @@ def version_from(card: dict) -> dict:
             "setName": card.get("set_name", ""), "collectorNumber": str(card.get("collector_number", "")),
             "lang": card.get("lang", "en"), "releasedAt": card.get("released_at", ""),
             "image": image_uri(card, card.get("id") or card.get("scryfall_id", "")), "rarity": card.get("rarity", "")}
+    usd = (card.get("prices") or {}).get("usd")
+    if isinstance(usd, str) and re.fullmatch(r"\d+(?:\.\d{1,2})?", usd):
+        version["usd"] = float(usd)
+    artist = card.get("artist") or " & ".join(dict.fromkeys(
+        face["artist"] for face in card.get("card_faces") or [] if face.get("artist")
+    ))
+    if artist:
+        version["artist"] = artist
     if card.get("card_faces"):
-        whole_uris = card.get("image_uris") or {}
-        whole_image = whole_uris.get("normal") or whole_uris.get("display") or ""
-        version["faceImages"] = []
-        for face in card["card_faces"]:
-            uris = face.get("image_uris") or {}
-            # A split/adventure printing has a real whole-card image. Never
-            # invent a back URL or borrow a face from another printing.
-            version["faceImages"].append(uris.get("normal") or uris.get("display") or whole_image)
+        # Split/adventure printings have a whole-card image shared by the faces.
+        whole_image = snapshot_image(card)
+        version["faceImages"] = [snapshot_image(face) or whole_image for face in card["card_faces"]]
     return version
 
 
@@ -223,40 +278,121 @@ def load_aliases() -> dict[str, list[str]]:
     return result
 
 
+def read_previous_catalog(directory: Path, canonical: dict, versions: dict, freeze_date: str) -> tuple[dict, dict]:
+    manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("schemaVersion") != 1 or not manifest.get("shards"):
+        raise ValueError(f"invalid previous catalog manifest: {directory}")
+    previous = {}
+    card_ids = set()
+    for shard in manifest["shards"]:
+        name = shard["url"]
+        if not re.fullmatch(r"catalog-\d+\.json", name):
+            raise ValueError(f"invalid previous catalog shard name: {name}")
+        rows = list(read_snapshot(directory / name))
+        if len(rows) != shard["count"]:
+            raise ValueError(f"previous catalog shard count mismatch: {name}")
+        for card in rows:
+            oid = card["id"]
+            if oid in card_ids:
+                raise ValueError(f"duplicate previous catalog card ID: {oid}")
+            card_ids.add(oid)
+            if oid not in canonical:
+                continue
+            for version in card["versions"]:
+                if (version["releasedAt"] or manifest["freezeDate"]) <= freeze_date:
+                    retained = {key: value for key, value in version.items() if key != "usd"}
+                    versions[oid].setdefault(version["id"], retained)
+            previous[oid] = {
+                "aliases": card.get("aliases", []),
+                "faces": {face["name"]: face for face in card["faces"]},
+                "defaultVersionId": card.get("defaultVersionId"),
+            }
+    if len(card_ids) != manifest["counts"]["cards"]:
+        raise ValueError(f"previous catalog count mismatch: {directory}")
+    return previous, manifest
+
+
+def prior_translation(face: dict, english: str) -> dict:
+    result = dict(face["translation"])
+    if text_fingerprint(face["oracleText"]) != text_fingerprint(english):
+        result.update(stale=True, freshness="stale", reviewStatus="unknown")
+        if result.get("override"):
+            result["previousOverride"] = result.pop("override")
+    return result
+
+
+def guard_catalog(counts: dict, coverage: dict, tag_coverage: dict, default_printings: int,
+                  parsing: dict, previous_manifest: dict | None):
+    if not counts["cards"] or not coverage["requiredFaces"] or not tag_coverage["tags"]:
+        raise ValueError("unattended catalog build produced empty card, English rules, or Oracle Tags data")
+    if not default_printings or any(not stats["rows"] or stats["failed"] / stats["rows"] > .02 for stats in parsing.values()):
+        raise ValueError("unattended catalog build found empty printings or unreadable Chinese source data")
+    if previous_manifest:
+        for key, value in counts.items():
+            if value < previous_manifest["counts"][key] * .95:
+                raise ValueError(f"unattended catalog {key} count fell by over 5%")
+        for key, value in tag_coverage.items():
+            if value < previous_manifest["tagCoverage"][key] * .9:
+                raise ValueError(f"unattended Oracle Tag {key} count fell by over 10%")
+        previous_printings = previous_manifest.get("versionCoverage", {}).get("defaultPrintings", 0)
+        if default_printings < previous_printings * .95:
+            raise ValueError("unattended source printing count fell by over 5%")
+        tagged = tag_coverage["cards"] / counts["cards"]
+        previous_tagged = previous_manifest["tagCoverage"]["cards"] / previous_manifest["counts"]["cards"]
+        if tagged < previous_tagged - .05:
+            raise ValueError(f"unattended tagged-card coverage fell from {previous_tagged:.2%} to {tagged:.2%}")
+    previous_coverage = previous_manifest["coverage"] if previous_manifest else None
+    previous_ratio = previous_coverage["translatedFaces"] / max(1, previous_coverage["requiredFaces"]) if previous_coverage else 1
+    ratio = coverage["translatedFaces"] / coverage["requiredFaces"]
+    if ratio < previous_ratio - .02:
+        raise ValueError(f"unattended Chinese rules coverage fell from {previous_ratio:.2%} to {ratio:.2%}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--freeze-date", default="2026-11-03")
+    parser.add_argument("--freeze-date", default="2026-11-03", type=freeze_day)
+    parser.add_argument("--cache", type=Path, default=CACHE)
     parser.add_argument("--out", type=Path, default=OUTPUT)
+    parser.add_argument("--no-legacy", action="store_true", help="Require verified downloaded inputs without reading the legacy workspace")
+    parser.add_argument("--previous-catalog", type=Path, help="Previous shard directory used to preserve aliases, Chinese translations, and printing IDs")
     parser.add_argument("--overrides", type=Path, default=None, help="Optional reviewed correction file; defaults to scripts/translation-overrides.json if present")
     args = parser.parse_args()
     override_path = args.overrides or HERE / "translation-overrides.json"
     overrides = load_translation_overrides(override_path, required=args.overrides is not None)
     applied_overrides = []
+    skipped_overrides = []
     output = args.out.resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    metadata_path = CACHE / "scryfall-bulk.metadata.json"
+    cache = args.cache.resolve()
+    if args.previous_catalog and args.previous_catalog.resolve() == output:
+        parser.error("--previous-catalog must be separate from --out")
+    metadata_path = cache / "scryfall-bulk.metadata.json"
     bulk = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {"data": []}
     meta = {item["type"]: item for item in bulk["data"]}
-    for source_type in ("oracle_cards", "default_cards", "oracle_tags"):
-        bound_path = CACHE / (source_type + ".jsonl.gz.metadata.json")
-        if bound_path.exists():
-            meta[source_type] = json.loads(bound_path.read_text(encoding="utf-8"))["source"]
-    oracle_path = CACHE / "oracle_cards.jsonl.gz"
+    paths = {}
+    for source_type in SCRYFALL_SOURCES:
+        paths[source_type], bound = scryfall_snapshot(cache, source_type, required=args.no_legacy)
+        if bound:
+            meta[source_type] = bound
+    oracle_path = paths["oracle_cards"]
     fresh_oracle = oracle_path.exists()
     if fresh_oracle:
         oracle_date = meta["oracle_cards"]["updated_at"]
     else:
         oracle_path = LEGACY / "data/raw/scryfall/oracle_cards.json"
         oracle_date = json.loads((oracle_path.parent / "oracle_cards.metadata.json").read_text(encoding="utf-8"))["updated_at"]
+    chinese_archive = cache / "chinese.tar.gz"
+    if args.no_legacy and not chinese_archive.is_file():
+        raise FileNotFoundError(f"missing cached Chinese release: {chinese_archive}")
+    release = snapshot_metadata(chinese_archive, required=args.no_legacy) if chinese_archive.is_file() else {}
+    if args.no_legacy and not release.get("tag_name"):
+        raise ValueError(f"missing Chinese release tag metadata: {chinese_archive}")
+    output.mkdir(parents=True, exist_ok=True)
     # An Oracle representative can be a future reprint or an MTGO edition of a
     # genuine paper card. Actual released paper PRINTINGS determine this pool.
     canonical = {card["oracle_id"]: card for card in read_snapshot(oracle_path)
                  if card.get("oracle_id") and card.get("layout") not in EXCLUDED_LAYOUTS}
     print(f"Read {len(canonical)} candidate Oracle identities; resolving physical printings", flush=True)
-    chinese_archive = CACHE / "chinese.tar.gz"
     archive = tarfile.open(chinese_archive, "r:gz") if chinese_archive.exists() else None
-    release_path = CACHE / "chinese.tar.gz.metadata.json"
-    release = json.loads(release_path.read_text(encoding="utf-8"))["source"] if archive and release_path.exists() else {}
     chinese_date = release.get("tag_name", "data-2026-04-13").removeprefix("data-")
     chinese_url = release.get("html_url", "https://github.com/HeliumOctahelide/magic-cards-zhs/releases/tag/data-2026-04-13")
     statistics = {}
@@ -305,7 +441,7 @@ def main() -> None:
     print(f"Parsed Chinese sources: {statistics}", flush=True)
     del mapping
 
-    default_path = CACHE / "default_cards.jsonl.gz"
+    default_path = paths["default_cards"]
     default_count = 0
     fallback_prints = {}
     if default_path.exists():
@@ -323,11 +459,14 @@ def main() -> None:
         if included(row, args.freeze_date):
             version = version_from(row)
             versions[oid][version["id"]] = version
+    previous, previous_manifest = ({}, None)
+    if args.previous_catalog:
+        previous, previous_manifest = read_previous_catalog(args.previous_catalog.resolve(), canonical, versions, args.freeze_date)
     canonical = {oid: fallback_prints.get(oid, row) for oid, row in canonical.items() if versions[oid]}
     print(f"Resolved {len(canonical)} released physical card identities", flush=True)
     tags_by_id = collections.defaultdict(set)
     vocabulary = []
-    tags_path = CACHE / "oracle_tags.jsonl.gz"
+    tags_path = paths["oracle_tags"]
     if tags_path.exists():
         tag_rows = list(read_snapshot(tags_path))
         tag_index = {t["id"]: t for t in tag_rows}
@@ -355,8 +494,7 @@ def main() -> None:
                 oid = tagging.get("oracle_id")
                 if oid in canonical:
                     tags_by_id[oid].update(expanded[tag["id"]])
-    (output / "tag-vocabulary.json").write_text(dumps(vocabulary), encoding="utf-8")
-    aliases = load_aliases()
+    aliases = {} if args.no_legacy else load_aliases()
     cards = []
     missing = []
     stale = []
@@ -369,7 +507,11 @@ def main() -> None:
     upstream_ai_faces = 0
     for oid, canonical_card in canonical.items():
         faces = []
-        card_aliases = set(aliases.get(canonical_card["name"], []))
+        prior = previous.pop(oid, {})
+        card_aliases = set(aliases.get(canonical_card["name"], [])) | set(prior.get("aliases", []))
+        card_versions = sorted(versions[oid].values(), key=lambda v: (v["releasedAt"], v["set"], v["collectorNumber"]), reverse=True)
+        version = versions[oid].get(canonical_card["id"]) or versions[oid].get(prior.get("defaultVersionId")) or card_versions[0]
+        face_images = version.get("faceImages") or []
         for face_index, face in enumerate(canonical_card.get("card_faces") or [canonical_card]):
             name = face["name"]
             english = face.get("oracle_text", "")
@@ -378,12 +520,13 @@ def main() -> None:
                 candidates = print_overrides.get((oid, name), [])
                 candidates = sorted(candidates, key=lambda r: (text_fingerprint(r.get("oracle_text")) == text_fingerprint(english), r.get("released_at", "")), reverse=True)
                 row = next((r for r in candidates if normalize_text(r.get("translated_text"))), row)
-            zh_name = normalize_text((row or {}).get("translated_name"))
+            prior_face = prior.get("faces", {}).get(name)
+            zh_name = normalize_text((row or {}).get("translated_name")) or (prior_face or {}).get("zhName", "")
             if " // " in zh_name and " // " not in name:
                 name_parts = zh_name.split(" // ")
                 if face_index < len(name_parts):
                     zh_name = name_parts[face_index]
-            zh_type = normalize_text((row or {}).get("translated_type"))
+            zh_type = normalize_text((row or {}).get("translated_type")) or (prior_face or {}).get("zhTypeLine", "")
             zh_text = normalize_text((row or {}).get("translated_text"))
             if zh_name and "CARDNAME" in zh_text:
                 template_replacements += zh_text.count("CARDNAME")
@@ -391,7 +534,18 @@ def main() -> None:
             translation = translation_for(row, english)
             override_key = (oid, name)
             if override_key in overrides:
-                zh_text, translation = apply_translation_override(overrides[override_key], english, zh_text, translation)
+                try:
+                    zh_text, translation = apply_translation_override(overrides[override_key], english, zh_text, translation)
+                except ValueError as error:
+                    if not args.no_legacy or args.overrides is not None:
+                        raise
+                    skipped_overrides.append({"oracleId": oid, "faceName": name, "reason": str(error)})
+            if prior_face and prior_face["zhText"] and english.strip() and not translation.get("override"):
+                old_translation = prior_translation(prior_face, english)
+                prior_is_current = old_translation.get("freshness") == "matched"
+                if not zh_text or (prior_is_current and (translation["freshness"] != "matched" or old_translation.get("override"))):
+                    zh_text, translation = prior_face["zhText"], old_translation
+            if translation.get("override"):
                 applied_overrides.append({"oracleId": oid, "faceName": name, **translation["override"]})
             if english.strip():
                 coverage["requiredFaces"] += 1
@@ -413,10 +567,11 @@ def main() -> None:
                 card_aliases.add(normalize_text(alias))
             if zh_name:
                 card_aliases.add(zh_name)
-            face_id = (row or {}).get("face_oracle_id") or face.get("oracle_id") or f"{oid}:{face_index}"
+            face_id = (row or {}).get("face_oracle_id") or face.get("oracle_id") or (prior_face or {}).get("id") or f"{oid}:{face_index}"
+            face_image = face_images[face_index] if face_index < len(face_images) else version["image"]
             faces.append({"id": face_id, "name": name, "zhName": zh_name, "typeLine": face.get("type_line", ""),
                           "zhTypeLine": zh_type, "manaCost": face.get("mana_cost", ""), "oracleText": english,
-                          "zhText": zh_text, "image": image_uri(face) or image_uri(canonical_card), "translation": translation})
+                          "zhText": zh_text, "image": face_image, "translation": translation})
         face_count += len(faces)
         front = faces[0]
         card_translation = dict(front["translation"])
@@ -438,17 +593,24 @@ def main() -> None:
                       "colorIdentity": canonical_card.get("color_identity", []), "typeLine": canonical_card.get("type_line", front["typeLine"]),
                       "zhTypeLine": " // ".join(f["zhTypeLine"] for f in faces), "oracleText": "\n\n".join(f["oracleText"] for f in faces),
                       "zhText": "\n\n".join(f["zhText"] for f in faces), "legalities": {"commander": canonical_card.get("legalities", {}).get("commander", "not_legal")},
-                      "set": canonical_card.get("set", ""), "collectorNumber": canonical_card.get("collector_number", ""),
-                      "defaultVersionId": canonical_card["id"],
-                      "releasedAt": canonical_card.get("released_at", ""), "image": image_uri(canonical_card), "layout": canonical_card.get("layout", ""),
-                      "keywords": canonical_card.get("keywords", []), "producedMana": canonical_card.get("produced_mana", []), "rarity": canonical_card.get("rarity", ""),
-                      "lang": canonical_card.get("lang", "en"), "faces": faces,
-                      "versions": sorted(versions[oid].values(), key=lambda v: (v["releasedAt"], v["set"], v["collectorNumber"]), reverse=True),
+                      "set": version["set"], "collectorNumber": version["collectorNumber"], "defaultVersionId": version["id"],
+                      "releasedAt": version["releasedAt"], "image": version["image"], "layout": canonical_card.get("layout", ""),
+                      "keywords": canonical_card.get("keywords", []), "producedMana": canonical_card.get("produced_mana", []), "rarity": version["rarity"],
+                      "lang": version["lang"], "faces": faces, "versions": card_versions,
                       "translation": card_translation, "tags": sorted(tags_by_id[oid])})
     cards.sort(key=lambda c: (c["name"].casefold(), c["id"]))
     applied_keys = {(entry["oracleId"], entry["faceName"]) for entry in applied_overrides}
-    if set(overrides) - applied_keys:
-        raise ValueError(f"translation override targets not found in frozen card pool: {sorted(set(overrides) - applied_keys)}")
+    skipped_keys = {(entry["oracleId"], entry["faceName"]) for entry in skipped_overrides}
+    missing_overrides = set(overrides) - applied_keys - skipped_keys
+    if missing_overrides and (not args.no_legacy or args.overrides is not None):
+        raise ValueError(f"translation override targets not found in frozen card pool: {sorted(missing_overrides)}")
+    skipped_overrides.extend({"oracleId": oid, "faceName": name, "reason": "face not found in frozen card pool"}
+                             for oid, name in sorted(missing_overrides))
+    counts = {"cards": len(cards), "faces": face_count, "versions": sum(len(card["versions"]) for card in cards)}
+    tag_coverage = {"cards": sum(bool(card["tags"]) for card in cards), "tags": len(vocabulary)}
+    if args.no_legacy:
+        guard_catalog(counts, coverage, tag_coverage, default_count, statistics, previous_manifest)
+    (output / "tag-vocabulary.json").write_text(dumps(vocabulary), encoding="utf-8")
     # Bounded shards avoid hosting per-file limits and permit progressive loading.
     shards = []
     current = []
@@ -468,17 +630,17 @@ def main() -> None:
         filename = f"catalog-{len(shards):03d}.json"
         (output / filename).write_text("[" + ",".join(current) + "]", encoding="utf-8")
         shards.append({"url": filename, "count": len(current), "bytes": current_bytes})
-    sources = [{"name": "Scryfall Oracle Cards", "url": meta.get("oracle_cards", {}).get("jsonl_download_uri", "https://scryfall.com/docs/api/bulk-data"), "date": oracle_date},
+    sources = [{"name": "Scryfall Oracle Cards", "url": source_url(meta.get("oracle_cards", {}), "https://scryfall.com/docs/api/bulk-data"), "date": oracle_date},
                {"name": "magic-cards-zhs (CC BY-SA 4.0)", "url": chinese_url, "date": chinese_date},
-               {"name": "Scryfall Default Cards", "url": meta.get("default_cards", {}).get("jsonl_download_uri", ""), "date": meta.get("default_cards", {}).get("updated_at", "")},
-               {"name": "Scryfall Oracle Tags", "url": meta.get("oracle_tags", {}).get("jsonl_download_uri", ""), "date": meta.get("oracle_tags", {}).get("updated_at", "")}]
+               {"name": "Scryfall Default Cards", "url": source_url(meta.get("default_cards", {})), "date": meta.get("default_cards", {}).get("updated_at", "")},
+               {"name": "Scryfall Oracle Tags", "url": source_url(meta.get("oracle_tags", {})), "date": meta.get("oracle_tags", {}).get("updated_at", "")}]
     from build_search_metadata import write_search_metadata
     search_metadata = write_search_metadata(cards, canonical, oracle_date, output)
     manifest = {"schemaVersion": 1, "updatedAt": datetime.now(timezone.utc).isoformat(), "freezeDate": args.freeze_date,
                 "snapshot": {"oracleDate": oracle_date, "chineseDate": chinese_date},
-                "counts": {"cards": len(cards), "faces": face_count, "versions": sum(len(c["versions"]) for c in cards)},
+                "counts": counts,
                 "shards": shards, "coverage": coverage, "sources": sources, "searchMetadata": search_metadata,
-                "tagCoverage": {"cards": sum(bool(c["tags"]) for c in cards), "tags": len(vocabulary), "includesAncestors": True},
+                "tagCoverage": {**tag_coverage, "includesAncestors": True},
                 "translationReview": {"upstreamAIFaces": upstream_ai_faces, "manualReviewPerformed": False,
                                       "overrideFaces": len(applied_overrides), "overrideReviewStatus": "ai-reviewed" if applied_overrides else None},
                 "tagSource": sources[-1], "tagVocabulary": "tag-vocabulary.json",
@@ -489,6 +651,7 @@ def main() -> None:
               "sourceParsing": statistics, "missingNames": len(name_missing), "unknownFreshnessFaces": len(freshness_unknown),
               "upstreamAIFaces": upstream_ai_faces, "cardNameTemplateReplacements": template_replacements,
               "overrideFaces": len(applied_overrides), "translationOverrides": applied_overrides,
+              "skippedTranslationOverrides": skipped_overrides,
               "translationSources": dict(translation_sources.most_common()), "missing": missing, "stale": stale, "nameMissing": name_missing,
               "assumptions": ["Card pool: released physical paper cards, including Commander banned cards; tokens, emblems, art, digital and non-deck game objects excluded.",
                               "Required faces have nonempty English rules. Genuine blank rules need no translation.",

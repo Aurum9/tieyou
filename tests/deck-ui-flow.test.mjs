@@ -29,7 +29,7 @@ class Element {
 }
 function all(root, predicate) { return root.children.flatMap(node => [...(predicate(node) ? [node] : []), ...all(node, predicate)]); }
 function fixture({ loadCards, initiallyLoaded = false, initialCards, prepareStore, providers = {} } = {}) {
-  globalThis.document = { body: new Element('body'), activeElement: null, createElement: tag => new Element(tag), addEventListener() {}, removeEventListener() {} };
+  globalThis.document = { body: new Element('body'), activeElement: null, createElement: tag => new Element(tag), createElementNS: (_namespace, tag) => new Element(tag), addEventListener() {}, removeEventListener() {} };
   const values = new Map(); const storage = { fail: false, getItem: key => values.get(key) ?? null, setItem(key, value) { if (this.fail) throw new Error('QuotaExceededError'); values.set(key, value); } };
   globalThis.localStorage = storage;
   const store = new DeckStore({ storage }); const first = store.create('甲卡组'), second = store.create('乙卡组');

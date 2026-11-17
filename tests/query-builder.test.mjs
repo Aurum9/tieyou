@@ -40,8 +40,8 @@ function ids(model, suffix = '') {
 }
 
 test('schema exposes every parser field and uniquely identifies conditions', () => {
-  assert.deepEqual(CONDITION_FIELDS.map(field => field.value), ['name', 'o', 't', 'c', 'ci', 'mv', 'pow', 'tou', 'set', 'cn', 'r', 'lang', 'f', 'tag']);
-  assert.equal(new Set(CONDITION_FIELDS.map(field => field.value)).size, 14);
+  assert.deepEqual(CONDITION_FIELDS.map(field => field.value), ['name', 'o', 't', 'c', 'ci', 'mv', 'm', 'a', 'pow', 'tou', 'set', 'cn', 'r', 'lang', 'f', 'tag']);
+  assert.equal(new Set(CONDITION_FIELDS.map(field => field.value)).size, 16);
   assert.equal(CONDITION_FIELDS.find(field => field.value === 'r').options.length, 6);
   for (const field of CONDITION_FIELDS) {
     assert.ok(['text', 'number', 'select', 'colors'].includes(field.input));
