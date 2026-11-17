@@ -771,6 +771,12 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const trigger = el('summary', 'deck-entry-menu-trigger', '…');
     trigger.setAttribute('aria-label', `操作 ${name}`); trigger.title = '卡牌操作';
     const menu = el('div', 'deck-entry-menu');
+    const close = button('×', () => {
+      actions.open = false;
+      trigger.focus({ preventScroll: true });
+    }, 'button button-quiet deck-entry-menu-close');
+    close.setAttribute('aria-label', '关闭卡牌操作');
+    menu.append(close);
     if (viewMode !== 'text') menu.append(field('数量', quantity));
     menu.append(field('分区', zone), field('印刷版本', printing));
     if (groupBy === 'category' && entry.zone !== 'commander') {

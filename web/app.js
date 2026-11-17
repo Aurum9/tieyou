@@ -868,6 +868,11 @@ if (androidApp) window.tieyouHandleBack = () => {
   if (currentView === 'playtest') { $('.pt-back')?.click(); return true; }
   if (currentView === 'catalog') { switchView('decks'); return true; }
   if (!deckUI?.getSelectedDeckId()) return false;
+  const closeCardMenu = $('#deck-view .deck-entry-actions[open] .deck-entry-menu-close');
+  if (closeCardMenu) {
+    closeCardMenu.click();
+    return true;
+  }
   const analysisBack = $('.deck-analysis-heading button');
   if (analysisBack) analysisBack.click();
   else deckUI.showLibrary();

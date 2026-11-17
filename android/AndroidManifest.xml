@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="cn.sbwsz.tieyou" android:versionCode="2" android:versionName="0.1.1">
+    package="cn.sbwsz.tieyou" android:versionCode="4" android:versionName="0.1.3">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <uses-permission android:name="android.permission.INTERNET" />
     <application android:label="铁有" android:icon="@drawable/ic_launcher" android:allowBackup="false"
