@@ -233,6 +233,9 @@ export async function createStandaloneAuth(db) {
   }
 
   return {
+    async currentAccount(request) {
+      return findSession(request, transport(new URL(request.url)));
+    },
     async visitorId(request) {
       const account = await findSession(request, transport(new URL(request.url)));
       return account ? `standalone:${account.id}` : null;

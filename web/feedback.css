@@ -1,0 +1,87 @@
+#feedback-view {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 28px 28px 64px;
+}
+.feedback-heading, .feedback-history-heading, .feedback-compose-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.feedback-heading { margin-bottom: 20px; }
+.feedback-heading h1 { margin: 0; font-size: 26px; }
+.feedback-history-heading { margin: 28px 0 12px; }
+.feedback-history-heading h2 { margin: 0; font-size: 17px; }
+.feedback-composer, .feedback-post {
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 10px;
+}
+.feedback-label { display: block; margin-bottom: 10px; font-size: 14px; font-weight: 600; }
+.feedback-text {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.feedback-compose-actions { margin-top: 12px; flex-wrap: wrap; }
+.feedback-composer-author { margin-left: auto; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.feedback-error { color: #a34537; font-size: 13px; overflow-wrap: anywhere; }
+.feedback-state, .feedback-login { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.feedback-history { display: grid; gap: 16px; margin-bottom: 16px; }
+.feedback-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); }
+.feedback-meta strong { color: var(--ink); font-size: 14px; }
+.feedback-user-id { font-family: monospace; font-size: 11px; }
+.feedback-number { margin-left: auto; }
+.feedback-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font-size: 14px; margin: 14px 0; }
+.feedback-images, .feedback-previews { display: flex; flex-wrap: wrap; gap: 10px; }
+.feedback-previews:not(:empty) { margin-top: 12px; }
+.feedback-image-button { padding: 0; border: 1px solid var(--line); background: none; border-radius: 6px; overflow: hidden; cursor: zoom-in; }
+.feedback-image-button img, .feedback-preview img { display: block; width: 130px; height: 150px; object-fit: cover; }
+.feedback-preview { position: relative; }
+.feedback-remove-image {
+  position: absolute; right: 3px; top: 3px; width: 32px; height: 32px;
+  border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink); font-size: 22px;
+}
+.feedback-discussion { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.feedback-discussion summary { cursor: pointer; color: var(--accent); font-size: 13px; padding: 8px 0; }
+.feedback-reply { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.feedback-reply .feedback-body { margin-bottom: 0; }
+.feedback-reply-form { display: grid; gap: 8px; margin-top: 14px; }
+.feedback-reply-form > button { justify-self: end; min-width: 72px; }
+.feedback-image-dialog { width: min(1000px, calc(100vw - 24px)); max-height: 90dvh; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.feedback-image-dialog::backdrop { background: #14271fd9; }
+.feedback-image-dialog img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.feedback-image-close { display: flex; position: sticky; top: 0; margin-left: auto; min-width: 44px; font-size: 24px; }
+.header-feedback { white-space: nowrap; }
+.header-feedback .icon { width: 18px; height: 18px; }
+@media (max-width: 700px) {
+  #feedback-view { padding: 20px 12px 40px; }
+  .feedback-composer, .feedback-post { padding: 14px; }
+  .feedback-text { font-size: 16px; }
+  .header-feedback { min-width: 44px; padding-inline: 0; }
+  .header-feedback > span { display: none; }
+  .feedback-compose-actions { gap: 8px; }
+  .feedback-image-button img, .feedback-preview img { width: 100px; height: 120px; }
+}
+@media (max-width: 400px) {
+  .app-header .brand-subtitle { display: none; }
+  .app-header .header-actions { gap: 2px; }
+  .app-header .main-nav { gap: 2px; }
+  .app-header .nav-item { padding-inline: 2px; }
+}
+@media (max-width: 350px) {
+  .app-header .nav-item { min-width: 36px; justify-content: center; }
+  .app-header .nav-item > .icon { display: inline-block; }
+  .app-header .nav-item > span { display: none; }
+}

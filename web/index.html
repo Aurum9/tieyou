@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="./deck-analysis.css" />
     <link rel="stylesheet" href="./filter.css?v=0.5.11" />
     <link rel="stylesheet" href="./playtest.css" />
+    <link rel="stylesheet" href="./feedback.css?v=0.6.0" />
   </head>
   <body>
     <svg xmlns="http://www.w3.org/2000/svg" class="icon-defs" aria-hidden="true">
@@ -28,6 +29,7 @@
       <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.6 2.25c-.8.4-1.1.85-1.1 1.75M12 17h.01"/></symbol>
       <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v11m-4-4 4 4 4-4M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></symbol>
+      <symbol id="i-feedback" viewBox="0 0 24 24"><path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 4V5a2 2 0 0 1 2-2Z M7 8h10M7 12h7"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
       <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></symbol>
       <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m3 16 5-5 4 4 3-3 6 6"/></symbol>
@@ -43,10 +45,11 @@
         <span class="brand-name">铁有<span class="brand-subtitle">万智牌 EDH 组牌工具</span></span>
       </a>
       <nav class="main-nav" aria-label="主导航">
-        <button class="nav-item active" data-view="decks" aria-current="page"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
-        <button class="nav-item" data-view="catalog"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
+        <button class="nav-item active" data-view="decks" aria-label="我的卡组" aria-current="page"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
+        <button class="nav-item" data-view="catalog" aria-label="卡牌检索"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
       </nav>
       <div class="header-actions">
+        <button class="button button-quiet header-feedback" data-view="feedback" type="button" aria-label="问题反馈" title="问题反馈"><svg class="icon" aria-hidden="true"><use href="#i-feedback"/></svg><span>反馈</span></button>
         <a class="button header-app-download" href="./downloads/tieyou-android.apk" download="tieyou-android.apk" aria-label="下载 Android 测试版" title="下载 Android 测试版"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span>下载 App</span></a>
         <button id="account-open" class="button account-open" type="button" hidden>登录</button>
       </div>
@@ -157,6 +160,7 @@
       </div>
     </main>
     <main id="playtest-view" hidden></main>
+    <main id="feedback-view" hidden></main>
 
     <div id="detail-layer" class="detail-layer" hidden>
       <button id="detail-scrim" class="detail-scrim" aria-label="关闭卡牌详情" tabindex="-1"></button>
@@ -196,7 +200,7 @@
       <p id="account-error" class="deck-form-error" role="alert" hidden></p>
     </dialog>
     <div id="toast-stack" class="toast-stack" aria-live="polite" aria-relevant="additions"></div>
-    <script id="app-entry" type="module" src="./app.js?v=0.5.13"></script>
+    <script id="app-entry" type="module" src="./app.js?v=0.6.0"></script>
     <script>
       (function () {
         function showStartupError() {

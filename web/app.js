@@ -15,6 +15,7 @@ import { hasCatalogQueryIntent } from './lib/catalog-query-policy.js';
 import { PlaytestStorage } from './lib/playtest-storage.js';
 import { appendManaText, manaCost } from './lib/mana-symbols.js';
 import { wireAccount } from './lib/account-ui.js';
+import { initFeedbackUI } from './lib/feedback-ui.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -30,6 +31,7 @@ let playtestModule = null;
 let matchedCards = [];
 let renderedCount = 0;
 let currentView = 'decks';
+let feedbackUI;
 let catalogTargetId = null;
 let catalogScopeEnabled = true;
 let knownSetCodes = new Set();
@@ -442,6 +444,8 @@ function switchView(view) {
   $('#catalog-view').hidden = view !== 'catalog';
   $('#deck-view').hidden = view !== 'decks';
   $('#playtest-view').hidden = view !== 'playtest';
+  $('#feedback-view').hidden = view !== 'feedback';
+  $('.header-feedback').setAttribute('aria-pressed', String(view === 'feedback'));
   $$('.nav-item').forEach((button) => {
     const active = button.dataset.view === (view === 'playtest' ? 'decks' : view);
     button.classList.toggle('active', active);
@@ -453,6 +457,13 @@ function switchView(view) {
     else initializeDeckWorkspace();
   } else if (view === 'catalog') {
     runSearch();
+  } else if (view === 'feedback') {
+    if (!feedbackUI) feedbackUI = initFeedbackUI({
+      container: $('#feedback-view'),
+      onLogin: () => $('#account-open').click(),
+      onBack: () => switchView('decks'),
+    });
+    void feedbackUI.show();
   }
 }
 
@@ -787,7 +798,7 @@ function wireEvents() {
   $('#filter-scrim').addEventListener('click', closeFilters);
   $('#advanced-open').addEventListener('click', showAdvancedFilters);
   $$('[data-query]').forEach((button) => button.addEventListener('click', () => setQuery(button.dataset.query)));
-  $$('.nav-item').forEach((button) => button.addEventListener('click', () => switchView(button.dataset.view)));
+  $$('[data-view]').forEach((button) => button.addEventListener('click', () => switchView(button.dataset.view)));
   $('.brand').addEventListener('click', (event) => { event.preventDefault(); deckUI?.showLibrary(); switchView('decks'); });
   $('.skip-link').addEventListener('click', (event) => { event.preventDefault(); switchView('catalog'); $('#search-input').focus(); });
   $('#catalog-target-select').addEventListener('change', event => selectCatalogTarget(event.target.value));
@@ -867,6 +878,7 @@ if (androidApp) window.tieyouHandleBack = () => {
   if ($('#catalog-view').classList.contains('filters-mobile-open')) { closeFilters(); return true; }
   if (currentView === 'playtest') { $('.pt-back')?.click(); return true; }
   if (currentView === 'catalog') { switchView('decks'); return true; }
+  if (currentView === 'feedback') { switchView('decks'); return true; }
   if (!deckUI?.getSelectedDeckId()) return false;
   const closeCardMenu = $('#deck-view .deck-entry-actions[open] .deck-entry-menu-close');
   if (closeCardMenu) {
