@@ -441,6 +441,7 @@ function switchView(view) {
   if (view !== 'playtest') playtestUI?.closeOverlays({ restoreFocus: false });
   closeFilters();
   currentView = view;
+  document.body.classList.toggle('is-playtesting', view === 'playtest');
   $('#catalog-view').hidden = view !== 'catalog';
   $('#deck-view').hidden = view !== 'decks';
   $('#playtest-view').hidden = view !== 'playtest';

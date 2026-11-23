@@ -32,6 +32,8 @@ public final class MainActivity extends Activity {
     private WebView web;
     private ValueCallback<Uri[]> upload;
     private String exportContent;
+    private AppUpdates updates;
+    private WebAssets webAssets;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -47,6 +49,9 @@ public final class MainActivity extends Activity {
         web.getSettings().setAllowContentAccess(false);
         CookieManager.getInstance().setAcceptCookie(true);
         web.addJavascriptInterface(new DeckFiles(), "TieyouDeckFiles");
+        updates = new AppUpdates(this);
+        webAssets = new WebAssets(this);
+        web.addJavascriptInterface(new UpdateActions(), "TieyouUpdates");
 
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -54,21 +59,23 @@ public final class MainActivity extends Activity {
                 if (!isSite(url) || !"GET".equals(request.getMethod())) return null;
                 String path = url.getPath();
                 if (path == null || path.equals("/")) path = "/index.html";
-                // The app bundles UI assets. API requests still go to the same HTTPS origin.
+                // One complete downloaded bundle, or the bundled offline UI, serves this WebView.
                 if (!path.matches("/[A-Za-z0-9_./-]+") || path.contains("..") ||
                         path.startsWith("/api/")) return null;
                 String type = mimeType(path);
                 if (type == null) return null;
                 try {
                     WebResourceResponse response = new WebResourceResponse(type, path.endsWith(".png") ? null : "UTF-8",
-                            getAssets().open("web" + path));
+                            webAssets.open(path));
+                    java.util.Map<String, String> headers = new java.util.HashMap<>();
+                    headers.put("Cache-Control", "no-store");
                     if (path.equals("/index.html")) {
-                        response.setResponseHeaders(Collections.singletonMap("Content-Security-Policy",
-                                "script-src 'self' 'unsafe-inline'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"));
+                        headers.put("Content-Security-Policy", "script-src 'self' 'unsafe-inline'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'");
                     }
+                    response.setResponseHeaders(headers);
                     return response;
                 } catch (IOException missingAsset) {
-                    return null;
+                    return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", Collections.emptyMap(), new java.io.ByteArrayInputStream(new byte[0]));
                 }
             }
 
@@ -135,8 +142,30 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private final class UpdateActions {
+        @JavascriptInterface public String versionName() { return updates.versionName(); }
+        @JavascriptInterface public void checkForUpdates() {
+            runOnUiThread(() -> {
+                if (isSite(Uri.parse(web.getUrl() == null ? "" : web.getUrl()))) updates.check(true);
+            });
+        }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (updates != null) updates.resume();
+        if (webAssets != null) webAssets.resume();
+    }
+
+    @Override protected void onDestroy() {
+        if (updates != null) updates.destroy();
+        if (webAssets != null) webAssets.destroy();
+        super.onDestroy();
+    }
+
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (updates != null) updates.permissionResult(request);
         if (request == CHOOSE_FILE && upload != null) {
             ValueCallback<Uri[]> callback = upload;
             upload = null;

@@ -1,4 +1,7 @@
-param([string]$Sdk = $env:ANDROID_HOME)
+param(
+    [string]$Sdk = $env:ANDROID_HOME,
+    [string]$ReleaseNotes = '页面资源支持后台自动更新；安装包新版可在 App 内检查、下载并安装。'
+)
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -38,6 +41,7 @@ foreach ($filename in 'tag-vocabulary.json', 'playtest-tokens.json', 'DATA-LICEN
 $index = (Resolve-Path (Join-Path $webAssets 'index.html')).Path
 $html = [IO.File]::ReadAllText($index).Replace('<head>', '<head><script>window.tieyouAndroid = true;document.documentElement.classList.add("tieyou-android");</script>')
 [IO.File]::WriteAllText($index, $html, $utf8)
+Invoke-Checked 'node.exe' @('scripts/build-android-web.mjs', '--assets', $webAssets)
 
 $aapt2 = Join-Path $sdkTools 'aapt2.exe'
 $resources = Join-Path $build 'resources.zip'
@@ -47,7 +51,8 @@ $manifest = 'android/AndroidManifest.xml'
 Invoke-Checked $aapt2 @('compile', '--dir', 'android/res', '-o', $resources)
 Invoke-Checked $aapt2 @('link', '-o', $unsigned, '--manifest', $manifest, '-I', $platformJar, $resources)
 
-Invoke-Checked 'javac.exe' @('--release', '8', '-encoding', 'UTF-8', '-cp', $platformJar, '-d', $classes, 'android/src/cn/sbwsz/tieyou/MainActivity.java')
+$javaSources = @(Get-ChildItem -LiteralPath 'android/src/cn/sbwsz/tieyou' -Filter '*.java' -File | ForEach-Object FullName)
+Invoke-Checked 'javac.exe' (@('--release', '8', '-encoding', 'UTF-8', '-cp', $platformJar, '-d', $classes) + $javaSources)
 $classJar = Join-Path $build 'classes.jar'
 Invoke-Checked 'jar.exe' @('cf', $classJar, '-C', $classes, '.')
 Invoke-Checked (Join-Path $sdkTools 'd8.bat') @('--min-api', '26', '--lib', $platformJar, '--output', $build, $classJar)
@@ -76,5 +81,21 @@ $apksigner = Join-Path $sdkTools 'apksigner.bat'
 Invoke-Checked $apksigner @('sign', '--ks', $key, '--ks-key-alias', 'tieyou-test', '--ks-pass', 'pass:android', '--key-pass', 'pass:android',
     '--out', $apk, $aligned)
 Invoke-Checked $apksigner @('verify', '--verbose', $apk)
+[xml]$manifestXml = Get-Content -LiteralPath $manifest -Raw
+$androidNamespace = 'http://schemas.android.com/apk/res/android'
+$versionName = $manifestXml.manifest.GetAttribute('versionName', $androidNamespace)
+$versionCode = [int]$manifestXml.manifest.GetAttribute('versionCode', $androidNamespace)
+if ($versionName -notmatch '^[0-9.]{1,24}$') { throw 'Invalid Android version name' }
+$versionedName = "tieyou-android-$versionName.apk"
+Copy-Item -LiteralPath $apk -Destination (Join-Path $output $versionedName) -Force
+$release = [ordered]@{
+    versionCode = $versionCode
+    versionName = $versionName
+    url = "https://sbwsz.cn/downloads/$versionedName"
+    size = (Get-Item -LiteralPath $apk).Length
+    sha256 = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
+    notes = $ReleaseNotes
+}
+[IO.File]::WriteAllText((Join-Path (Resolve-Path $output).Path 'android-release.json'), ($release | ConvertTo-Json) + "`n", $utf8)
 Write-Output (Resolve-Path $apk).Path
 } finally { Pop-Location }

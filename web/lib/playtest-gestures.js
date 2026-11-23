@@ -64,6 +64,15 @@ export function attachCardGestures(element, { id, zone, axis = 'free', onDrop = 
       ghost.setAttribute?.('aria-hidden', 'true'); ghost.inert = true; ghost.removeAttribute?.('id');
       for (const child of ghost.querySelectorAll?.('[id]') || []) child.removeAttribute('id');
       if (ghost.style) Object.assign(ghost.style, { position: 'fixed', left: '0', top: '0', width: `${rect.width}px`, height: `${rect.height}px`, margin: '0', pointerEvents: 'none', zIndex: '10000' });
+      const computed = view?.getComputedStyle?.(element);
+      for (const property of ['--pt-board-width', '--pt-board-caption']) {
+        const value = computed?.getPropertyValue(property);
+        if (value) ghost.style.setProperty(property, value);
+      }
+      if (['graveyard', 'exile', 'command'].includes(zone)) {
+        const visual = element.querySelector?.('.pt-card-visual'), copy = ghost.querySelector?.('.pt-card-visual');
+        if (visual && copy) { copy.style.height = `${visual.getBoundingClientRect().height}px`; copy.style.aspectRatio = 'auto'; }
+      }
       doc?.body?.append?.(ghost); moveGhost();
     }
     updateTarget();
@@ -106,8 +115,9 @@ export function attachCardGestures(element, { id, zone, axis = 'free', onDrop = 
     const target = dragging ? targetAt(active.x, active.y) : null;
     const destination = target?.dataset?.dropZone || target?.getAttribute?.('data-drop-zone');
     if (active.mode !== 'pending' || menu) { suppressClick = true; event.preventDefault(); }
+    const offsetX = active.offsetX, offsetY = active.offsetY;
     finish();
-    if (destination) onDrop(id, destination, { target, x: event.clientX, y: event.clientY });
+    if (destination) onDrop(id, destination, { target, x: event.clientX, y: event.clientY, ...(destination === 'battlefield-free' ? { offsetX, offsetY } : {}) });
     else if (menu) onMenu();
   }
   function pointerCancel(event) { if (active && event.pointerId === active.pointerId) { suppressClick = true; finish(); } }

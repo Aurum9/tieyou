@@ -96,10 +96,11 @@ function validateBattlefieldRow(row) {
   if (!PLAYTEST_BATTLEFIELD_ROWS.includes(row)) fail('战场排无效');
 }
 function validateBattlefieldSlot(slot) { return int(slot, '战场格位', 0, PLAYTEST_BATTLEFIELD_SLOTS - 1); }
-function placeOnBattlefield(state, id, card, { row, slot } = {}) {
+function placeOnBattlefield(state, id, card, { row, slot, x, y } = {}) {
   const positions = state.battlefieldPositions;
   const previous = Object.hasOwn(positions, id) ? positions[id] : null;
-  if (previous && row === undefined && slot === undefined) return;
+  if (previous && row === undefined && slot === undefined && x === undefined && y === undefined) return;
+  if (x !== undefined || y !== undefined) { int(x, '战场横坐标', 0, 1000); int(y, '战场纵坐标', 0, 1000); }
   if (row === undefined) row = previous?.row || defaultBattlefieldRow(state.pieces[id], card);
   validateBattlefieldRow(row);
   if (slot !== undefined) validateBattlefieldSlot(slot);
@@ -114,17 +115,17 @@ function placeOnBattlefield(state, id, card, { row, slot } = {}) {
     while (occupied.has(slot)) slot++;
     validateBattlefieldSlot(slot);
   }
-  Object.defineProperty(positions, id, { value: { row, slot }, writable: true, enumerable: true, configurable: true });
+  Object.defineProperty(positions, id, { value: { row, slot, ...(x === undefined ? {} : { x, y }) }, writable: true, enumerable: true, configurable: true });
 }
-function move(state, id, to, position = 'bottom', { row, slot, card } = {}) {
+function move(state, id, to, position = 'bottom', { row, slot, card, x, y } = {}) {
   if (!PLAYTEST_ZONES.includes(to)) fail('目标区域无效');
   if (!['top', 'bottom'].includes(position)) fail('牌库位置无效');
   const from = locate(state, id);
   if (to === 'battlefield') {
-    placeOnBattlefield(state, id, card, { row, slot });
+    placeOnBattlefield(state, id, card, { row, slot, x, y });
     if (from === to) return;
   } else {
-    if (row !== undefined || slot !== undefined) fail('格位仅适用于战场');
+    if (row !== undefined || slot !== undefined || x !== undefined || y !== undefined) fail('位置仅适用于战场');
     if (from === 'battlefield') delete state.battlefieldPositions[id];
   }
   const piece = state.pieces[id];
@@ -187,6 +188,38 @@ export class PlaytestSession {
     if (type === 'life') { int(action.delta, '生命变化', -9999, 9999); state.life = int(state.life + action.delta, '生命', -99999, 99999); log(state, `生命${action.delta >= 0 ? '+' : ''}${action.delta} → ${state.life}`); return; }
     if (type === 'setLandLimit') { state.landLimit = int(action.value, '本回合下地上限', 0, 99); log(state, `本回合下地上限设为 ${state.landLimit}`); return; }
     if (type === 'shuffle') { shuffle(state.zones.library, this.#random); log(state, '已洗牌库'); return; }
+    if (type === 'roll') {
+      const sides = int(action.sides ?? 6, '骰子面数', 2, 1000), count = int(action.count ?? 1, '骰子个数', 1, 20);
+      const values = Array.from({ length: count }, () => { const random = this.#random(); if (!Number.isFinite(random) || random < 0 || random >= 1) fail('掷骰随机数无效'); return Math.floor(random * sides) + 1; });
+      state.lastRoll = { sides, values }; log(state, `掷 ${count} 个 D${sides}：${values.join('、')}`); return;
+    }
+    if (type === 'untapAll') {
+      for (const id of state.zones.battlefield) state.pieces[id].tapped = false;
+      log(state, '重置所有永久物'); return;
+    }
+    if (type === 'batchMove' || type === 'randomDiscard') {
+      let ids;
+      if (type === 'randomDiscard') {
+        const count = int(action.count ?? 1, '随机弃牌张数', 1, state.zones.hand.length);
+        ids = [...state.zones.hand]; shuffle(ids, this.#random); ids = ids.slice(0, count);
+      } else {
+        if (!PLAYTEST_ZONES.includes(action.from) || !PLAYTEST_ZONES.includes(action.to) || action.from === action.to) fail('请选择不同的来源与目标区域');
+        ids = action.ids;
+        if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length || ids.some(id => !state.zones[action.from].includes(id))) fail('批量移动的牌张无效');
+        if (!['top', 'bottom', 'shuffle'].includes(action.position ?? 'bottom')) fail('牌库位置无效');
+        if (action.position === 'shuffle' && action.to !== 'library') fail('洗入仅适用于牌库');
+      }
+      const to = type === 'randomDiscard' ? 'graveyard' : action.to;
+      const position = action.position === 'top' ? 'top' : 'bottom';
+      // Move in reverse when prepending, preserving the caller's top-to-bottom order.
+      for (const id of position === 'top' ? [...ids].reverse() : ids) {
+        const piece = state.pieces[id];
+        move(state, id, to, position, { card: piece.token ? piece : this.#index.get(piece.cardId) });
+      }
+      if (action.position === 'shuffle') shuffle(state.zones.library, this.#random);
+      log(state, type === 'randomDiscard' ? `随机弃 ${ids.length} 张牌` : `${ids.length} 张牌：${ZONE_NAMES[action.from]} → ${ZONE_NAMES[to]}`);
+      return;
+    }
     if (type === 'nextTurn') {
       int(state.turn + 1, '回合数', 1, 99999); state.turn++; state.landsPlayed = 0; state.landLimit = 1;
       for (const id of state.zones.battlefield) state.pieces[id].tapped = false;
@@ -211,7 +244,7 @@ export class PlaytestSession {
     if (!piece) fail('找不到这张测试牌');
     const from = locate(state, id), card = piece.token && piece.tokenTemplateId ? piece : this.#index.get(piece.cardId), face = card?.faces?.[piece.face] || card;
     if (type === 'move') {
-      move(state, id, action.to, action.position, { row: action.row, slot: action.slot, card });
+      move(state, id, action.to, action.position, { row: action.row, slot: action.slot, x: action.x, y: action.y, card });
       log(state, from === 'battlefield' && action.to === from ? `${piece.name}：调整战场位置` : `${piece.name}：${ZONE_NAMES[from]} → ${ZONE_NAMES[action.to]}${action.to === 'library' ? (action.position === 'top' ? '顶' : '底') : ''}`);
       return;
     }
@@ -302,12 +335,18 @@ export class PlaytestSession {
         const position = positions[id];
         if (!Object.hasOwn(positions, id) || !record(position)) fail('战场位置损坏');
         validateBattlefieldRow(position.row); validateBattlefieldSlot(position.slot);
+        if (position.x !== undefined || position.y !== undefined) { int(position.x, '战场横坐标', 0, 1000); int(position.y, '战场纵坐标', 0, 1000); }
         const key = `${position.row}:${position.slot}`;
         if (occupied.has(key)) fail('战场格位重复');
         occupied.add(key);
       }
     }
     if (!Object.hasOwn(state, 'showLibraryTop')) state.showLibraryTop = false;
+    if (state.lastRoll !== undefined) {
+      if (!record(state.lastRoll) || !Array.isArray(state.lastRoll.values)) fail('掷骰记录损坏');
+      int(state.lastRoll.sides, '骰子面数', 2, 1000); int(state.lastRoll.values.length, '骰子个数', 1, 20);
+      for (const value of state.lastRoll.values) int(value, '骰子结果', 1, state.lastRoll.sides);
+    }
     if (typeof state.showLibraryTop !== 'boolean') fail('牌库顶显示设置无效');
     if (state.phase === 'opening' && state.bottomRequired > state.zones.hand.length) fail('调度沉底数量无效');
     for (const entry of state.log) { if (!record(entry)) fail('操作记录损坏'); str(entry.id, '记录 ID'); str(entry.text, '操作记录', 1000); int(entry.turn, '记录回合', 0, 99999); }

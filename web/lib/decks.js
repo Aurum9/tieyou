@@ -1,4 +1,5 @@
 /** Local deck library. Card identities and printing IDs are stored separately. */
+import { validateDeckEditorPreferences } from './deck-editor-sort.js';
 export const STORAGE_KEY = 'edh.deck-library.v1';
 export const BACKUP_FORMAT = 'edh-deck-library';
 export const ZONES = ['commander', 'main', 'considering'];
@@ -35,6 +36,7 @@ function validateRecord(deck, cards) {
     customCategories: [...new Set(customCategories.map(category => str(category, '个人分类', 100, false).trim()))], entries: []
   };
   if (!Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.updatedAt))) fail('卡组时间格式不正确');
+  if (deck.editorPreferences !== undefined) record.editorPreferences = validateDeckEditorPreferences(deck.editorPreferences);
   if (!Array.isArray(deck.entries) || deck.entries.length > 10000) fail('卡组条目格式不正确或超过上限');
   const ids = new Set();
   const index = cards ? cardIndex(cards) : null;

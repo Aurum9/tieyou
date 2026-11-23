@@ -11,7 +11,8 @@ class Element {
     this.classList = {
       add: (...names) => { this.className = [...new Set([...this.className.split(' ').filter(Boolean), ...names])].join(' '); },
       remove: (...names) => { this.className = this.className.split(' ').filter(name => !names.includes(name)).join(' '); },
-      contains: name => this.className.split(' ').includes(name)
+      contains: name => this.className.split(' ').includes(name),
+      toggle: (name, force) => { const active = force ?? !this.classList.contains(name); this.classList[active ? 'add' : 'remove'](name); return active; }
     };
   }
   set textContent(value) { this._text = String(value); this.replaceChildren(); }
@@ -78,7 +79,7 @@ function fixture({ entries = [entry('forest', 15), entry('chief', 1, 'commander'
   const ui = newUI(); ui.open(deck); return { ui, newUI, container, deck, store, map, backend, notices, doc, scrolls };
 }
 function start(f) { form(f.container, 'pt-setup').dispatch('submit'); }
-function keep(f) { button(f.container, '保留并开始').dispatch('click'); }
+function keep(f) { button(f.container, saved(f).bottomRequired ? '沉底并保留' : '保留').dispatch('click'); }
 function saved(f) { return JSON.parse(f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id)).state; }
 function tile(f, id) { return all(f.container, n => n.getAttribute('data-piece-id') === id)[0]; }
 function play(f, id) { byClass(tile(f, id), 'pt-card-hit')[0].dispatch('click'); }
@@ -110,15 +111,39 @@ test('opening shows the hand first and hides all other game zones and controls',
   const f = fixture(); start(f);
   assert.match(f.container.textContent, /手牌 · 7/); assert.equal(byClass(f.container, 'pt-opening-hand').length, 1); assert.equal(byClass(f.container, 'pt-hand-row')[0].children.length, 7);
   assert.equal(byClass(f.container, 'pt-table').length, 0); assert.equal(byClass(f.container, 'pt-controls').length, 0); assert.equal(all(f.container, n => n.getAttribute('data-drop-zone') !== null).length, 0);
-  assert.equal(button(f.container, '保留并开始').disabled, false); assertConcise(f.container);
+  assert.equal(button(f.container, '保留').disabled, false); assertConcise(f.container);
+});
+
+test('zone batch filters move only matching cards and shortcuts discard or reset without changing the source deck', () => {
+  const f = fixture({ entries: [entry('forest', 3), entry('ring'), entry('chief')] }); start(f); keep(f);
+  const source = f.map.get('edh.deck-library.v1');
+  labelled(f.container, '手牌操作').dispatch('click');
+  let filter = labelled(f.container, '批量移动类别'); filter.value = 'Land'; filter.dispatch('input');
+  assert.equal(button(f.container, '移动 3 张').disabled, false);
+  form(f.container, 'pt-batch-form').dispatch('submit');
+  assert.equal(saved(f).zones.graveyard.length, 3); assert.equal(saved(f).zones.hand.length, 2);
+  labelled(f.container, '手牌操作').dispatch('click');
+  labelled(f.container, '随机弃牌张数').value = '1'; form(f.container, 'pt-random-form').dispatch('submit');
+  assert.equal(saved(f).zones.graveyard.length, 4); assert.equal(saved(f).zones.hand.length, 1);
+  const id = saved(f).zones.hand[0]; play(f, id); play(f, id); assert.equal(saved(f).pieces[id].tapped, true);
+  labelled(f.container, '战场操作').dispatch('click'); button(f.container, '全部重置').dispatch('click');
+  assert.equal(saved(f).pieces[id].tapped, false); assert.equal(f.map.get('edh.deck-library.v1'), source);
+});
+
+test('clicking an instant in hand moves it directly to the graveyard while permanent cards enter the battlefield', () => {
+  const f = fixture({ entries: [entry('split', 7), entry('forest')] }); start(f); keep(f);
+  const s = saved(f), id = s.zones.hand.find(id => s.pieces[id].cardId === 'split');
+  assert.ok(id); play(f, id);
+  assert.ok(saved(f).zones.graveyard.includes(id)); assert.equal(saved(f).zones.battlefield.includes(id), false);
+  assert.equal(saved(f).zones.hand.includes(id), false);
 });
 
 test('paid mulligans show bottom-selection progress and block keep until the required cards are selected', () => {
-  const f = fixture(); start(f); button(f.container, '重新调度（免费）').dispatch('click'); button(f.container, '重新调度（沉底 1 张）').dispatch('click');
-  assert.equal(button(f.container, '保留并开始').disabled, true); assert.equal(byClass(f.container, 'pt-bottom-progress')[0].textContent, '沉底 0/1');
+  const f = fixture(); start(f); button(f.container, '调度').dispatch('click'); button(f.container, '调度').dispatch('click');
+  assert.equal(button(f.container, '沉底并保留').disabled, true); assert.equal(byClass(f.container, 'pt-bottom-progress')[0].textContent, '请选择 1 张牌置于牌库底 · 0/1');
   const first = saved(f).zones.hand[0]; byClass(tile(f, first), 'pt-card-hit')[0].dispatch('click');
-  assert.equal(byClass(f.container, 'pt-bottom-progress')[0].textContent, '沉底 1/1'); assert.equal(button(f.container, '保留并开始').disabled, false);
-  byClass(tile(f, first), 'pt-card-hit')[0].dispatch('click'); assert.equal(button(f.container, '保留并开始').disabled, true);
+  assert.equal(byClass(f.container, 'pt-bottom-progress')[0].textContent, '请选择 1 张牌置于牌库底 · 1/1'); assert.equal(button(f.container, '沉底并保留').disabled, false);
+  byClass(tile(f, first), 'pt-card-hit')[0].dispatch('click'); assert.equal(button(f.container, '沉底并保留').disabled, true);
   byClass(tile(f, first), 'pt-card-hit')[0].dispatch('click'); keep(f);
   assert.equal(saved(f).zones.library.at(-1), first); assert.equal(saved(f).zones.hand.length, 7); assertConcise(f.container);
 });
@@ -128,7 +153,7 @@ test('playing shows battlefield above hand and four side piles; menu movement le
   const table = byClass(f.container, 'pt-table')[0]; assert.equal(table.children[0].getAttribute('data-drop-zone'), 'battlefield');
   assert.equal(byClass(f.container, 'pt-hand').length, 1);
   assert.equal(byClass(f.container, 'pt-hand-column')[0].children[1].className, 'pt-controls');
-  assert.equal(all(table.children[0], node => node.getAttribute('data-hand-scroll') !== null).length, 1);
+  assert.equal(all(table.children[0], node => node.getAttribute('data-hand-scroll') !== null).length, 0);
   assert.deepEqual(byClass(f.container, 'pt-zone-pile').map(n => n.getAttribute('data-drop-zone')), ['library-top', 'graveyard', 'exile', 'command']);
   const id = saved(f).zones.hand[0]; play(f, id); assert.ok(saved(f).zones.battlefield.includes(id));
   assert.equal(byClass(f.container, 'pt-dialog').length, 0);
@@ -180,7 +205,7 @@ test('saved play resumes with life and turn while a new test uses the edited dec
   const f = fixture(); start(f); keep(f); button(f.container, '-5').dispatch('click'); button(f.container, '下一回合').dispatch('click');
   const edited = structuredClone(f.deck); edited.entries[0].quantity = 3; const ui = f.newUI(); ui.open(edited);
   assert.ok(button(f.container, '继续试牌')); button(f.container, '继续试牌').dispatch('click'); assert.match(f.container.textContent, /第 2 回合/); assert.equal(saved(f).life, 35); assert.equal(saved(f).deck.entries[0].quantity, 15);
-  button(f.container, '设置').dispatch('click'); assert.ok(button(f.container, '重新开始')); start(f); assert.match(f.container.textContent, /手牌 · 3/); assert.equal(saved(f).deck.entries[0].quantity, 3);
+  button(f.container, '更多 ⋯').dispatch('click'); button(f.container, '重开测试').dispatch('click'); assert.ok(button(f.container, '重新开始')); start(f); assert.match(f.container.textContent, /手牌 · 3/); assert.equal(saved(f).deck.entries[0].quantity, 3);
 });
 
 test('quota errors remain visible and retry saves the same live session without a redundant success message', () => {
@@ -197,7 +222,7 @@ test('corrupt progress blocks overwrite until explicitly selected and never chan
 
 test('zone trays use non-modal dialogs and closeOverlays closes them without changing progress', () => {
   const f = fixture(); start(f); keep(f); const before = f.map.get(PLAYTEST_STORAGE_PREFIX + f.deck.id);
-  button(f.container, '坟场 0').dispatch('click'); let dialog = byClass(f.container, 'pt-dialog')[0]; assert.equal(dialog.modal, false); assert.match(dialog.textContent, /0 张/);
+  button(f.container, '坟场 0 ▾').dispatch('click'); let dialog = byClass(f.container, 'pt-dialog')[0]; assert.equal(dialog.modal, false); assert.match(dialog.textContent, /0 张/);
   f.ui.closeOverlays(); assert.equal(dialog.isConnected, false); assert.equal(dialog.open, false); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
   const options = libraryMenu(f); assert.equal(options.modal, false); assert.equal(labelled(options, '搜索测试牌库'), undefined);
   button(options, '搜寻卡牌').dispatch('click');
@@ -252,7 +277,7 @@ test('dragging the library back or revealed top moves just that card', () => {
   assert.deepEqual(saved(f).zones.library, rest);
 });
 
-test('dragging reorders the hand and swaps or frees fixed battlefield slots', () => {
+test('dragging reorders the hand and freely places battlefield cards without swapping neighbours', () => {
   const f = fixture({ entries: [entry('forest', 3), entry('ring'), entry('transform')] }); start(f); keep(f);
   const [first, second, ...rest] = saved(f).zones.hand;
   drag(f, second, tile(f, first));
@@ -267,16 +292,15 @@ test('dragging reorders the hand and swaps or frees fixed battlefield slots', ()
   assert.equal(tile(f, creature).parentNode, boardSlot(f, 'upper', 0));
   play(f, land);
   assert.ok(Number(tile(f, land).parentNode.style.zIndex) > Number(tile(f, ring).parentNode.style.zIndex));
+  const previousRing = saved(f).battlefieldPositions[ring];
   drag(f, land, byClass(tile(f, ring), 'pt-card-hit')[0]);
-  assert.equal(tile(f, land).parentNode, boardSlot(f, 'lower', 1));
-  assert.equal(tile(f, ring).parentNode, boardSlot(f, 'lower', 0));
+  assert.ok(Number.isInteger(saved(f).battlefieldPositions[land].x));
+  assert.ok(Number.isInteger(saved(f).battlefieldPositions[land].y));
+  assert.deepEqual(saved(f).battlefieldPositions[ring], previousRing);
   assert.equal(saved(f).pieces[land].tapped, true);
-  drag(f, ring, boardSlot(f, 'upper', 2));
-  assert.equal(tile(f, ring).parentNode, boardSlot(f, 'upper', 2));
-  assert.ok(boardSlot(f, 'lower', 0).classList.contains('is-empty'));
-  assert.equal(tile(f, land).parentNode, boardSlot(f, 'lower', 1));
   play(f, anotherLand);
-  assert.equal(tile(f, anotherLand).parentNode, boardSlot(f, 'lower', 0));
+  assert.ok(saved(f).zones.battlefield.includes(anotherLand));
+
 });
 
 test('peek drag reorders only the selected cards and supports all five destinations', () => {
@@ -300,7 +324,7 @@ test('peek drag reorders only the selected cards and supports all five destinati
   drag(f, b, f.container.querySelector('[data-drop-zone="graveyard"]'));
   assert.deepEqual(visible(), [c, a, d, e]);
   drag(f, c, f.container.querySelector('[data-drop-zone="hand"]'));
-  drag(f, a, boardSlot(f, 'lower', 2));
+  drag(f, a, byClass(f.container, 'pt-battlefield-canvas')[0]);
   drag(f, d, f.container.querySelector('[data-drop-zone="exile"]'));
   assert.deepEqual(visible(), [e]);
   drag(f, e, f.container.querySelector('[data-drop-zone="library-bottom"]'));
@@ -309,7 +333,7 @@ test('peek drag reorders only the selected cards and supports all five destinati
   const { zones, battlefieldPositions } = saved(f);
   assert.equal(zones.graveyard.at(-1), b);
   assert.equal(zones.hand.at(-1), c);
-  assert.deepEqual(battlefieldPositions[a], { row: 'lower', slot: 2 });
+  assert.equal(battlefieldPositions[a].row, 'lower'); assert.ok(Number.isInteger(battlefieldPositions[a].x));
   assert.equal(zones.exile.at(-1), d);
   assert.deepEqual(zones.library, [...unseen, e]);
   drag(f, e, byClass(f.container, 'pt-peek-list')[0]);
@@ -356,7 +380,7 @@ test('token shortcuts prefer battlefield, then hand and graveyard, and select wi
   const ids = Object.fromEntries(Object.values(saved(f).pieces).map(piece => [piece.cardId, piece.id]));
   play(f, ids.ring);
   move(f, ids.forest, 'graveyard');
-  button(f.container, '＋ 衍生物').dispatch('click');
+  button(f.container, '衍生物').dispatch('click');
   await new Promise(resolve => setImmediate(resolve));
   const picker = form(f.container, 'pt-token-picker');
   const shortcuts = byClass(picker, 'pt-token-quick')[0].children;
@@ -378,7 +402,7 @@ test('token shortcuts prefer battlefield, then hand and graveyard, and select wi
 });
 
 test('Escape closes a non-modal zone tray while an active drag gets the first chance to cancel', () => {
-  const f = fixture(); start(f); keep(f); button(f.container, '坟场 0').dispatch('click'); const dialog = byClass(f.container, 'pt-dialog')[0];
+  const f = fixture(); start(f); keep(f); button(f.container, '坟场 0 ▾').dispatch('click'); const dialog = byClass(f.container, 'pt-dialog')[0];
   f.doc.body.classList.add('pt-drag-active'); assert.equal(f.doc.dispatch('keydown', { key: 'Escape' }).prevented, false); assert.equal(dialog.open, true);
   f.doc.body.classList.remove('pt-drag-active'); assert.equal(f.doc.dispatch('keydown', { key: 'Escape' }).prevented, true); assert.equal(dialog.open, false); assert.equal(byClass(f.container, 'pt-dialog').length, 0);
   f.ui.destroy(); assert.equal(f.doc.events.keydown.length, 0);

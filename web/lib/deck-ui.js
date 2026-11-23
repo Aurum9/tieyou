@@ -2,6 +2,7 @@ import { DeckStore, defaultVersion, getVersion, findCardCandidates, getCommander
 import { createDeckSync, deviceDeckStorageKey } from './deck-sync.js';
 import { createDeckAnalysis } from './deck-analysis-ui.js';
 import { getDeckCategories, getDeckEntryCategory, groupDeckEntries } from './deck-editor-groups.js';
+import { DECK_SORT_OPTIONS, getDeckEditorPreferences, createDeckEntryComparator, defaultSortDirection, sortDirectionLabel } from './deck-editor-sort.js';
 import { applyDeckCardColor, createDeckCardImage, createDeckPriceBadge } from './deck-editor-views.js';
 import { createDeckEditorDrag } from './deck-editor-drag.js';
 import { commanderScopeQuery, deckTagQuery } from './deck-target.js';
@@ -469,7 +470,21 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     return title;
   }
 
+  function saveEditorPreferences(changes, focusSelector) {
+    const saved = run(() => {
+      const deck = store.get(selectedId);
+      if (!deck) throw new Error('卡组已不存在');
+      deck.editorPreferences = { ...getDeckEditorPreferences(deck), ...changes };
+      return store.save(deck);
+    });
+    if (saved) container.querySelector?.(focusSelector)?.focus({ preventScroll: true });
+    return saved;
+  }
+
   function renderEditor(deck, expandAfterDrop) {
+    const preferences = getDeckEditorPreferences(deck);
+    groupBy = preferences.groupBy;
+    viewMode = preferences.viewMode;
     const back = button('← 卡组库', showLibrary); container.append(back);
     const header = el('div', 'deck-page-heading'); const title = renderDeckMetadata(deck);
     const actions = el('div', 'deck-actions');
@@ -542,9 +557,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       container.querySelector('.deck-five-dh-toggle input')?.focus({ preventScroll: true });
     });
     budgetOption.append(budgetToggle, el('span', '', '5DH 检查'));
-    container.append(budgetOption);
     const search = renderAddSearch(deck);
-    const target = renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop);
+    const target = renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop, budgetOption);
     search.refresh();
     deckDemo?.attach({
       deck, target, ...search,
@@ -552,7 +566,9 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     });
   }
 
-  function renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop) {
+  function renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop, budgetOption) {
+    const preferences = getDeckEditorPreferences(deck);
+    const compareEntries = createDeckEntryComparator(deck, index, preferences);
     const byCategory = groupBy === 'category';
     const categoryNames = getDeckCategories(deck);
     const listHeader = el('div', 'deck-list-heading deck-editor-toolbar');
@@ -561,8 +577,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     for (const [mode, label] of deckViews) {
       const option = button(label, () => {
         if (viewMode === mode) return;
-        viewMode = mode; render();
-        container.querySelector?.(`[data-deck-view-mode="${mode}"]`)?.focus({ preventScroll: true });
+        saveEditorPreferences({ viewMode: mode }, `[data-deck-view-mode="${mode}"]`);
       }, 'deck-editor-view-button');
       option.setAttribute('aria-pressed', String(viewMode === mode));
       option.setAttribute('data-deck-view-mode', mode);
@@ -571,12 +586,31 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const grouping = select([['type', '按卡牌类型'], ['mana', '按法术力值'], ['color', '按卡牌颜色'], ['category', '按个人分类']], groupBy);
     grouping.setAttribute('aria-label', '牌表整理方式');
     grouping.addEventListener('change', () => {
-      groupBy = grouping.value; render();
-      container.querySelector?.('[aria-label="牌表整理方式"]')?.focus({ preventScroll: true });
+      if (!saveEditorPreferences({ groupBy: grouping.value }, '[aria-label="牌表整理方式"]')) grouping.value = groupBy;
     });
-    controls.append(views, grouping);
+    const sorting = select(DECK_SORT_OPTIONS, preferences.sortBy);
+    sorting.setAttribute('aria-label', '牌表排序方式');
+    sorting.classList.add('deck-editor-sort-select');
+    sorting.addEventListener('change', () => {
+      if (!saveEditorPreferences({ sortBy: sorting.value, sortDirection: defaultSortDirection(sorting.value) }, '[aria-label="牌表排序方式"]')) {
+        sorting.value = preferences.sortBy;
+      }
+    });
+    const nextDirection = preferences.sortDirection === 'asc' ? 'desc' : 'asc';
+    const direction = button(preferences.sortDirection === 'asc' ? '↑' : '↓', () => {
+      saveEditorPreferences({ sortDirection: nextDirection }, '[data-sort-direction]');
+    }, 'button deck-editor-sort-direction');
+    const label = sortDirectionLabel(preferences.sortBy, preferences.sortDirection);
+    direction.title = label;
+    direction.setAttribute('aria-label', `${label}，切换为${sortDirectionLabel(preferences.sortBy, nextDirection)}`);
+    direction.setAttribute('data-sort-direction', preferences.sortDirection);
+    const sortControls = el('div', 'deck-editor-sort-controls');
+    sortControls.append(sorting, direction);
+    controls.append(views, grouping, sortControls);
     if (byCategory) controls.append(button('＋ 新建分类', () => editCategory(deck.id)));
-    listHeader.append(el('h2', '', '卡组牌表'), controls);
+    const heading = el('div', 'deck-list-title');
+    heading.append(el('h2', '', '卡组牌表'), budgetOption);
+    listHeader.append(heading, controls);
     container.append(listHeader);
 
     const board = el('div', `deck-editor-board deck-editor-view-${viewMode}${byCategory ? ' is-category' : ''}`);
@@ -646,7 +680,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
 
     function buildRows(entries, canDrag = true) {
       const rows = el('div', 'deck-editor-group-entries');
-      const ordered = [...entries].sort((a, b) => (index.get(a.cardId)?.name || a.cardId).localeCompare(index.get(b.cardId)?.name || b.cardId));
+      const ordered = [...entries].sort(compareEntries);
       for (const entry of ordered) {
         const row = entryRow(entry, entryIssues.get(entry.id), categoryNames, canDrag);
         if (entryIssues.has(entry.id)) entryRows.set(entry.id, row);
@@ -655,21 +689,16 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       return rows;
     }
 
-    function appendGroups(section, entries) {
+    function appendGroups(section, entries, zone = 'category') {
       for (const group of groupDeckEntries(entries, index, groupBy, categoryNames)) {
         const emptyUnclassified = byCategory && group.key === null && !group.entries.length;
         const lane = el('section', emptyUnclassified ? 'deck-editor-group is-empty-unclassified' : 'deck-editor-group');
         const heading = el('div', 'deck-editor-group-title');
-        if (!byCategory) {
-          heading.append(el('h3', 'deck-group-title', `${group.label} · ${count(group.entries)}`));
-          lane.append(heading, buildRows(group.entries));
-          section.append(lane);
-          continue;
-        }
         const title = el('h3');
-        const { fold, inner } = createFold(title, group.label, `category:${JSON.stringify(group.key)}`, group.entries);
+        const key = byCategory ? `category:${JSON.stringify(group.key)}` : `group:${zone}:${groupBy}:${JSON.stringify(group.key)}`;
+        const { fold, inner } = createFold(title, group.label, key, group.entries);
         heading.append(title);
-        if (group.key !== null) {
+        if (byCategory && group.key !== null) {
           const actions = el('div', 'deck-editor-category-actions');
           const rename = button('改名', () => editCategory(deck.id, group.key));
           const remove = button('删除', () => editCategory(deck.id, group.key, true));
@@ -677,7 +706,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
           remove.setAttribute('aria-label', `删除分类 ${group.label}`);
           actions.append(rename, remove); heading.append(actions);
         }
-        editorDrag.registerTarget(heading, { category: group.key });
+        if (byCategory) editorDrag.registerTarget(heading, { category: group.key });
         inner.append(buildRows(group.entries));
         lane.append(heading, fold); section.append(lane);
       }
@@ -691,7 +720,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       const { fold, inner } = createFold(heading, label, `zone:${zone}`, entries);
       if (!byCategory) editorDrag.registerTarget(heading, { zone });
       if (zone === 'commander') inner.append(buildRows(entries, !byCategory));
-      else appendGroups(inner, entries);
+      else appendGroups(inner, entries, zone);
       section.append(heading, fold);
       board.append(section);
     }

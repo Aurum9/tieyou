@@ -16,6 +16,48 @@ const make = (settings = {}) => new PlaytestSession(deck(), cards, settings, { r
 const playing = (settings = {}) => { const s = make(settings); s.dispatch({ type: 'keep' }); return s; };
 const find = (s, cardId) => Object.values(s.state.pieces).find(p => p.cardId === cardId).id;
 const moveHand = (s, id) => s.dispatch({ type: 'move', id, to: 'hand' });
+test('batch movement preserves selected order at library top and is atomic on invalid IDs', () => {
+  const s = playing(), ids = s.state.zones.hand.slice(0, 3), remainder = [...s.state.zones.library];
+  const before = s.state;
+  assert.throws(() => s.dispatch({ type: 'batchMove', from: 'hand', to: 'library', ids: [...ids, 'missing'], position: 'top' }));
+  assert.deepEqual(s.state, before);
+  assert.throws(() => s.dispatch({ type: 'batchMove', from: 'hand', to: 'library', ids: [ids[0], ids[0]] }));
+  s.dispatch({ type: 'batchMove', from: 'hand', to: 'library', ids, position: 'top' });
+  assert.deepEqual(s.state.zones.library, [...ids, ...remainder]); conserved(s);
+});
+
+test('batch battlefield entry allocates distinct slots and untapAll preserves counters and positions', () => {
+  const s = playing(), ids = s.state.zones.hand.slice(0, 3);
+  s.dispatch({ type: 'batchMove', from: 'hand', to: 'battlefield', ids });
+  const positions = s.state.battlefieldPositions;
+  assert.equal(new Set(ids.map(id => JSON.stringify(positions[id]))).size, ids.length);
+  for (const id of ids) s.dispatch({ type: 'tap', id });
+  s.dispatch({ type: 'counter', id: ids[0], name: '+1/+1', delta: 2 });
+  s.dispatch({ type: 'untapAll' });
+  assert.ok(ids.every(id => !s.state.pieces[id].tapped));
+  assert.equal(s.state.pieces[ids[0]].counters['+1/+1'], 2); assert.deepEqual(s.state.battlefieldPositions, positions);
+  s.dispatch({ type: 'batchMove', from: 'battlefield', to: 'graveyard', ids });
+  assert.deepEqual(s.state.battlefieldPositions, {}); assert.deepEqual(s.state.pieces[ids[0]].counters, {}); conserved(s);
+});
+
+test('random discard samples without replacement, rejects excess and never modifies the deck', () => {
+  const s = playing(), before = s.state, count = 3;
+  assert.throws(() => s.dispatch({ type: 'randomDiscard', count: before.zones.hand.length + 1 }));
+  assert.deepEqual(s.state, before);
+  s.dispatch({ type: 'randomDiscard', count });
+  assert.equal(s.state.zones.graveyard.length, count); assert.equal(s.state.zones.hand.length, before.zones.hand.length - count);
+  assert.ok(s.state.zones.graveyard.every(id => before.zones.hand.includes(id)));
+  assert.deepEqual(s.state.deck, before.deck); conserved(s);
+});
+
+test('shuffle-in batch keeps all cards, supports persistence and rejects invalid destinations', () => {
+  const s = playing(), ids = s.state.zones.hand, library = s.state.zones.library;
+  assert.throws(() => s.dispatch({ type: 'batchMove', from: 'hand', to: 'hand', ids }));
+  assert.throws(() => s.dispatch({ type: 'batchMove', from: 'hand', to: 'graveyard', ids, position: 'shuffle' }));
+  s.dispatch({ type: 'batchMove', from: 'hand', to: 'library', ids, position: 'shuffle' });
+  assert.equal(s.state.zones.hand.length, 0); assert.deepEqual(new Set(s.state.zones.library), new Set([...ids, ...library]));
+  assert.deepEqual(PlaytestSession.restore(s.export(), cards).state, s.state); conserved(s);
+});
 function conserved(s, count = 22) { const state = s.state, ids = PLAYTEST_ZONES.flatMap(z => state.zones[z]); assert.equal(ids.length, count); assert.equal(new Set(ids).size, count); assert.equal(Object.keys(state.pieces).length, count); }
 
 test('opening snapshot separates commander and excludes candidates, creating distinct copies', () => {

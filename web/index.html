@@ -9,11 +9,11 @@
     <link rel="icon" type="image/svg+xml" href="./assets/tieyou.svg" />
     <link rel="stylesheet" href="./styles.css?v=0.5.12" />
     <link rel="stylesheet" href="./deck.css?v=0.5.12" />
-    <link rel="stylesheet" href="./deck-editor.css?v=0.5.13" />
+    <link rel="stylesheet" href="./deck-editor.css?v=0.6.3" />
     <link rel="stylesheet" href="./deck-onboarding.css" />
     <link rel="stylesheet" href="./deck-analysis.css" />
     <link rel="stylesheet" href="./filter.css?v=0.5.11" />
-    <link rel="stylesheet" href="./playtest.css" />
+    <link rel="stylesheet" href="./playtest.css?v=0.6.5" />
     <link rel="stylesheet" href="./feedback.css?v=0.6.0" />
   </head>
   <body>
@@ -198,9 +198,10 @@
         <button id="account-logout" class="button" type="button">退出登录</button>
       </section>
       <p id="account-error" class="deck-form-error" role="alert" hidden></p>
+      <button id="account-update" class="button button-quiet" type="button" hidden>检查更新</button>
     </dialog>
     <div id="toast-stack" class="toast-stack" aria-live="polite" aria-relevant="additions"></div>
-    <script id="app-entry" type="module" src="./app.js?v=0.6.0"></script>
+    <script id="app-entry" type="module" src="./app.js?v=0.6.5"></script>
     <script>
       (function () {
         function showStartupError() {

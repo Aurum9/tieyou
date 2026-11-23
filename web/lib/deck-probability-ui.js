@@ -55,7 +55,7 @@ function renderBars(list, rows, format = formatProbability) {
   }));
 }
 
-function createEarlyManaSection(deck, cards, targets, unknownCount) {
+function createEarlyManaSection(deck, cards, targets, unknownCount, signal) {
   const section = probabilityItem('前期加速');
   section.classList.add('deck-probability-early-mana');
   const metrics = el('div', 'deck-probability-early-mana-metrics');
@@ -81,8 +81,10 @@ function createEarlyManaSection(deck, cards, targets, unknownCount) {
     .flatMap(entry => byId.get(entry.cardId)?.colorIdentity || []))];
   const profiles = new Map();
   let worker, timer;
+  signal?.addEventListener('abort', () => { clearTimeout(timer); worker?.terminate(); }, { once: true });
 
   function refresh(handSize, drawFirstTurn, includeModalLands, mulligan) {
+    if (signal?.aborted) return;
     clearTimeout(timer);
     worker?.terminate();
     worker = undefined;
@@ -207,7 +209,7 @@ function createLandComparison() {
   return { table, body };
 }
 
-export function createDeckProbability(deck, cards) {
+export function createDeckProbability(deck, cards, { signal, drawFirstTurn = true } = {}) {
   const { deckSize, landCount, modalLandCount, unknownCount, targets } = getDeckProbabilityInputs(deck, cards);
   const section = el('section', 'deck-analysis-card is-wide deck-probability');
   section.id = 'deck-probability';
@@ -231,7 +233,7 @@ export function createDeckProbability(deck, cards) {
   hand.value = String(OPENING_HAND);
   const handField = el('label', 'deck-probability-hand-size');
   handField.append(el('span', '', '起手张数'), hand);
-  const firstTurn = checkbox('首回合抓牌', true);
+  const firstTurn = checkbox('首回合抓牌', drawFirstTurn);
   const modal = checkbox(`咒语／地双面牌也算地（${modalLandCount} 张）`, false);
   const strategy = checkbox('按调度策略', false);
   const mulliganSettings = createMulliganSettings();
@@ -253,7 +255,7 @@ export function createDeckProbability(deck, cards) {
   const comparison = createLandComparison();
   streak.append(el('p', 'deck-analysis-note', '从第 1 回合起每回合都下地'), byTurn, comparison.table);
   const mulliganResult = createMulliganResult();
-  const earlyMana = createEarlyManaSection(deck, cards, targets, unknownCount);
+  const earlyMana = createEarlyManaSection(deck, cards, targets, unknownCount, signal);
 
   function requestedHandSize() {
     if (strategy.input.checked) return OPENING_HAND;

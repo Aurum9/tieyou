@@ -12,6 +12,10 @@ __pycache__/
 node_modules/
 dist/
 /web/downloads/tieyou-android.apk
+/web/downloads/tieyou-android-*.apk
+/web/downloads/android-release.json
+/web/downloads/web-release.json
+/web/downloads/tieyou-web-*.zip
 .sites-runtime/
 .local/
 

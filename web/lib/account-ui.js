@@ -122,6 +122,18 @@ export function wireAccount({ flushDecks }) {
     }
   });
   void updateSession();
+  const updates = window.tieyouAndroid && window.TieyouUpdates;
+  const updateButton = get('update');
+  if (updates && updateButton) {
+    updateButton.hidden = false;
+    updateButton.textContent = '检查更新 · ' + updates.versionName();
+    updateButton.addEventListener('click', () => {
+      if (!busy) {
+        dialog.close();
+        updates.checkForUpdates();
+      }
+    });
+  }
   window.addEventListener('online', updateSession);
   window.addEventListener('focus', updateSession);
   window.addEventListener('pageshow', event => { if (event.persisted) void updateSession(); });
