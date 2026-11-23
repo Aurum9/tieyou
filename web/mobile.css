@@ -1,0 +1,159 @@
+/* Shared density for phone screens. Keep card artwork and game geometry independent. */
+@media (max-width: 700px) {
+  :root {
+    --mobile-page-space: 12px;
+    --mobile-section-space: 12px;
+    --mobile-panel-space: 12px;
+    --mobile-control-height: 40px;
+    --mobile-row-height: 36px;
+  }
+
+  html { scroll-padding-top: 64px; }
+  .app-header { height: calc(56px + env(safe-area-inset-top)); }
+  .brand-mark { width: 30px; height: 30px; }
+  .brand-name { font-size: 19px; }
+  .app-header :is(.button, .icon-button, .nav-item) { min-height: 40px; }
+  .header-actions { gap: 4px; }
+  .header-actions :is(.header-feedback, .header-app-download) { min-width: 36px; }
+  .account-open { padding-inline: 9px; }
+
+  :is(#deck-view, #feedback-view, .catalog-content) {
+    padding-top: var(--mobile-page-space);
+    padding-inline: max(var(--mobile-page-space), env(safe-area-inset-left)) max(var(--mobile-page-space), env(safe-area-inset-right));
+  }
+  :is(#deck-view, #feedback-view, .catalog-content) .button,
+  :is(#deck-view, #feedback-view) .deck-danger {
+    min-height: var(--mobile-row-height);
+    padding: 6px 9px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  #deck-view .deck-input:not([type=checkbox]),
+  :is(.condition-value, .condition-select, .field-select, .small-select-label select, .mana-bounds input) {
+    min-height: var(--mobile-control-height);
+    padding: 7px 9px;
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  #deck-view :is(.deck-muted, .deck-save-status),
+  :is(.feedback-state, .feedback-login) { line-height: 1.5; }
+
+  /* Deck library and workshop. */
+  #deck-view > .button:first-child { margin-left: -6px; min-height: 32px; }
+  #deck-view .deck-page-heading { gap: 8px; margin: 8px 0; }
+  #deck-view .deck-page-heading h1 { font-size: 24px; line-height: 1.25; margin: 0 0 5px; }
+  #deck-view .deck-inline-pencil { min-height: 32px; gap: 8px; }
+  #deck-view .deck-inline-description { min-height: 30px; padding: 4px 8px; font-size: 12px; line-height: 1.4; }
+  #deck-view .deck-page-heading > .deck-actions { gap: 4px; }
+  #deck-view .deck-page-heading > .deck-actions > .button { flex: 0 1 auto; padding: 6px 9px; }
+  #deck-view .deck-save-status { margin: 4px 0 10px; font-size: 11px; }
+  .deck-sync-status { gap: 4px; }
+  #deck-view .deck-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 10px 0; }
+  #deck-view .deck-stats > div { padding: 10px 8px; gap: 4px; border: 0; border-right: 1px solid var(--line); }
+  #deck-view .deck-stats > div:last-child { border: 0; }
+  #deck-view .deck-stats strong { font-size: 18px; line-height: 1.3; }
+  #deck-view .deck-stats span { font-size: 10px; line-height: 1.4; }
+  #deck-view .deck-checks { padding: 4px 10px; margin-bottom: 12px; }
+  #deck-view .deck-checks > summary { min-height: 36px; padding: 7px 0; line-height: 22px; }
+  #deck-view .deck-checks ul { margin: 6px 0; }
+  #deck-view .deck-add-section { padding: var(--mobile-panel-space); margin: var(--mobile-section-space) 0; }
+  #deck-view .deck-add-section h2 { font-size: 16px; margin-bottom: 8px; }
+  #deck-view .deck-add-form { grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+  #deck-view .deck-add-form > .deck-input { grid-column: 1; }
+  #deck-view .deck-add-form > .button { padding: 6px 7px; font-size: 12px; }
+  #deck-view .deck-check-label { min-height: 34px; gap: 6px; font-size: 12px; line-height: 1.4; }
+  #deck-view .deck-add-section > .deck-muted { margin: 6px 0 0; }
+  #deck-view .deck-search-result { padding-block: 6px; gap: 8px; }
+  #deck-view .deck-search-result:first-child { margin-top: 8px; }
+  #deck-view .deck-card-link { min-height: 32px; }
+  #deck-view .deck-library-grid { gap: 12px; }
+  #deck-view .deck-tile-art { height: 92px; }
+  #deck-view .deck-tile-body { padding: 14px; }
+  #deck-view .deck-tile-body p { margin-block: 5px; }
+  #deck-view .deck-title-button { min-height: 32px; font-size: 19px; }
+  #deck-view .deck-tile-footer { padding-top: 8px; margin-top: 10px; }
+  #deck-view .deck-trash { padding: 10px 12px; margin-top: 12px; }
+
+  /* Two toolbar rows; view toggles share the title row. */
+  #deck-view .deck-editor-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; padding-inline: 0; margin: 16px 0 8px; }
+  #deck-view .deck-list-title { grid-column: 1; grid-row: 1; gap: 6px; flex-wrap: nowrap; }
+  #deck-view .deck-list-title h2 { font-size: 16px; white-space: nowrap; }
+  #deck-view .deck-list-title .deck-five-dh-toggle { min-height: 30px; padding: 3px 6px; font-size: 10px; gap: 4px; }
+  #deck-view .deck-editor-controls { display: contents; }
+  #deck-view .deck-editor-views { grid-column: 2; grid-row: 1; justify-self: end; }
+  #deck-view .deck-editor-view-button { min-height: 32px; padding: 4px 7px; font-size: 12px; }
+  #deck-view .deck-editor-controls > select { grid-column: 1; grid-row: 2; }
+  #deck-view .deck-editor-sort-controls { grid-column: 2; grid-row: 2; min-width: 0; }
+  #deck-view .deck-editor-toolbar select { width: 100%; max-width: none; min-height: 36px; padding: 5px 6px; font-size: 13px; }
+  #deck-view .deck-editor-sort-controls > select { max-width: 120px; }
+  #deck-view .deck-editor-sort-direction { min-height: 36px; min-width: 32px; padding: 4px; }
+  #deck-view .deck-editor-controls > .button { grid-column: 1 / -1; justify-self: start; }
+  #deck-view .deck-editor-board { padding-inline: 0; }
+  #deck-view .deck-editor-zone { margin-block: 10px; }
+  #deck-view .deck-editor-zone-heading.deck-zone-title { padding-bottom: 3px; margin-bottom: 4px; font-size: 16px; }
+  #deck-view :is(.deck-editor-fold-toggle, .deck-editor-empty-title) { min-height: 32px; padding-block: 3px; }
+  #deck-view .deck-editor-group { margin-block: 4px 8px; }
+  #deck-view .deck-editor-group-title { margin-bottom: 3px; }
+  #deck-view .deck-editor-view-text .deck-entry-main { min-height: 34px; grid-template-columns: 26px minmax(20px, auto) minmax(0, 1fr) minmax(0, auto) 30px; gap: 3px; }
+  #deck-view .deck-editor-view-text .deck-entry-quantity { min-height: 32px; width: 30px; padding: 1px; }
+  #deck-view .deck-editor-view-text .deck-entry-name { min-height: 32px; }
+  #deck-view .deck-editor-view-text .deck-drag-handle { width: 26px; min-height: 32px; height: 32px; padding: 0; }
+  #deck-view .deck-editor-view-text .deck-entry-menu-trigger { min-height: 32px; height: 32px; width: 30px; padding: 0; }
+
+  /* Search and advanced filters use the same rhythm as the workshop. */
+  .page-heading { margin-bottom: 10px; gap: 8px; }
+  .page-heading h1 { font-size: 22px; }
+  .search-form, .is-idle .search-form { height: 48px; padding: 4px; }
+  .catalog-content .search-form { margin-bottom: 8px; }
+  .results-toolbar { gap: 8px; margin-bottom: 12px; }
+  .sort-label select { min-height: 36px; font-size: 14px; }
+  .view-toggle button { min-height: 36px; min-width: 36px; }
+  .card-grid { gap: 16px 10px; }
+  .card-title { min-height: 34px; line-height: 1.4; }
+  .is-list .card-title { min-height: 32px; }
+  .card-info { padding-top: 6px; }
+  .card-english { margin-block: 2px 4px; }
+  .filter-heading { height: 52px; min-height: 52px; padding-inline: 12px; }
+  .filter-scroll { padding-inline: 12px; }
+  .filter-scroll .filter-section { margin-bottom: 12px; padding-bottom: 12px; }
+  .filter-field-label, .filter-section legend { margin-bottom: 6px; }
+  :is(.type-filters label, .checkbox-label, .condition-exclude) { min-height: 34px; font-size: 13px; }
+  .repeat-filter-list { gap: 5px; }
+  .filter-note { margin-block: 6px; line-height: 1.5; }
+  .filter-footer { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  #filter-results { min-height: 40px; }
+
+  /* Analysis, feedback and shared dialogs. */
+  #deck-view .deck-analysis { gap: 12px; margin-block: 8px 20px; padding-inline: 0; }
+  .deck-analysis-grid { gap: 12px; }
+  .deck-analysis-heading h1 { font-size: 24px; }
+  .deck-analysis-card { padding: 12px; }
+  .deck-analysis-card-heading { margin-bottom: 8px; gap: 6px; }
+  .deck-analysis-card h2 { font-size: 16px; }
+  .deck-analysis-kpi { padding: 9px 10px; }
+  .deck-analysis-kpi strong { font-size: 21px; }
+  .deck-analysis-legend { gap: 2px 8px; }
+  .deck-analysis-legend > button { min-height: 32px; padding-block: 4px; }
+  .deck-analysis-card-list li > button { min-height: 36px; }
+  .feedback-heading { margin-bottom: 12px; }
+  .feedback-heading h1 { font-size: 24px; }
+  .feedback-composer, .feedback-post { padding: 12px; }
+  .feedback-history-heading { margin: 16px 0 8px; }
+  .feedback-history { gap: 12px; }
+  .feedback-label { margin-bottom: 6px; }
+  .feedback-text { padding: 9px; line-height: 1.5; }
+  .feedback-body { line-height: 1.6; margin-block: 10px; }
+  .feedback-discussion { margin-top: 10px; padding-top: 6px; }
+  .feedback-reply { padding-block: 10px; }
+  .deck-modal, .app-dialog { padding: 16px; }
+  .deck-modal-header { margin-bottom: 12px; }
+  .deck-field { margin-bottom: 12px; gap: 5px; }
+  .detail-content { padding: 14px 12px calc(18px + env(safe-area-inset-bottom)); }
+  .detail-overview { gap: 12px; margin-bottom: 12px; }
+  .face-rule { padding: 12px; }
+}
+
+@media (max-width: 350px) {
+  #deck-view .deck-stats strong { font-size: 16px; white-space: nowrap; }
+  #deck-view .deck-page-heading > .deck-actions > .button { padding-inline: 6px; font-size: 12px; }
+}
