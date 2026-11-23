@@ -153,7 +153,7 @@ test('playing shows battlefield above hand and four side piles; menu movement le
   const table = byClass(f.container, 'pt-table')[0]; assert.equal(table.children[0].getAttribute('data-drop-zone'), 'battlefield');
   assert.equal(byClass(f.container, 'pt-hand').length, 1);
   assert.equal(byClass(f.container, 'pt-hand-column')[0].children[1].className, 'pt-controls');
-  assert.equal(all(table.children[0], node => node.getAttribute('data-hand-scroll') !== null).length, 0);
+  assert.equal(all(table.children[0], node => node.getAttribute('data-hand-scroll') !== null).length, 1);
   assert.deepEqual(byClass(f.container, 'pt-zone-pile').map(n => n.getAttribute('data-drop-zone')), ['library-top', 'graveyard', 'exile', 'command']);
   const id = saved(f).zones.hand[0]; play(f, id); assert.ok(saved(f).zones.battlefield.includes(id));
   assert.equal(byClass(f.container, 'pt-dialog').length, 0);
@@ -294,8 +294,8 @@ test('dragging reorders the hand and freely places battlefield cards without swa
   assert.ok(Number(tile(f, land).parentNode.style.zIndex) > Number(tile(f, ring).parentNode.style.zIndex));
   const previousRing = saved(f).battlefieldPositions[ring];
   drag(f, land, byClass(tile(f, ring), 'pt-card-hit')[0]);
-  assert.ok(Number.isInteger(saved(f).battlefieldPositions[land].x));
-  assert.ok(Number.isInteger(saved(f).battlefieldPositions[land].y));
+  assert.ok(Number.isInteger(saved(f).battlefieldPositions[land].pixelX));
+  assert.ok(Number.isInteger(saved(f).battlefieldPositions[land].pixelY));
   assert.deepEqual(saved(f).battlefieldPositions[ring], previousRing);
   assert.equal(saved(f).pieces[land].tapped, true);
   play(f, anotherLand);
@@ -333,7 +333,7 @@ test('peek drag reorders only the selected cards and supports all five destinati
   const { zones, battlefieldPositions } = saved(f);
   assert.equal(zones.graveyard.at(-1), b);
   assert.equal(zones.hand.at(-1), c);
-  assert.equal(battlefieldPositions[a].row, 'lower'); assert.ok(Number.isInteger(battlefieldPositions[a].x));
+  assert.equal(battlefieldPositions[a].row, 'lower'); assert.ok(Number.isInteger(battlefieldPositions[a].pixelX));
   assert.equal(zones.exile.at(-1), d);
   assert.deepEqual(zones.library, [...unseen, e]);
   drag(f, e, byClass(f.container, 'pt-peek-list')[0]);

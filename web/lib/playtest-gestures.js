@@ -45,6 +45,7 @@ export function attachCardGestures(element, { id, zone, axis = 'free', onDrop = 
       if (host) {
         const rect = host.getBoundingClientRect();
         if (active.y >= rect.top && active.y <= rect.bottom) host.scrollLeft += edgeSpeed(active.x, rect.left, rect.right, 32);
+        if (host.getAttribute?.('data-board-scroll') != null && active.x >= rect.left && active.x <= rect.right) host.scrollTop += edgeSpeed(active.y, rect.top, rect.bottom, 32);
       }
       updateTarget();
     }

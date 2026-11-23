@@ -7,7 +7,7 @@ import { getVersion } from './decks.js';
 import { appendManaText } from './mana-symbols.js';
 import { matchesPlaytestType, playtestTypeOptions } from './playtest-batch.js';
 import { createDeckProbability } from './deck-probability-ui.js';
-import { battlefieldPoint, snappedBattlefieldPoint, handCardGap } from './playtest-layout.js';
+import { battlefieldPoint, battlefieldExtent, snappedBattlefieldPixels, handCardGap } from './playtest-layout.js';
 
 const ZONES = { hand: '手牌', battlefield: '战场', graveyard: '坟场', exile: '放逐区', command: '统帅区', library: '牌库', stack: '堆叠' };
 const DOUBLE_FACED = new Set(['transform', 'modal_dfc', 'reversible_card', 'double_faced_token']);
@@ -97,12 +97,12 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   function moveCard(id, destination, { target, x, y, offsetX, offsetY } = {}) {
     const s = state();
     if (destination === 'battlefield-free') {
-      const canvas = target.closest('.pt-battlefield-canvas'), rect = canvas.getBoundingClientRect();
+      const canvas = target.closest('.pt-battlefield-canvas'), surface = canvas.querySelector('.pt-battlefield-surface'), rect = surface.getBoundingClientRect();
       const existing = canvas.querySelector('.pt-free-card'), sample = existing || el('div', 'pt-free-card');
-      if (!existing) canvas.append(sample);
+      if (!existing) surface.append(sample);
       const bounds = sample.getBoundingClientRect(), width = bounds.width, height = bounds.height;
       if (!existing) sample.remove();
-      const point = snappedBattlefieldPoint(x - rect.left - (offsetX ?? width / 2), y - rect.top - (offsetY ?? height / 2), rect.width, rect.height, width, height);
+      const point = snappedBattlefieldPixels(x - rect.left - (offsetX ?? width / 2), y - rect.top - (offsetY ?? height / 2));
       return act({ type: 'move', id, to: 'battlefield', ...point }, { dismiss: true });
     }
     if (destination === 'library-peek') {
@@ -319,13 +319,16 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
     battlefield.append(zoneHeading(s, 'battlefield'));
     const canvas = el('div', 'pt-battlefield-canvas');
     canvas.setAttribute('data-drop-zone', 'battlefield-free');
+    canvas.setAttribute('data-hand-scroll', ''); canvas.setAttribute('data-board-scroll', ''); canvas.setAttribute('data-scroll-key', 'battlefield');
+    const surface = el('div', 'pt-battlefield-surface'); surface.setAttribute('data-drop-zone', 'battlefield-free');
     for (const id of s.zones.battlefield) {
       const position = s.battlefieldPositions[id], holder = el('div', 'pt-free-card pt-board-slot');
       holder.setAttribute('data-row', position.row); holder.setAttribute('data-slot', position.slot);
       holder.setAttribute('data-board-id', id); holder.setAttribute('data-drop-zone', 'battlefield-free');
       holder.style.zIndex = String(boardOrder.get(id) || 1);
-      holder.append(tile(s.pieces[id], s, 'battlefield')); canvas.append(holder);
+      holder.append(tile(s.pieces[id], s, 'battlefield')); surface.append(holder);
     }
+    canvas.append(surface);
     battlefield.append(canvas);
     return battlefield;
   }
@@ -569,29 +572,31 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
         || (focusKey === '减少指示物' ? controls.find(n => n.getAttribute('aria-label') === '增加指示物') : null);
       next?.focus({ preventScroll: true });
     }
-    for (const n of container.querySelectorAll?.('[data-scroll-key]') || []) { const position = scrolls.get(n.getAttribute('data-scroll-key')); if (position) { n.scrollLeft = position[0]; n.scrollTop = position[1]; } }
     layoutTable();
+    if (!container.offsetWidth) container.ownerDocument?.defaultView?.requestAnimationFrame?.(layoutTable);
+    for (const n of container.querySelectorAll?.('[data-scroll-key]') || []) { const position = scrolls.get(n.getAttribute('data-scroll-key')); if (position) { n.scrollLeft = position[0]; n.scrollTop = position[1]; } }
     tableObserver?.disconnect(); tableObserver?.observe(container);
     const canvas = container.querySelector('.pt-battlefield-canvas'); if (canvas) tableObserver?.observe(canvas);
   }
   function layoutTable() {
     const view = container.ownerDocument?.defaultView;
-    if (!view?.getComputedStyle) return;
+    if (!view?.getComputedStyle || !container.offsetWidth) return;
     layoutActions(view);
     const canvas = container.querySelector('.pt-battlefield-canvas');
     if (canvas && session) {
-      const s = state(), sample = canvas.querySelector('.pt-free-card');
-      const caption = sample ? parseFloat(view.getComputedStyle(sample).getPropertyValue('--pt-board-caption')) || 0 : 0;
-      const defaults = s.zones.battlefield.filter(id => s.battlefieldPositions[id].x === undefined);
-      const cramped = canvas.clientHeight < 230, count = Math.max(1, Math.min(4, defaults.length));
-      const rowFit = cramped ? (canvas.clientWidth - 40 - (count - 1) * 6) / count : Infinity;
-      container.style.setProperty('--pt-board-fit', `${Math.max(28, Math.floor(Math.min(rowFit, (canvas.clientHeight - 16 - caption) * 488 / 680)))}px`);
-      const upperCount = defaults.filter(id => s.battlefieldPositions[id].row === 'upper').length;
-      for (const holder of canvas.querySelectorAll('.pt-free-card')) {
+      const s = state(), surface = canvas.querySelector('.pt-battlefield-surface');
+      container.style.setProperty('--pt-board-fit', '128px');
+      const existing = canvas.querySelector('.pt-free-card'), sample = existing || el('div', 'pt-free-card');
+      if (!existing) surface.append(sample);
+      const cardWidth = sample.offsetWidth, cardHeight = sample.offsetHeight;
+      if (!existing) sample.remove();
+      const viewport = canvas.getBoundingClientRect();
+      const extent = battlefieldExtent(viewport.width, viewport.height, cardWidth, cardHeight, Object.values(s.battlefieldPositions));
+      surface.style.width = `${extent.width}px`; surface.style.height = `${extent.height}px`;
+      for (const holder of surface.querySelectorAll('.pt-free-card')) {
         const position = s.battlefieldPositions[holder.getAttribute('data-board-id')];
         if (!position) continue;
-        const initial = cramped && position.x === undefined ? { ...position, slot: position.slot + (position.row === 'lower' ? upperCount : 0) } : position;
-        const point = battlefieldPoint(initial, canvas.clientWidth, canvas.clientHeight, holder.offsetWidth, holder.offsetHeight);
+        const point = battlefieldPoint(position, viewport.width, extent.bankHeight, cardWidth, cardHeight);
         holder.style.left = `${point.x}px`; holder.style.top = `${point.y}px`;
       }
     }

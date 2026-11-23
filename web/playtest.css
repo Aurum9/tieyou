@@ -501,3 +501,9 @@ body:has(.pt-card-dialog[open]){overflow:hidden}
 @media(max-width:1000px) and (max-height:500px) and (orientation:landscape){
   .pt-hand .pt-hand-row{min-height:calc((var(--pt-card-width) - 4px) * 680 / 488 + 8px)}
 }
+/* A single scrollable battlefield keeps its independent default banks at full card size. */
+.pt-battlefield-canvas{overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;touch-action:pan-x pan-y}
+.pt-battlefield-surface{position:relative;min-width:100%;min-height:100%;isolation:isolate}
+.pt-hand .pt-hand-row{overscroll-behavior-x:contain;scrollbar-width:thin}
+.pt-hand .pt-hand-row::-webkit-scrollbar{height:4px}
+.pt-hand .pt-hand-row::-webkit-scrollbar-thumb{background:#9eae98;border-radius:4px}

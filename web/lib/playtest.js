@@ -96,11 +96,18 @@ function validateBattlefieldRow(row) {
   if (!PLAYTEST_BATTLEFIELD_ROWS.includes(row)) fail('战场排无效');
 }
 function validateBattlefieldSlot(slot) { return int(slot, '战场格位', 0, PLAYTEST_BATTLEFIELD_SLOTS - 1); }
-function placeOnBattlefield(state, id, card, { row, slot, x, y } = {}) {
+function validateFreePosition({ x, y, pixelX, pixelY }) {
+  if (x !== undefined || y !== undefined) { int(x, '战场横坐标', 0, 1000); int(y, '战场纵坐标', 0, 1000); }
+  if (pixelX !== undefined || pixelY !== undefined) {
+    if (x !== undefined || y !== undefined) fail('战场坐标格式冲突');
+    int(pixelX, '战场横坐标', 0, 200000); int(pixelY, '战场纵坐标', 0, 200000);
+  }
+}
+function placeOnBattlefield(state, id, card, { row, slot, x, y, pixelX, pixelY } = {}) {
   const positions = state.battlefieldPositions;
   const previous = Object.hasOwn(positions, id) ? positions[id] : null;
-  if (previous && row === undefined && slot === undefined && x === undefined && y === undefined) return;
-  if (x !== undefined || y !== undefined) { int(x, '战场横坐标', 0, 1000); int(y, '战场纵坐标', 0, 1000); }
+  if (previous && row === undefined && slot === undefined && x === undefined && y === undefined && pixelX === undefined && pixelY === undefined) return;
+  validateFreePosition({ x, y, pixelX, pixelY });
   if (row === undefined) row = previous?.row || defaultBattlefieldRow(state.pieces[id], card);
   validateBattlefieldRow(row);
   if (slot !== undefined) validateBattlefieldSlot(slot);
@@ -115,17 +122,17 @@ function placeOnBattlefield(state, id, card, { row, slot, x, y } = {}) {
     while (occupied.has(slot)) slot++;
     validateBattlefieldSlot(slot);
   }
-  Object.defineProperty(positions, id, { value: { row, slot, ...(x === undefined ? {} : { x, y }) }, writable: true, enumerable: true, configurable: true });
+  Object.defineProperty(positions, id, { value: { row, slot, ...(x === undefined ? {} : { x, y }), ...(pixelX === undefined ? {} : { pixelX, pixelY }) }, writable: true, enumerable: true, configurable: true });
 }
-function move(state, id, to, position = 'bottom', { row, slot, card, x, y } = {}) {
+function move(state, id, to, position = 'bottom', { row, slot, card, x, y, pixelX, pixelY } = {}) {
   if (!PLAYTEST_ZONES.includes(to)) fail('目标区域无效');
   if (!['top', 'bottom'].includes(position)) fail('牌库位置无效');
   const from = locate(state, id);
   if (to === 'battlefield') {
-    placeOnBattlefield(state, id, card, { row, slot, x, y });
+    placeOnBattlefield(state, id, card, { row, slot, x, y, pixelX, pixelY });
     if (from === to) return;
   } else {
-    if (row !== undefined || slot !== undefined || x !== undefined || y !== undefined) fail('位置仅适用于战场');
+    if (row !== undefined || slot !== undefined || x !== undefined || y !== undefined || pixelX !== undefined || pixelY !== undefined) fail('位置仅适用于战场');
     if (from === 'battlefield') delete state.battlefieldPositions[id];
   }
   const piece = state.pieces[id];
@@ -244,7 +251,7 @@ export class PlaytestSession {
     if (!piece) fail('找不到这张测试牌');
     const from = locate(state, id), card = piece.token && piece.tokenTemplateId ? piece : this.#index.get(piece.cardId), face = card?.faces?.[piece.face] || card;
     if (type === 'move') {
-      move(state, id, action.to, action.position, { row: action.row, slot: action.slot, x: action.x, y: action.y, card });
+      move(state, id, action.to, action.position, { row: action.row, slot: action.slot, x: action.x, y: action.y, pixelX: action.pixelX, pixelY: action.pixelY, card });
       log(state, from === 'battlefield' && action.to === from ? `${piece.name}：调整战场位置` : `${piece.name}：${ZONE_NAMES[from]} → ${ZONE_NAMES[action.to]}${action.to === 'library' ? (action.position === 'top' ? '顶' : '底') : ''}`);
       return;
     }
@@ -335,7 +342,7 @@ export class PlaytestSession {
         const position = positions[id];
         if (!Object.hasOwn(positions, id) || !record(position)) fail('战场位置损坏');
         validateBattlefieldRow(position.row); validateBattlefieldSlot(position.slot);
-        if (position.x !== undefined || position.y !== undefined) { int(position.x, '战场横坐标', 0, 1000); int(position.y, '战场纵坐标', 0, 1000); }
+        validateFreePosition(position);
         const key = `${position.row}:${position.slot}`;
         if (occupied.has(key)) fail('战场格位重复');
         occupied.add(key);
