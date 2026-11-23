@@ -3,7 +3,6 @@ package cn.sbwsz.tieyou;
 import android.app.Activity;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.widget.Toast;
 import org.json.JSONObject;
 import java.io.*;
 import java.net.HttpURLConnection;
@@ -91,7 +90,6 @@ final class WebAssets {
                         if (file.getName().matches("[a-f0-9]{64}") && !file.equals(destination) && !PINNED.containsKey(file.getName())) remove(file);
                     }
                 }
-                activity.runOnUiThread(() -> { if (!destroyed && !activity.isFinishing()) Toast.makeText(activity, "页面更新已下载，下次启动自动生效", Toast.LENGTH_LONG).show(); });
             } catch (Exception ignored) {
                 // Offline or failed downloads keep the current complete bundle.
             } finally {
