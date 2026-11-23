@@ -1,4 +1,5 @@
 import { clientHeaders } from './client-usage.js';
+import { showClientUpgrade } from './client-upgrade.js';
 const RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
 
 function waitForRetry(delay, signal) {
@@ -85,6 +86,7 @@ export function createRemoteCatalog({ fetcher = globalThis.fetch, baseURL = '/ap
       error.status = response.status;
       error.code = info?.code ?? (response.ok && path === '/search' ? 'INVALID_QUERY' : undefined);
       error.position = info?.position ?? info?.rawPosition;
+      if (error.code === 'CLIENT_UPGRADE_REQUIRED') showClientUpgrade();
       throw error;
     }
     return payload;

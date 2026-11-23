@@ -44,7 +44,9 @@ test('protocol gate is off by default, can be scheduled or rolled back, and pres
   await writeFile(policyPath, JSON.stringify({ minimumProtocol: 1, enforce: true, enforceAt: '2026-11-24T11:00:00+08:00' })); next(3000);
   assert.equal(await service.handle(request('/api/catalog/search', {})), null);
   next(3600000);
-  const blocked = await service.handle(request('/api/catalog/search', {})); assert.equal(blocked.status, 426); assert.equal((await blocked.json()).error.code, 'CLIENT_UPGRADE_REQUIRED');
+  const blocked = await service.handle(request('/api/catalog/search', {})); assert.equal(blocked.status, 426);
+  const upgrade = (await blocked.json()).error;
+  assert.equal(upgrade.code, 'CLIENT_UPGRADE_REQUIRED'); assert.doesNotMatch(upgrade.message, /请勿卸载/); assert.ok(upgrade.message.includes(upgrade.downloadURL));
   assert.equal(await service.handle(request('/api/catalog/search', {}, { 'X-Tieyou-Protocol': '1' })), null);
   assert.equal(await service.handle(request('/api/auth/login', {})), null);
   assert.equal(await service.handle(request('/api/deck-library', {})), null);

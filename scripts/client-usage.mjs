@@ -79,7 +79,7 @@ export async function createClientUsage(db, { policyPath, releasePath, now = Dat
         try { await db.prepare(`INSERT INTO client_protocol_daily VALUES (?,?,1) ON CONFLICT(day,protocol) DO UPDATE SET requests=requests+1`).bind(clientDay(now()), protocol).run(); } catch { /* Statistics must not make catalog queries fail. */ }
       }
       const rule = await publicPolicy();
-      if (rule.active && protocol < rule.minimumProtocol) return json({ error: { code: 'CLIENT_UPGRADE_REQUIRED', message: '客户端需要更新。网页请刷新；App 请用手机浏览器打开 sbwsz.cn 下载新版并覆盖安装，请勿卸载。', downloadURL } }, 426);
+      if (rule.active && protocol < rule.minimumProtocol) return json({ error: { code: 'CLIENT_UPGRADE_REQUIRED', message: '当前页面需要更新。网页版请刷新；App 新版下载：https://sbwsz.cn/downloads/tieyou-android.apk', downloadURL } }, 426);
       return null;
     },
     async recordDownload(path, bytes) {
