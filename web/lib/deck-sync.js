@@ -1,4 +1,5 @@
 import { newId, STORAGE_KEY, validateDeckLibrary } from './decks.js';
+import { clientHeaders } from './client-usage.js';
 
 const OWNER_KEY = `${STORAGE_KEY}.owner`;
 const CACHE_PREFIX = `${STORAGE_KEY}.account.`;
@@ -133,7 +134,8 @@ export function createDeckSync(store, {
   async function request(method, body) {
     const response = await fetcher(ROUTE, {
       method, credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(12000),
-      ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+      headers: clientHeaders(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (response.status === 401 || response.status === 404) return { signedOut: true };
     const data = await response.json();

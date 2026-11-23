@@ -1,3 +1,4 @@
+import { clientHeaders } from './client-usage.js';
 const RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
 
 function waitForRetry(delay, signal) {
@@ -60,7 +61,7 @@ export function createRemoteCatalog({ fetcher = globalThis.fetch, baseURL = '/ap
     let response;
     try {
       const requestSignal = signal || (offlineStorage ? AbortSignal.timeout(10000) : undefined);
-      response = await fetcher(baseURL + path, { method: body === undefined ? 'GET' : 'POST', ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), ...(requestSignal ? { signal: requestSignal } : {}) });
+      response = await fetcher(baseURL + path, { method: body === undefined ? 'GET' : 'POST', headers: clientHeaders(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(body === undefined ? {} : { body: JSON.stringify(body) }), ...(requestSignal ? { signal: requestSignal } : {}) });
     } catch (error) {
       signal?.throwIfAborted();
       if (error?.name === 'AbortError') throw error;

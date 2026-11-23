@@ -16,6 +16,7 @@ import { PlaytestStorage } from './lib/playtest-storage.js';
 import { appendManaText, manaCost } from './lib/mana-symbols.js';
 import { wireAccount } from './lib/account-ui.js';
 import { initFeedbackUI } from './lib/feedback-ui.js';
+import { initClientUsage } from './lib/client-usage.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -869,6 +870,7 @@ showIdleCatalog();
 initializeDeckWorkspace();
 switchView('decks');
 wireAccount({ flushDecks: () => deckUI?.flushCloudDecks() });
+initClientUsage();
 
 if (androidApp) window.tieyouHandleBack = () => {
   const dialog = $('dialog[open]');

@@ -10,6 +10,7 @@ import { openLocalD1 } from './local-d1.mjs';
 import { readCatalogManifest, readCatalogSource } from './catalog-seed.mjs';
 import { createStandaloneAuth } from './standalone-auth.mjs';
 import { createFeedbackService } from './standalone-feedback.mjs';
+import { createClientUsage } from './client-usage.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const root = resolve(projectRoot, 'web');
@@ -51,6 +52,8 @@ if (source && activeAtStart !== source.version) {
 }
 const auth = previewAccount ? null : await createStandaloneAuth(db);
 const feedback = createFeedbackService(db, auth);
+const usageDB = openLocalD1(resolve(stateRoot, 'client-usage.sqlite'));
+const clientUsage = await createClientUsage(usageDB, { policyPath: resolve(process.env.EDH_CLIENT_POLICY_PATH || resolve(stateRoot, 'client-policy.json')), releasePath: resolve(root, 'downloads/android-release.json') });
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.md': 'text/plain; charset=utf-8' };
 const androidDownload = '/downloads/tieyou-android.apk';
 const worker = createWorker({ async serveAsset(pathname, request) {
@@ -98,7 +101,8 @@ const server = createServer(async (req, res) => {
     // The public server listens on loopback behind Caddy. Caddy appends the verified peer address.
     const forwarded = publicOrigin ? headers.get('x-forwarded-for')?.split(',').at(-1)?.trim() : '';
     const clientAddress = isIP(forwarded || '') ? forwarded : req.socket.remoteAddress;
-    let response = await auth?.handle(request, { clientAddress });
+    let response = await clientUsage.handle(request, { clientAddress });
+    if (!response) response = await auth?.handle(request, { clientAddress });
     if (!response) response = await feedback.handle(request);
     if (!response) {
       if (auth && url.pathname === '/api/deck-library') {
@@ -115,6 +119,9 @@ const server = createServer(async (req, res) => {
       body = gzipSync(body); responseHeaders['content-encoding'] = 'gzip'; responseHeaders.vary = 'Accept-Encoding';
     }
     if (request.method !== 'HEAD' || !responseHeaders['content-length']) responseHeaders['content-length'] = String(body.length);
+    if (request.method === 'GET' && response.status === 200 && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(clientAddress) && /^\/downloads\/tieyou-android(?:-\d+\.\d+\.\d+)?\.apk$/.test(url.pathname)) {
+      res.once('finish', () => { void clientUsage.recordDownload(url.pathname, body.length).catch(() => {}); });
+    }
     res.writeHead(response.status, responseHeaders); res.end(body);
   } catch {
     if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('请求未完成'); }
@@ -122,4 +129,4 @@ const server = createServer(async (req, res) => {
   }
 });
 server.listen(port, host, () => process.stdout.write(`Local: http://${host}:${port}\n`));
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { db.close(); process.exit(0); }));
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { db.close(); usageDB.close(); process.exit(0); }));

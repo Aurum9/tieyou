@@ -1,3 +1,5 @@
+import { clientHeaders } from './client-usage.js';
+
 async function accountRequest(action, body) {
   let response;
   try {
@@ -6,7 +8,8 @@ async function accountRequest(action, body) {
       credentials: 'same-origin',
       cache: 'no-store',
       signal: AbortSignal.timeout(12000),
-      ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+      headers: clientHeaders(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
   } catch {
     throw new Error('无法连接账户服务，请重试');
