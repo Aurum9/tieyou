@@ -30,6 +30,7 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   let gestures = [], dialogGestures = [];
   let tableObserver = null;
   let overflowTools = [];
+  let fittedViewport = '';
   const clean = list => { for (const cleanup of list.splice(0)) cleanup(); };
   const state = () => session.state;
   const zoneOf = (s, id) => PLAYTEST_ZONES.find(zone => s.zones[zone].includes(id));
@@ -581,6 +582,7 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
   function layoutTable() {
     const view = container.ownerDocument?.defaultView;
     if (!view?.getComputedStyle || !container.offsetWidth) return;
+    fitTableCards(view);
     layoutActions(view);
     const canvas = container.querySelector('.pt-battlefield-canvas');
     if (canvas && session) {
@@ -617,6 +619,32 @@ export function initPlaytestUI({ container, cards, onExit = () => {}, onNotify =
       menu.style.left = `${art.left - bounds.left + 2}px`;
       menu.style.top = `${art.bottom - bounds.top - menu.offsetHeight - 2}px`;
     }
+  }
+  function fitTableCards(view) {
+    const table = container.querySelector('.pt-table'); if (!table) return;
+    const mobile = view.matchMedia('(max-width:700px), (max-width:1000px) and (max-height:500px)').matches;
+    if (!mobile) { container.style.setProperty('--pt-card-scale', '1'); container.classList.remove('pt-compact-cards'); fittedViewport = ''; return; }
+    const key = `${container.clientWidth}:${container.clientHeight}`;
+    if (fittedViewport === key) return;
+    const canvas = table.querySelector('.pt-battlefield-canvas'), surface = canvas.querySelector('.pt-battlefield-surface');
+    const existing = surface.querySelector('.pt-free-card'), sample = existing || el('div', 'pt-free-card');
+    if (!existing) surface.append(sample);
+    const lower = table.querySelector('.pt-lower-table'), heading = table.querySelector('.pt-zone-heading');
+    const landscape = view.innerWidth > view.innerHeight && view.innerHeight <= 500;
+    const available = table.getBoundingClientRect().height;
+    const set = scale => { container.style.setProperty('--pt-card-scale', String(scale)); container.classList.toggle('pt-compact-cards', scale < .75); };
+    const required = () => {
+      const battlefield = sample.offsetHeight * 2 + 32 + heading.getBoundingClientRect().height + 2;
+      return landscape ? Math.max(battlefield, lower.getBoundingClientRect().height) : battlefield + lower.getBoundingClientRect().height + (parseFloat(view.getComputedStyle(table).rowGap) || 0);
+    };
+    set(1);
+    if (required() > available) {
+      let low = .2, high = 1;
+      for (let step = 0; step < 9; step++) { const middle = (low + high) / 2; set(middle); if (required() <= available - 2) low = middle; else high = middle; }
+      set(low);
+    }
+    if (!existing) sample.remove();
+    fittedViewport = key;
   }
   function layoutActions(view) {
     const actions = container.querySelector('.pt-turn-actions');

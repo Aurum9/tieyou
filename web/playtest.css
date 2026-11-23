@@ -507,3 +507,31 @@ body:has(.pt-card-dialog[open]){overflow:hidden}
 .pt-hand .pt-hand-row{overscroll-behavior-x:contain;scrollbar-width:thin}
 .pt-hand .pt-hand-row::-webkit-scrollbar{height:4px}
 .pt-hand .pt-hand-row::-webkit-scrollbar-thumb{background:#9eae98;border-radius:4px}
+/* Reserve two complete card banks; scale cards together to fit short mobile viewports. */
+#playtest-view{--pt-field-caption:22px;--pt-field-heading:38px}
+.pt-battlefield{min-height:calc((var(--pt-board-width) * 680 / 488 + var(--pt-field-caption)) * 2 + 32px + var(--pt-field-heading) + 2px)}
+.pt-battlefield-canvas{min-height:calc((var(--pt-board-width) * 680 / 488 + var(--pt-field-caption)) * 2 + 32px)}
+@media(max-width:700px), (max-width:1000px) and (max-height:500px){
+  #playtest-view:not([hidden]){
+    --pt-field-caption:0px;--pt-field-heading:34px;
+    --pt-board-base:clamp(84px,27vw,128px);--pt-hand-base:clamp(80px,26vw,142px);--pt-pile-base:108px;
+    --pt-board-width:calc(var(--pt-board-base) * var(--pt-card-scale,1));
+    --pt-card-width:calc(var(--pt-hand-base) * var(--pt-card-scale,1));
+  }
+  .pt-zone-pile{max-width:max(54px,calc(var(--pt-pile-base) * var(--pt-card-scale,1)))}
+  #playtest-view.pt-compact-cards{--pt-field-heading:24px}
+  .pt-compact-cards .pt-zone-heading{min-height:24px}
+  .pt-compact-cards .pt-zone-menu-button{min-height:24px;padding-block:2px}
+  .pt-compact-cards .pt-hand .pt-hand-row{padding:4px 6px 6px;min-height:calc((var(--pt-card-width) - 4px) * 680 / 488 + 14px)}
+  .pt-compact-cards .pt-pile-label{min-height:24px;margin-bottom:2px;font-size:9px}
+  .pt-compact-cards .pt-card .pt-card-menu{width:22px!important;height:22px!important;font-size:17px!important}
+}
+@media(max-width:700px) and (max-height:650px) and (orientation:portrait){
+  #playtest-view:not([hidden]){--pt-hand-base:76px;--pt-pile-base:58px;--pt-field-heading:28px}
+  #playtest-view.pt-compact-cards{--pt-field-heading:24px}
+}
+@media(max-width:1000px) and (max-height:500px) and (orientation:landscape){
+  #playtest-view:not([hidden]){--pt-board-base:96px;--pt-hand-base:68px;--pt-pile-base:52px;--pt-field-heading:26px}
+  .pt-zone-pile{max-width:calc(var(--pt-pile-base) * var(--pt-card-scale,1))}
+  #playtest-view.pt-compact-cards{--pt-field-heading:24px}
+}
