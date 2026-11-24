@@ -1,18 +1,41 @@
 /* Shared density for phone screens. Keep card artwork and game geometry independent. */
 @media (max-width: 700px) {
   :root {
-    --mobile-page-space: 12px;
-    --mobile-section-space: 12px;
-    --mobile-panel-space: 12px;
-    --mobile-control-height: 40px;
-    --mobile-row-height: 36px;
+    --mobile-page-space: 10px;
+    --mobile-section-space: 8px;
+    --mobile-panel-space: 10px;
+    --mobile-control-height: 32px;
+    --mobile-row-height: 30px;
   }
 
-  html { scroll-padding-top: 64px; }
-  .app-header { height: calc(56px + env(safe-area-inset-top)); }
-  .brand-mark { width: 30px; height: 30px; }
-  .brand-name { font-size: 19px; }
-  .app-header :is(.button, .icon-button, .nav-item) { min-height: 40px; }
+  html { scroll-padding-top: 54px; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { font-size: 12px; }
+  .main-nav .nav-item { font-size: 11px; }
+  .account-open { font-size: 12px; }
+  #deck-view:has(.deck-workshop-heading) { position: relative; }
+  #deck-view > .deck-workshop-back.button:first-child { position: absolute; top: 10px; left: 10px; width: 28px; min-height: 28px; padding: 0; margin: 0; font-size: 0; }
+  #deck-view .deck-workshop-back::before { content: '←'; font-size: 17px; }
+  #deck-view .deck-workshop-heading h1 { padding-left: 32px; }
+  #deck-view .deck-workshop-heading .deck-inline-description { margin-left: 32px; max-width: calc(100% - 32px); }
+  #deck-view .deck-workshop-heading .deck-inline-metadata { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; }
+  #deck-view .deck-workshop-heading h1 { flex: 1 1 auto; margin: 0; }
+  #deck-view .deck-workshop-heading .deck-inline-description.is-placeholder { min-height: 22px; padding: 2px 4px; margin-left: 0; font-size: 10px; }
+  #deck-view .deck-inline-form { flex-basis: 100%; }
+  #deck-view .deck-check-label input[type=checkbox] { width: 14px; height: 14px; flex-basis: 14px; }
+  #deck-view .deck-editor-view-text .deck-entry { border-width: 1px; }
+  #deck-view .deck-editor-view-text .deck-entry-name { min-height: 26px; font-size: 12px; }
+  #deck-view .deck-editor-view-text .deck-editor-group-entries { gap: 2px; }
+  #deck-view .deck-stats strong { overflow-wrap: normal; }
+  input:not([type=checkbox]):not([type=range]), select, textarea { font-size: 13px; }
+  .deck-modal .deck-input:not([type=checkbox]) { min-height: 32px; font-size: 13px; }
+  #filters :is(input:not([type=checkbox]):not([type=range]), select) { font-size: 13px; min-height: 32px; padding: 5px 7px; }
+  #filters .mana-value-option span { min-height: 28px; font-size: 11px; }
+  .feedback-text { font-size: 13px; }
+
+  .app-header { height: calc(48px + env(safe-area-inset-top)); }
+  .brand-mark { width: 26px; height: 26px; }
+  .brand-name { font-size: 17px; }
+  .app-header :is(.button, .icon-button, .nav-item) { min-height: 28px; }
   .header-actions { gap: 4px; }
   .header-actions :is(.header-feedback, .header-app-download) { min-width: 36px; }
   .account-open { padding-inline: 9px; }
@@ -24,128 +47,155 @@
   :is(#deck-view, #feedback-view, .catalog-content) .button,
   :is(#deck-view, #feedback-view) .deck-danger {
     min-height: var(--mobile-row-height);
-    padding: 6px 9px;
-    font-size: 13px;
+    padding: 4px 7px;
+    font-size: 12px;
     line-height: 1.4;
   }
   #deck-view .deck-input:not([type=checkbox]),
   :is(.condition-value, .condition-select, .field-select, .small-select-label select, .mana-bounds input) {
     min-height: var(--mobile-control-height);
-    padding: 7px 9px;
-    font-size: 16px;
+    padding: 5px 7px;
+    font-size: 13px;
     line-height: 1.4;
   }
   #deck-view :is(.deck-muted, .deck-save-status),
   :is(.feedback-state, .feedback-login) { line-height: 1.5; }
 
   /* Deck library and workshop. */
-  #deck-view > .button:first-child { margin-left: -6px; min-height: 32px; }
-  #deck-view .deck-page-heading { gap: 8px; margin: 8px 0; }
-  #deck-view .deck-page-heading h1 { font-size: 24px; line-height: 1.25; margin: 0 0 5px; }
-  #deck-view .deck-inline-pencil { min-height: 32px; gap: 8px; }
-  #deck-view .deck-inline-description { min-height: 30px; padding: 4px 8px; font-size: 12px; line-height: 1.4; }
+  #deck-view > .button:first-child { margin-left: -6px; min-height: 28px; }
+  #deck-view .deck-page-heading { gap: 5px; margin: 4px 0; }
+  #deck-view .deck-page-heading h1 { font-size: 20px; line-height: 1.25; margin: 0 0 5px; }
+  #deck-view .deck-inline-pencil { min-height: 26px; gap: 6px; }
+  #deck-view .deck-inline-description { min-height: 24px; padding: 2px 6px; font-size: 11px; line-height: 1.4; }
   #deck-view .deck-page-heading > .deck-actions { gap: 4px; }
-  #deck-view .deck-page-heading > .deck-actions > .button { flex: 0 1 auto; padding: 6px 9px; }
-  #deck-view .deck-save-status { margin: 4px 0 10px; font-size: 11px; }
+  #deck-view .deck-page-heading > .deck-actions > .button { flex: 0 1 auto; padding: 4px 7px; font-size: 11px; }
+  #deck-view .deck-save-status { margin: 3px 0 6px; font-size: 10px; }
   .deck-sync-status { gap: 4px; }
-  #deck-view .deck-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 10px 0; }
-  #deck-view .deck-stats > div { padding: 10px 8px; gap: 4px; border: 0; border-right: 1px solid var(--line); }
+  #deck-view .deck-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 8px 0; }
+  #deck-view .deck-stats > div { padding: 7px 6px; gap: 3px; border: 0; border-right: 1px solid var(--line); }
   #deck-view .deck-stats > div:last-child { border: 0; }
-  #deck-view .deck-stats strong { font-size: 18px; line-height: 1.3; }
-  #deck-view .deck-stats span { font-size: 10px; line-height: 1.4; }
-  #deck-view .deck-checks { padding: 4px 10px; margin-bottom: 12px; }
-  #deck-view .deck-checks > summary { min-height: 36px; padding: 7px 0; line-height: 22px; }
+  #deck-view .deck-stats strong { font-size: 16px; line-height: 1.3; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #deck-view .deck-stats span { font-size: 9px; line-height: 1.4; }
+  #deck-view .deck-checks { padding: 2px 8px; margin-bottom: 8px; }
+  #deck-view .deck-checks > summary { min-height: 30px; padding: 4px 0; line-height: 20px; }
   #deck-view .deck-checks ul { margin: 6px 0; }
   #deck-view .deck-add-section { padding: var(--mobile-panel-space); margin: var(--mobile-section-space) 0; }
-  #deck-view .deck-add-section h2 { font-size: 16px; margin-bottom: 8px; }
+  #deck-view .deck-add-section h2 { font-size: 14px; margin-bottom: 6px; }
   #deck-view .deck-add-form { grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
   #deck-view .deck-add-form > .deck-input { grid-column: 1; }
-  #deck-view .deck-add-form > .button { padding: 6px 7px; font-size: 12px; }
-  #deck-view .deck-check-label { min-height: 34px; gap: 6px; font-size: 12px; line-height: 1.4; }
+  #deck-view .deck-add-form > .button { padding: 4px 6px; font-size: 11px; }
+  #deck-view .deck-check-label { min-height: 28px; gap: 5px; font-size: 11px; line-height: 1.4; }
   #deck-view .deck-add-section > .deck-muted { margin: 6px 0 0; }
   #deck-view .deck-search-result { padding-block: 6px; gap: 8px; }
   #deck-view .deck-search-result:first-child { margin-top: 8px; }
-  #deck-view .deck-card-link { min-height: 32px; }
+  #deck-view .deck-card-link { min-height: 28px; }
   #deck-view .deck-library-grid { gap: 12px; }
-  #deck-view .deck-tile-art { height: 92px; }
-  #deck-view .deck-tile-body { padding: 14px; }
+  #deck-view .deck-tile-art { height: 84px; }
+  #deck-view .deck-tile-body { padding: 12px; }
   #deck-view .deck-tile-body p { margin-block: 5px; }
-  #deck-view .deck-title-button { min-height: 32px; font-size: 19px; }
+  #deck-view .deck-title-button { min-height: 32px; font-size: 17px; }
   #deck-view .deck-tile-footer { padding-top: 8px; margin-top: 10px; }
   #deck-view .deck-trash { padding: 10px 12px; margin-top: 12px; }
 
   /* Two toolbar rows; view toggles share the title row. */
-  #deck-view .deck-editor-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; padding-inline: 0; margin: 16px 0 8px; }
+  #deck-view .deck-editor-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 6px; padding-inline: 0; margin: 12px 0 6px; }
   #deck-view .deck-list-title { grid-column: 1; grid-row: 1; gap: 6px; flex-wrap: nowrap; }
-  #deck-view .deck-list-title h2 { font-size: 16px; white-space: nowrap; }
-  #deck-view .deck-list-title .deck-five-dh-toggle { min-height: 30px; padding: 3px 6px; font-size: 10px; gap: 4px; }
+  #deck-view .deck-list-title h2 { font-size: 14px; white-space: nowrap; }
+  #deck-view .deck-list-title .deck-five-dh-toggle { min-height: 26px; padding: 2px 5px; font-size: 9px; gap: 4px; }
   #deck-view .deck-editor-controls { display: contents; }
   #deck-view .deck-editor-views { grid-column: 2; grid-row: 1; justify-self: end; }
-  #deck-view .deck-editor-view-button { min-height: 32px; padding: 4px 7px; font-size: 12px; }
+  #deck-view .deck-editor-view-button { min-height: 28px; padding: 3px 6px; font-size: 11px; }
   #deck-view .deck-editor-controls > select { grid-column: 1; grid-row: 2; }
   #deck-view .deck-editor-sort-controls { grid-column: 2; grid-row: 2; min-width: 0; }
-  #deck-view .deck-editor-toolbar select { width: 100%; max-width: none; min-height: 36px; padding: 5px 6px; font-size: 13px; }
+  #deck-view .deck-editor-toolbar select { width: 100%; max-width: none; min-height: 30px; padding: 4px 6px; font-size: 12px; }
   #deck-view .deck-editor-sort-controls > select { max-width: 120px; }
-  #deck-view .deck-editor-sort-direction { min-height: 36px; min-width: 32px; padding: 4px; }
+  #deck-view .deck-editor-sort-direction { min-height: 30px; min-width: 28px; padding: 4px; }
   #deck-view .deck-editor-controls > .button { grid-column: 1 / -1; justify-self: start; }
   #deck-view .deck-editor-board { padding-inline: 0; }
-  #deck-view .deck-editor-zone { margin-block: 10px; }
-  #deck-view .deck-editor-zone-heading.deck-zone-title { padding-bottom: 3px; margin-bottom: 4px; font-size: 16px; }
-  #deck-view :is(.deck-editor-fold-toggle, .deck-editor-empty-title) { min-height: 32px; padding-block: 3px; }
+  #deck-view .deck-editor-zone { margin-block: 8px; }
+  #deck-view .deck-editor-zone-heading.deck-zone-title { padding-bottom: 3px; margin-bottom: 3px; font-size: 14px; }
+  #deck-view :is(.deck-editor-fold-toggle, .deck-editor-empty-title) { min-height: 28px; padding-block: 2px; }
   #deck-view .deck-editor-group { margin-block: 4px 8px; }
   #deck-view .deck-editor-group-title { margin-bottom: 3px; }
-  #deck-view .deck-editor-view-text .deck-entry-main { min-height: 34px; grid-template-columns: 26px minmax(20px, auto) minmax(0, 1fr) minmax(0, auto) 30px; gap: 3px; }
-  #deck-view .deck-editor-view-text .deck-entry-quantity { min-height: 32px; width: 30px; padding: 1px; }
-  #deck-view .deck-editor-view-text .deck-entry-name { min-height: 32px; }
-  #deck-view .deck-editor-view-text .deck-drag-handle { width: 26px; min-height: 32px; height: 32px; padding: 0; }
-  #deck-view .deck-editor-view-text .deck-entry-menu-trigger { min-height: 32px; height: 32px; width: 30px; padding: 0; }
+  #deck-view .deck-editor-view-text .deck-entry-main { min-height: 28px; grid-template-columns: 22px minmax(18px, auto) minmax(0, 1fr) minmax(0, auto) 28px; gap: 3px; }
+  #deck-view .deck-editor-view-text .deck-entry-quantity { min-height: 26px; width: 28px; padding: 1px; }
+  #deck-view .deck-editor-view-text .deck-entry-name { min-height: 28px; }
+  #deck-view .deck-editor-view-text .deck-drag-handle { width: 22px; min-height: 26px; height: 26px; padding: 0; }
+  #deck-view .deck-editor-view-text .deck-entry-menu-trigger { min-height: 26px; height: 26px; width: 28px; padding: 0; }
 
   /* Search and advanced filters use the same rhythm as the workshop. */
-  .page-heading { margin-bottom: 10px; gap: 8px; }
-  .page-heading h1 { font-size: 22px; }
-  .search-form, .is-idle .search-form { height: 48px; padding: 4px; }
+  .page-heading { margin-bottom: 6px; gap: 6px; }
+  .page-heading h1 { font-size: 18px; }
+  .search-form, .is-idle .search-form { height: 38px; padding: 3px; }
   .catalog-content .search-form { margin-bottom: 8px; }
-  .results-toolbar { gap: 8px; margin-bottom: 12px; }
-  .sort-label select { min-height: 36px; font-size: 14px; }
-  .view-toggle button { min-height: 36px; min-width: 36px; }
-  .card-grid { gap: 16px 10px; }
+  .results-toolbar { gap: 6px; margin-bottom: 8px; }
+  .sort-label select { min-height: 30px; font-size: 12px; }
+  .view-toggle button { min-height: 28px; min-width: 28px; }
+  .card-grid { gap: 10px; }
   .card-title { min-height: 34px; line-height: 1.4; }
-  .is-list .card-title { min-height: 32px; }
+  .is-list .card-title { min-height: 28px; }
   .card-info { padding-top: 6px; }
   .card-english { margin-block: 2px 4px; }
-  .filter-heading { height: 52px; min-height: 52px; padding-inline: 12px; }
+  .filter-heading { height: 44px; min-height: 44px; padding-inline: 12px; }
   .filter-scroll { padding-inline: 12px; }
-  .filter-scroll .filter-section { margin-bottom: 12px; padding-bottom: 12px; }
+  .filter-scroll .filter-section { margin-bottom: 10px; padding-bottom: 10px; }
   .filter-field-label, .filter-section legend { margin-bottom: 6px; }
-  :is(.type-filters label, .checkbox-label, .condition-exclude) { min-height: 34px; font-size: 13px; }
+  :is(.type-filters label, .checkbox-label, .condition-exclude) { min-height: 28px; font-size: 12px; }
   .repeat-filter-list { gap: 5px; }
   .filter-note { margin-block: 6px; line-height: 1.5; }
   .filter-footer { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
-  #filter-results { min-height: 40px; }
+  #filter-results { min-height: 28px; }
+
+  .search-form input, .is-idle .search-form input { font-size: 13px; padding-inline: 6px; }
+  .search-form input::placeholder, .is-idle .search-form input::placeholder { font-size: 12px; }
+  .search-submit { min-height: 30px; font-size: 12px; padding-inline: 10px; }
+  .search-icon { width: 16px; height: 16px; margin-left: 4px; }
+  .results-toolbar { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; }
+  .results-count-wrap { gap: 4px; min-width: 0; }
+  .results-count-wrap p { font-size: 10px; white-space: nowrap; }
+  .results-count-wrap strong { font-size: 13px; }
+  .results-count-wrap .data-info-button { font-size: 10px; padding: 3px 4px; min-height: 28px; }
+  .result-options { gap: 4px; justify-content: flex-end; }
+  .sort-label { font-size: 0; gap: 0; }
+  .sort-label select { font-size: 11px; max-width: 96px; padding-inline: 0; }
+  .view-toggle { padding: 1px; }.view-toggle .icon { width: 15px; height: 15px; }
+  .active-filters { margin: 0 0 8px; gap: 4px; }
+  .filter-pill { min-height: 24px; font-size: 10px; padding: 2px 7px; }
+  .card-grid:not(.is-list) .card-info { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 4px; padding-top: 4px; }
+  .card-grid:not(.is-list) .card-info .card-title { grid-column: 1; grid-row: 1; display: block; max-width: 100%; min-height: 17px; margin: 0; font-size: 12px; line-height: 1.4; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+  .card-grid:not(.is-list) .card-english, .card-grid:not(.is-list) .card-type>span:first-child { display: none; }
+  .card-grid:not(.is-list) .card-type { grid-column: 1; grid-row: 2; display: flex; margin: 0; min-height: 13px; line-height: 1.3; }
+  .card-grid:not(.is-list) .card-type .mana-symbols { margin: 0; gap: 1px; }
+  .card-grid:not(.is-list) .mana-symbol { width: 12px; min-width: 12px; height: 12px; }
+  .card-grid:not(.is-list) .add-card-button { grid-column: 2; grid-row: 1 / span 2; position: static; align-self: start; width: 28px; height: 28px; margin: 0; }
+  .card-grid:not(.is-list) .add-card-button .icon { width: 17px; height: 17px; }
+  .card-grid:not(.is-list) .add-card-button.is-in-deck { width: auto; min-width: 48px; font-size: 9px; padding: 2px 4px; }
+  .card-grid:not(.is-list) .card-set { display: none; grid-column: 1 / -1; grid-row: 3; font-size: 9px; margin: 0; gap: 3px; }
+  .card-grid:not(.is-list) .card-set:has(.usd-price, .cny-price, .deck-budget-price, .card-translation-missing) { display: flex; }
 
   /* Analysis, feedback and shared dialogs. */
-  #deck-view .deck-analysis { gap: 12px; margin-block: 8px 20px; padding-inline: 0; }
+  #deck-view .deck-analysis { gap: 10px; margin-block: 6px 16px; padding-inline: 0; }
   .deck-analysis-grid { gap: 12px; }
-  .deck-analysis-heading h1 { font-size: 24px; }
+  .deck-analysis-heading h1 { font-size: 20px; }
   .deck-analysis-card { padding: 12px; }
   .deck-analysis-card-heading { margin-bottom: 8px; gap: 6px; }
   .deck-analysis-card h2 { font-size: 16px; }
   .deck-analysis-kpi { padding: 9px 10px; }
-  .deck-analysis-kpi strong { font-size: 21px; }
+  .deck-analysis-kpi strong { font-size: 18px; }
   .deck-analysis-legend { gap: 2px 8px; }
   .deck-analysis-legend > button { min-height: 32px; padding-block: 4px; }
   .deck-analysis-card-list li > button { min-height: 36px; }
   .feedback-heading { margin-bottom: 12px; }
-  .feedback-heading h1 { font-size: 24px; }
+  .feedback-heading h1 { font-size: 20px; }
   .feedback-composer, .feedback-post { padding: 12px; }
-  .feedback-history-heading { margin: 16px 0 8px; }
+  .feedback-history-heading { margin: 12px 0 6px; }
   .feedback-history { gap: 12px; }
   .feedback-label { margin-bottom: 6px; }
   .feedback-text { padding: 9px; line-height: 1.5; }
-  .feedback-body { line-height: 1.6; margin-block: 10px; }
+  .feedback-body { line-height: 1.6; margin-block: 8px; }
   .feedback-discussion { margin-top: 10px; padding-top: 6px; }
   .feedback-reply { padding-block: 10px; }
-  .deck-modal, .app-dialog { padding: 16px; }
+  .deck-modal, .app-dialog { padding: 12px; }
   .deck-modal-header { margin-bottom: 12px; }
   .deck-field { margin-bottom: 12px; gap: 5px; }
   .detail-content { padding: 14px 12px calc(18px + env(safe-area-inset-bottom)); }
@@ -154,6 +204,14 @@
 }
 
 @media (max-width: 350px) {
-  #deck-view .deck-stats strong { font-size: 16px; white-space: nowrap; }
+  #deck-view .deck-stats strong { font-size: 14px; white-space: nowrap; }
   #deck-view .deck-page-heading > .deck-actions > .button { padding-inline: 6px; font-size: 12px; }
+}
+
+@media (max-width: 350px) { .results-count-wrap .data-info-button { display: none; } }
+/* Keep Safari text fields above its automatic focus-zoom threshold. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 700px) {
+    #deck-view .deck-input:not([type=checkbox]), .deck-modal .deck-input:not([type=checkbox]), #filters input:not([type=checkbox]):not([type=range]), #filters select, .search-form input, .feedback-text { font-size: 16px; }
+  }
 }

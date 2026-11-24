@@ -485,8 +485,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const preferences = getDeckEditorPreferences(deck);
     groupBy = preferences.groupBy;
     viewMode = preferences.viewMode;
-    const back = button('← 卡组库', showLibrary); container.append(back);
-    const header = el('div', 'deck-page-heading'); const title = renderDeckMetadata(deck);
+    const back = button('← 卡组库', showLibrary); back.classList.add('deck-workshop-back'); back.setAttribute('aria-label', '返回卡组库'); container.append(back);
+    const header = el('div', 'deck-page-heading deck-workshop-heading'); const title = renderDeckMetadata(deck);
     const actions = el('div', 'deck-actions');
     const analyze = button('卡组分析', () => {
       analysisOpen = true;
