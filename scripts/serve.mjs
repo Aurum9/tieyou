@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFile, readdir, mkdir, access } from 'node:fs/promises';
+import { readFile, readdir, mkdir, access, stat } from 'node:fs/promises';
 import { resolve, dirname, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
@@ -12,6 +12,7 @@ import { createStandaloneAuth } from './standalone-auth.mjs';
 import { createFeedbackService } from './standalone-feedback.mjs';
 import { createClientUsage } from './client-usage.mjs';
 import { createScoreboardService } from './standalone-scoreboard.mjs';
+import { isPublicDownload, downloadResponse } from './download-response.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const root = resolve(projectRoot, 'web');
@@ -57,7 +58,6 @@ const scoreboard = createScoreboardService(db, auth);
 const usageDB = openLocalD1(resolve(stateRoot, 'client-usage.sqlite'));
 const clientUsage = await createClientUsage(usageDB, { policyPath: resolve(process.env.EDH_CLIENT_POLICY_PATH || resolve(stateRoot, 'client-policy.json')), releasePath: resolve(root, 'downloads/android-release.json') });
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.md': 'text/plain; charset=utf-8' };
-const androidDownload = '/downloads/tieyou-android.apk';
 const worker = createWorker({ async serveAsset(pathname, request) {
   const path = resolve(root, '.' + pathname);
   if (path !== root && !path.startsWith(root + sep)) return new Response(null, { status: 403 });
@@ -71,15 +71,7 @@ const worker = createWorker({ async serveAsset(pathname, request) {
       if (version !== bundledVersion && validVersion(version)) assetPath = resolve(catalogReleases, version, name);
     }
     let body = await readFile(assetPath);
-    if (pathname === androidDownload) {
-      return new Response(request.method === 'HEAD' ? null : body, { headers: {
-        'Content-Type': 'application/vnd.android.package-archive',
-        'Content-Disposition': 'attachment; filename="tieyou-android.apk"',
-        'Content-Length': String(body.length),
-        'Cache-Control': 'no-cache',
-        'X-Content-Type-Options': 'nosniff'
-      } });
-    }
+    if (isPublicDownload(pathname)) return downloadResponse(request, pathname, body, (await stat(assetPath)).mtime);
     if (pathname === '/data/tag-vocabulary.json') {
       const vocabulary = JSON.parse(body.toString());
       body = Buffer.from(JSON.stringify(vocabulary.map(({ slug, label, aliases, parentSlugs }) => ({ slug, label, aliases, parentSlugs }))));
@@ -121,7 +113,8 @@ const server = createServer(async (req, res) => {
     if (body.length && /\bgzip\b/.test(req.headers['accept-encoding'] || '') && /text\/|application\/json|image\/svg/.test(response.headers.get('Content-Type') || '')) {
       body = gzipSync(body); responseHeaders['content-encoding'] = 'gzip'; responseHeaders.vary = 'Accept-Encoding';
     }
-    if (request.method !== 'HEAD' || !responseHeaders['content-length']) responseHeaders['content-length'] = String(body.length);
+    if (response.status === 304 || response.status === 204) delete responseHeaders['content-length'];
+    else if (request.method !== 'HEAD' || !responseHeaders['content-length']) responseHeaders['content-length'] = String(body.length);
     if (request.method === 'GET' && response.status === 200 && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(clientAddress) && /^\/downloads\/tieyou-android(?:-\d+\.\d+\.\d+)?\.apk$/.test(url.pathname)) {
       res.once('finish', () => { void clientUsage.recordDownload(url.pathname, body.length).catch(() => {}); });
     }
