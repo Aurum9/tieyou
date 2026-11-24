@@ -3,6 +3,7 @@ package cn.sbwsz.tieyou;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -49,6 +50,7 @@ public final class MainActivity extends Activity {
         web.getSettings().setAllowContentAccess(false);
         CookieManager.getInstance().setAcceptCookie(true);
         web.addJavascriptInterface(new DeckFiles(), "TieyouDeckFiles");
+        web.addJavascriptInterface(new TableScreen(), "TieyouTable");
         updates = new AppUpdates(this);
         webAssets = new WebAssets(this);
         web.addJavascriptInterface(new UpdateActions(), "TieyouUpdates");
@@ -105,6 +107,20 @@ public final class MainActivity extends Activity {
         });
         setContentView(web);
         web.loadUrl(HOME);
+    }
+
+    private final class TableScreen {
+        @JavascriptInterface public void enter() { runOnUiThread(() -> {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }); }
+        @JavascriptInterface public void exit() { runOnUiThread(() -> {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        }); }
     }
 
     private static boolean isSite(Uri url) {

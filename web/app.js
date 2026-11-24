@@ -33,6 +33,9 @@ let matchedCards = [];
 let renderedCount = 0;
 let currentView = 'decks';
 let feedbackUI;
+let scoreboardUI;
+let scoreboardModule;
+let scoreboardRevision = 0;
 let catalogTargetId = null;
 let catalogScopeEnabled = true;
 let knownSetCodes = new Set();
@@ -433,6 +436,7 @@ function showAdvancedFilters() {
 }
 
 function switchView(view) {
+  if (['scoreboard', 'records'].includes(currentView) && view !== currentView) { scoreboardRevision++; scoreboardUI?.close(); }
   if (currentView === 'catalog' && view !== 'catalog') cancelCatalogSearch();
   if (currentView === 'decks' && view !== 'decks') {
     deckUI?.cancelEditorDrag();
@@ -443,13 +447,16 @@ function switchView(view) {
   closeFilters();
   currentView = view;
   document.body.classList.toggle('is-playtesting', view === 'playtest');
+  document.body.classList.toggle('is-scoreboard', view === 'scoreboard');
   $('#catalog-view').hidden = view !== 'catalog';
   $('#deck-view').hidden = view !== 'decks';
   $('#playtest-view').hidden = view !== 'playtest';
   $('#feedback-view').hidden = view !== 'feedback';
+  $('#scoreboard-view').hidden = !['scoreboard', 'records'].includes(view);
+  $('#tools-view').hidden = view !== 'tools';
   $('.header-feedback').setAttribute('aria-pressed', String(view === 'feedback'));
   $$('.nav-item').forEach((button) => {
-    const active = button.dataset.view === (view === 'playtest' ? 'decks' : view);
+    const active = button.dataset.view === (view === 'playtest' ? 'decks' : ['scoreboard', 'records'].includes(view) ? 'tools' : view);
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
@@ -459,6 +466,14 @@ function switchView(view) {
     else initializeDeckWorkspace();
   } else if (view === 'catalog') {
     runSearch();
+  } else if (['scoreboard', 'records'].includes(view)) {
+    const revision = ++scoreboardRevision;
+    scoreboardModule ||= import('./lib/scoreboard-ui.js');
+    void scoreboardModule.then(({ createScoreboardUI }) => {
+      if (revision !== scoreboardRevision || currentView !== view) return;
+      scoreboardUI ||= createScoreboardUI({ container: $('#scoreboard-view'), catalog: remoteCatalog, notify, onBack: () => switchView('tools'), onOpenTable: () => switchView('scoreboard') });
+      void scoreboardUI.open({ historyOnly: view === 'records' });
+    }).catch(() => { notify('计分板暂时无法打开，请重试', 'error'); switchView('decks'); });
   } else if (view === 'feedback') {
     if (!feedbackUI) feedbackUI = initFeedbackUI({
       container: $('#feedback-view'),
@@ -873,6 +888,8 @@ wireAccount({ flushDecks: () => deckUI?.flushCloudDecks() });
 initClientUsage();
 
 if (androidApp) window.tieyouHandleBack = () => {
+  if (['scoreboard', 'records'].includes(currentView)) return scoreboardUI?.back() ?? true;
+  if (currentView === 'tools') { switchView('decks'); return true; }
   const dialog = $('dialog[open]');
   if (dialog) { dialog.close(); return true; }
   const closeModal = $('.deck-modal-header button, .deck-demo-controls .button-quiet');

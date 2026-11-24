@@ -7,6 +7,7 @@ pwsh -File android/build.ps1 -ReleaseNotes '本次更新说明'
 ```
 
 构建前递增 AndroidManifest.xml 的 versionCode，并修改 versionName。构建输出在 dist/android。
+本地验收包可以使用 `-OutDir dist/scoreboard-preview`，将 APK 和页面更新文件与正式发布产物分开保存。
 
 - tieyou-android.apk 为首页下载的安装包。
 - tieyou-android-版本号.apk 为更新使用的固定版本安装包。

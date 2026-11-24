@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="./playtest.css?v=0.6.9" />
     <link rel="stylesheet" href="./feedback.css?v=0.6.0" />
     <link rel="stylesheet" href="./mobile.css?v=0.6.10" />
+    <link rel="stylesheet" href="./scoreboard.css?v=0.7.0" />
   </head>
   <body>
     <svg xmlns="http://www.w3.org/2000/svg" class="icon-defs" aria-hidden="true">
@@ -31,6 +32,7 @@
       <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v11m-4-4 4 4 4-4M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4"/></symbol>
       <symbol id="i-feedback" viewBox="0 0 24 24"><path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 4V5a2 2 0 0 1 2-2Z M7 8h10M7 12h7"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M4 7a9 9 0 1 1-1 8M4 2v5h5M12 7v5l3 2"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
       <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></symbol>
       <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m3 16 5-5 4 4 3-3 6 6"/></symbol>
@@ -48,6 +50,7 @@
       <nav class="main-nav" aria-label="主导航">
         <button class="nav-item active" data-view="decks" aria-label="我的卡组" aria-current="page"><svg class="icon"><use href="#i-cards"/></svg><span>我的卡组</span></button>
         <button class="nav-item" data-view="catalog" aria-label="卡牌检索"><svg class="icon"><use href="#i-search"/></svg><span>卡牌检索</span></button>
+        <button class="nav-item nav-tools" data-view="tools" aria-label="其他功能" title="其他功能"><svg class="icon"><use href="#i-grid"/></svg><span>其他功能</span></button>
       </nav>
       <div class="header-actions">
         <button class="button button-quiet header-feedback" data-view="feedback" type="button" aria-label="问题反馈" title="问题反馈"><svg class="icon" aria-hidden="true"><use href="#i-feedback"/></svg><span>反馈</span></button>
@@ -162,6 +165,14 @@
     </main>
     <main id="playtest-view" hidden></main>
     <main id="feedback-view" hidden></main>
+    <main id="tools-view" class="tools-page" hidden>
+      <h1>其他功能</h1>
+      <div class="tools-grid">
+        <button class="tool-tile" data-view="scoreboard"><svg class="icon"><use href="#i-grid"/></svg><span>计分板</span></button>
+        <button class="tool-tile" data-view="records"><svg class="icon"><use href="#i-history"/></svg><span>游戏记录</span></button>
+      </div>
+    </main>
+    <main id="scoreboard-view" hidden aria-label="四人计分板"></main>
 
     <div id="detail-layer" class="detail-layer" hidden>
       <button id="detail-scrim" class="detail-scrim" aria-label="关闭卡牌详情" tabindex="-1"></button>
@@ -203,7 +214,7 @@
       <label id="account-usage" class="deck-check-label" hidden title="仅记录匿名标识、App 版本和启动日期，用于统计使用情况，可随时关闭。"><input type="checkbox">匿名使用统计</label>
     </dialog>
     <div id="toast-stack" class="toast-stack" aria-live="polite" aria-relevant="additions"></div>
-    <script id="app-entry" type="module" src="./app.js?v=0.6.10"></script>
+    <script id="app-entry" type="module" src="./app.js?v=0.7.0"></script>
     <script>
       (function () {
         function showStartupError() {

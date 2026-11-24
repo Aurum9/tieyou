@@ -1,5 +1,6 @@
 param(
     [string]$Sdk = $env:ANDROID_HOME,
+    [string]$OutDir = 'dist/android',
     [string]$ReleaseNotes = '页面资源支持后台自动更新；安装包新版可在 App 内检查、下载并安装。'
 )
 
@@ -15,7 +16,7 @@ if (!(Test-Path -LiteralPath $androidJar) -or !(Test-Path -LiteralPath $sdkTools
 $project = Split-Path $PSScriptRoot
 Push-Location $project
 try {
-$output = 'dist/android'
+$output = $OutDir
 $state = '.local/android'
 $build = Join-Path $state ([Guid]::NewGuid().ToString('N'))
 $webAssets = Join-Path $build 'assets/web'
@@ -41,7 +42,7 @@ foreach ($filename in 'tag-vocabulary.json', 'playtest-tokens.json', 'DATA-LICEN
 $index = (Resolve-Path (Join-Path $webAssets 'index.html')).Path
 $html = [IO.File]::ReadAllText($index).Replace('<head>', '<head><script>window.tieyouAndroid = true;document.documentElement.classList.add("tieyou-android");</script>')
 [IO.File]::WriteAllText($index, $html, $utf8)
-Invoke-Checked 'node.exe' @('scripts/build-android-web.mjs', '--assets', $webAssets)
+Invoke-Checked 'node.exe' @('scripts/build-android-web.mjs', '--assets', $webAssets, '--out', $output)
 
 $aapt2 = Join-Path $sdkTools 'aapt2.exe'
 $resources = Join-Path $build 'resources.zip'
