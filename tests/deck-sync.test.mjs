@@ -9,8 +9,7 @@ function memory() {
   return { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value) };
 }
 
-function server() {
-  const account = 'a'.repeat(64);
+function server(account = 'a'.repeat(64)) {
   let revision = 0, data = library();
   const serverState = {
     offline: false,
@@ -85,4 +84,55 @@ test('migrates browser decks, syncs to a second device, and resends local edits 
     client.dispose();
     secondClient.dispose();
   }
+});
+
+test('login automatically claims device guest decks even when the account already has an empty cache', async () => {
+  const storage = memory(), cloud = server(), account = 'a'.repeat(64);
+  const source = createDeck('未登录时组的牌'), privateDeck = createDeck('另一账号的私有卡组');
+  storage.setItem(STORAGE_KEY + '.owner', 'b'.repeat(64));
+  storage.setItem(STORAGE_KEY, JSON.stringify(library(privateDeck)));
+  storage.setItem(STORAGE_KEY + '.guest', JSON.stringify(library(source)));
+  storage.setItem(STORAGE_KEY + '.account.' + account, JSON.stringify({ account, revision: 0, library: library(), local: library() }));
+  let store = new DeckStore({ storage, key: STORAGE_KEY + '.guest' });
+  let client = createDeckSync(store, { fetcher: cloud.fetch });
+  try {
+    await client.start(); assert.equal(client.status.state, 'saved'); assert.deepEqual(store.list().map(d => d.name), [source.name]);
+    const other = new DeckStore({ storage: memory() }), peer = createDeckSync(other, { fetcher: cloud.fetch });
+    await peer.start(); assert.deepEqual(other.list(), store.list()); peer.dispose();
+    assert.equal(JSON.parse(storage.getItem(STORAGE_KEY + '.guest')).decks[0].name, source.name);
+    assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).decks[0].name, privateDeck.name);
+    store.save({ ...store.get(source.id), name: '账号内继续编辑' }); await client.sync(); client.dispose();
+    store = new DeckStore({ storage, key: STORAGE_KEY + '.guest' }); client = createDeckSync(store, { fetcher: cloud.fetch });
+    await client.start(); assert.deepEqual(store.list().map(d => d.name), ['账号内继续编辑']);
+    const secondAccount = server('c'.repeat(64)), secondStore = new DeckStore({ storage, key: STORAGE_KEY + '.guest' });
+    const secondClient = createDeckSync(secondStore, { fetcher: secondAccount.fetch });
+    await secondClient.start(); assert.deepEqual(secondStore.list(), []); secondClient.dispose();
+  } finally { client.dispose(); }
+});
+
+test('automatic guest sync keeps conflicting cloud edits and never re-imports stale originals after deletion', async () => {
+  const cloud = server(), account = 'a'.repeat(64), storage = memory();
+  const source = createDeck('设备版本'), remote = { ...source, name: '云端版本' };
+  await cloud.fetch('', { method: 'PUT', body: JSON.stringify({ account, revision: 0, library: library(remote) }) });
+  storage.setItem(STORAGE_KEY + '.owner', 'b'.repeat(64)); storage.setItem(STORAGE_KEY + '.guest', JSON.stringify(library(source)));
+  let store = new DeckStore({ storage, key: STORAGE_KEY + '.guest' }), client = createDeckSync(store, { fetcher: cloud.fetch });
+  try {
+    await client.start(); assert.equal(store.list().length, 2); assert.ok(store.list().some(d => d.name === '云端版本')); assert.ok(store.list().some(d => d.name === '设备版本 · 同步副本'));
+    store.commit(library()); await client.sync(); client.dispose();
+    store = new DeckStore({ storage, key: STORAGE_KEY + '.guest' }); client = createDeckSync(store, { fetcher: cloud.fetch });
+    await client.start(); assert.deepEqual(store.list(), []);
+  } finally { client.dispose(); }
+});
+
+test('a cache write failure preserves device decks and permits a later automatic retry', async () => {
+  const base = memory(), cloud = server(), source = createDeck('不能丢失的设备卡组');
+  base.setItem(STORAGE_KEY + '.owner', 'b'.repeat(64)); base.setItem(STORAGE_KEY + '.guest', JSON.stringify(library(source)));
+  let full = true;
+  const storage = { getItem: base.getItem, setItem(key, value) { if (full && key.includes('.account.')) throw new Error('空间不足'); base.setItem(key, value); } };
+  let store = new DeckStore({ storage, key: STORAGE_KEY + '.guest' }), client = createDeckSync(store, { fetcher: cloud.fetch });
+  try {
+    await client.start(); assert.equal(client.status.state, 'error'); assert.equal(JSON.parse(base.getItem(STORAGE_KEY + '.guest')).decks[0].id, source.id); client.dispose();
+    full = false; store = new DeckStore({ storage, key: STORAGE_KEY + '.guest' }); client = createDeckSync(store, { fetcher: cloud.fetch });
+    await client.start(); assert.equal(client.status.state, 'saved'); assert.equal(store.list()[0].id, source.id);
+  } finally { client.dispose(); }
 });

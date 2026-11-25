@@ -68,6 +68,7 @@ export function createDeckSync(store, {
 } = {}) {
   let status = { state: 'loading', message: '正在读取云端卡组…' };
   let checkpoint, active, timer, started = false, disposed = false, accountChanged = false, signedOut = false;
+  let deviceImports = [];
   let retryDelay = 1000;
   const storage = store.storage;
 
@@ -77,6 +78,7 @@ export function createDeckSync(store, {
   }
 
   function persist(next) {
+    next = { ...next, deviceImports };
     storage?.setItem(CACHE_PREFIX + next.account, JSON.stringify(next));
     checkpoint = next;
   }
@@ -98,7 +100,7 @@ export function createDeckSync(store, {
       const data = JSON.parse(raw);
       const snapshot = readSnapshot(data);
       if (snapshot.account !== account) throw new Error('账号不匹配');
-      return { ...snapshot, local: validateDeckLibrary(data.local) };
+      return { ...snapshot, local: validateDeckLibrary(data.local), deviceImports: Array.isArray(data.deviceImports) ? data.deviceImports.filter(item => typeof item?.id === 'string' && typeof item?.updatedAt === 'string') : [] };
     } catch {
       storage.setItem(`${key}.recovery-${Date.now()}`, raw);
       return null;
@@ -108,6 +110,7 @@ export function createDeckSync(store, {
   function bind(snapshot) {
     const { account } = snapshot;
     const existing = cached(account);
+    deviceImports = existing?.deviceImports || [];
     const owner = storage?.getItem(OWNER_KEY);
     let library;
     if (existing) {
@@ -127,7 +130,38 @@ export function createDeckSync(store, {
       }
       library = mergeDeckLibraries(emptyLibrary(), legacy, snapshot.library);
     }
-    apply(snapshot, library);
+    // Guest decks belong to the first account that receives them. Keep source
+    // files as recovery copies, while the claim prevents cross-account uploads.
+    const ownersKey = `${STORAGE_KEY}.guest-owners`;
+    const ownersRaw = storage?.getItem(ownersKey);
+    let owners;
+    try {
+      const entries = ownersRaw ? JSON.parse(ownersRaw) : [];
+      if (!Array.isArray(entries) || entries.some(item => typeof item?.id !== 'string' || !/^[a-f0-9]{64}$/.test(item?.account || ''))) throw new Error();
+      owners = new Map(entries.map(item => [item.id, item.account]));
+    } catch { throw new Error('设备卡组归属记录无法读取，原卡组未改动'); }
+    let guest = emptyLibrary();
+    const guestRaw = storage?.getItem(`${STORAGE_KEY}.guest`);
+    if (guestRaw) {
+      try { guest = validateDeckLibrary(JSON.parse(guestRaw)); }
+      catch { throw new Error('设备卡组无法读取，原卡组未改动'); }
+    }
+    const available = guest.decks.filter(deck => !owners.has(deck.id) || owners.get(deck.id) === account);
+    const incoming = available.filter(deck => !deviceImports.some(item => item.id === deck.id && item.updatedAt === deck.updatedAt));
+    const nextImports = [...deviceImports.filter(item => !incoming.some(deck => deck.id === item.id)), ...incoming.map(({ id, updatedAt }) => ({ id, updatedAt }))];
+    if (incoming.length) library = mergeDeckLibraries(emptyLibrary(), { ...emptyLibrary(), decks: incoming }, library);
+    const previousImports = deviceImports;
+    try {
+      for (const deck of available) owners.set(deck.id, account);
+      const nextOwners = JSON.stringify([...owners].map(([id, owner]) => ({ id, account: owner })));
+      if (storage && nextOwners !== (ownersRaw || '[]')) storage.setItem(ownersKey, nextOwners);
+      deviceImports = nextImports;
+      apply(snapshot, library);
+    } catch (error) {
+      deviceImports = previousImports;
+      try { if (storage) storage.setItem(ownersKey, ownersRaw || '[]'); } catch { /* Intact guest records remain recoverable by this account. */ }
+      throw error;
+    }
     store.setSyncStorage(local => persist({ ...checkpoint, local }));
   }
 
