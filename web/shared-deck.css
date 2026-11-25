@@ -29,3 +29,7 @@
 }
 
 .shared-image-pending .deck-editor-image-label { position: absolute; inset: 0; display: grid; place-items: center; padding: 8px; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.deck-poster-dialog { width: 820px; }
+.deck-poster-preview { display: block; width: 100%; height: auto; border-radius: 7px; margin-bottom: 12px; }
+.deck-poster-dialog .deck-actions { position: sticky; bottom: -25px; padding-block: 10px; background: var(--surface); }
+@media(max-width:700px) { .deck-poster-dialog .deck-actions { bottom: -20px; } }

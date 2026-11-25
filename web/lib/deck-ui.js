@@ -261,6 +261,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       state.textContent = shareURL ? '分享已开启，牌表同步后链接会随之更新。' : '分享未开启';
       enable.textContent = shareURL ? '复制链接' : '开启分享并复制链接';
       enable.disabled = busy || !owner; stop.hidden = !shareURL; stop.disabled = busy;
+      poster.hidden = !shareURL; poster.disabled = busy || !owner;
     };
     const enable = button('开启分享并复制链接', async () => {
       if (busy) return; busy = true; error.hidden = true; refresh();
@@ -274,7 +275,24 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       catch (failure) { error.textContent = failure.message; error.hidden = false; }
       finally { busy = false; refresh(); }
     }, 'button deck-danger'); stop.hidden = true;
-    actions.append(enable, stop); current.panel.append(info, state, link, error, actions);
+    const poster = button('生成分享图片', async () => {
+      if (busy || !shareURL) return; busy = true; error.hidden = true; refresh();
+      try {
+        await syncController?.sync(false);
+        if (syncController?.status.state === 'error') throw new Error(syncController.status.message);
+        const saved = await request();
+        if (saved.username !== owner) throw new Error('账号已改变，请重新打开分享');
+        if (!saved.url) throw new Error('分享已关闭，请重新开启');
+        const { showDeckPoster } = await import('./deck-poster-ui.js');
+        if (!current.panel.isConnected) return;
+        current.close();
+        await showDeckPoster({ dialog, deckId: deck.id, shareURL: saved.url, username: owner, loadCards: loadCardsByIds, notify: onNotify });
+      } catch (failure) {
+        if (current.panel.isConnected) { error.textContent = failure.message; error.hidden = false; }
+        else onNotify(failure.message || '图片暂时无法生成', 'error');
+      } finally { busy = false; refresh(); }
+    }, 'button button-primary'); poster.hidden = true;
+    actions.append(enable, poster, stop); current.panel.append(info, state, link, error, actions);
     try {
       if (staleDeckId) throw new Error('请先重新打开卡组，再进行分享');
       await syncController?.sync(false);

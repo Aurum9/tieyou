@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { openLocalD1 } from '../scripts/local-d1.mjs';
 import { createStandaloneAuth } from '../scripts/standalone-auth.mjs';
 import { createDeckShareService } from '../scripts/standalone-deck-shares.mjs';
+import { pngFixture } from './helpers/poster-png.mjs';
 const origin='https://example.test';
 async function setup(t) {
   const db=openLocalD1();t.after(()=>db.close());const auth=await createStandaloneAuth(db);
@@ -19,9 +20,10 @@ async function setup(t) {
   const deck={id:'deck',name:'<script>牌表</script> $&',description:'说明 \" <b>测试</b>',updatedAt:new Date().toISOString(),entries:[{id:'secret-entry',cardId:'c',versionId:'v',quantity:2,zone:'main',notes:'private-note',categories:['private-category']},{cardId:'leader',versionId:'l',quantity:1,zone:'commander'},{cardId:'private-candidate',versionId:'p',quantity:1,zone:'considering'}]};
   const key=createHash('sha256').update('standalone:'+accounts[0].id).digest('hex');
   await db.prepare('INSERT INTO deck_libraries VALUES(?,?,?)').bind(key,1,JSON.stringify({version:1,decks:[deck],trash:[]})).run();
-  const service=createDeckShareService(db,auth,{readIndex:async()=>'<html><head><title>铁有</title><meta name="description" content="old" /></head></html>'});
+  const images=new Map();const posterStore={save:async(token,bytes)=>images.set(token,bytes),read:async token=>images.get(token),remove:async token=>images.delete(token)};
+  const service=createDeckShareService(db,auth,{posterStore,readIndex:async()=>'<html><head><title>铁有</title><meta name="description" content="old" /></head></html>'});
   const req=(path,{who=0,method='GET',headers={}}={})=>new Request(origin+path,{method,headers:{Origin:origin,...(who===null?{}:{Cookie:cookies[who],'X-Tieyou-Share-Owner':encodeURIComponent(accounts[who].username)}),...headers}});
-  return {db,deck,key,service,req};
+  return {db,deck,key,service,req,images};
 }
 test('sharing requires the owner, stays private by default, strips private content and keeps a stable live link',async t=>{
  const {db,deck,key,service,req}=await setup(t);
@@ -56,4 +58,19 @@ test('sharing rejects cross-origin and changed accounts; public metadata escapes
  assert.equal(page.headers.get('X-Robots-Tag'),'noindex, nofollow');
  assert.equal((await service.handle(req(new URL(url).pathname,{who:null,method:'HEAD'}))).body,null);
  assert.equal((await service.handle(req('/api/shared-decks/not-a-token',{who:null}))).status,404);
+});
+
+test('poster downloads work without browser login, require the owner to upload, and stop immediately on revoke',async t=>{
+ const {service,req,images}=await setup(t);const path='/api/deck-shares/deck';
+ const {url}=await (await service.handle(req(path,{method:'POST'}))).json();
+ const png=pngFixture();
+ const upload=(who=0,content=png)=>new Request(origin+path+'/poster',{method:'POST',headers:{Origin:origin,'Content-Type':'image/png',Cookie:who===0?req(path).headers.get('Cookie'):req(path,{who:1}).headers.get('Cookie'),'X-Tieyou-Share-Owner':encodeURIComponent(who===0?'分享甲':'分享乙')},body:content});
+ assert.equal((await service.handle(upload(1))).status,404);
+ assert.equal((await service.handle(upload(0,Buffer.from('bad')))).status,400);
+ assert.equal((await service.handle(req(path+'/poster',{method:'DELETE'}))).status,405);
+ const saved=await service.handle(upload());assert.equal(saved.status,200);const output=await saved.json();
+ const publicPath=new URL(output.url).pathname;
+ const download=await service.handle(req(publicPath,{who:null}));assert.equal(download.status,200);assert.equal(download.headers.get('Content-Type'),'image/png');assert.match(download.headers.get('Content-Disposition'),/attachment/);assert.deepEqual(Buffer.from(await download.arrayBuffer()),png);
+ await service.handle(req(path,{method:'DELETE'}));assert.equal((await service.handle(req(publicPath,{who:null}))).status,404);assert.equal(images.size,0);
+ assert.equal((await service.handle(upload())).status,409);
 });
