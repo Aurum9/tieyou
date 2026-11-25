@@ -35,6 +35,7 @@ public final class MainActivity extends Activity {
     private String exportContent;
     private AppUpdates updates;
     private WebAssets webAssets;
+    private ImageSaves imageSaves;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -50,6 +51,8 @@ public final class MainActivity extends Activity {
         web.getSettings().setAllowContentAccess(false);
         CookieManager.getInstance().setAcceptCookie(true);
         web.addJavascriptInterface(new DeckFiles(), "TieyouDeckFiles");
+        imageSaves = new ImageSaves(this, web, () -> isSite(Uri.parse(web.getUrl() == null ? "" : web.getUrl())));
+        web.addJavascriptInterface(imageSaves, "TieyouImages");
         web.addJavascriptInterface(new TableScreen(), "TieyouTable");
         updates = new AppUpdates(this);
         webAssets = new WebAssets(this);
@@ -176,12 +179,14 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         if (updates != null) updates.destroy();
         if (webAssets != null) webAssets.destroy();
+        if (imageSaves != null) imageSaves.destroy();
         super.onDestroy();
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (updates != null) updates.permissionResult(request);
+        if (imageSaves != null) imageSaves.activityResult(request, result, data);
         if (request == CHOOSE_FILE && upload != null) {
             ValueCallback<Uri[]> callback = upload;
             upload = null;

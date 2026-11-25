@@ -1,5 +1,6 @@
 import { posterData } from './deck-poster-model.js';
 import { buildDeckPosterSVG, rasterizeDeckPoster, commanderPosterAssets } from './deck-poster.js';
+import { saveNativeImage } from './native-image-save.js';
 
 export async function showDeckPoster({ dialog, deckId, shareURL, username, loadCards, notify }) {
   let objectURL = null, blob = null;
@@ -42,11 +43,7 @@ export async function showDeckPoster({ dialog, deckId, shareURL, username, loadC
     }
     save.disabled = true; save.textContent = '正在保存…';
     try {
-      const response = await fetch('/api/deck-shares/' + encodeURIComponent(deckId) + '/poster', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'image/png', 'X-Tieyou-Share-Owner': encodeURIComponent(username) }, body: blob, signal: controller.signal });
-      const result = await response.json(); if (!response.ok) throw new Error(result.error?.message || '保存失败，请重试');
-      if (controller.signal.aborted) return;
-      // Existing Android clients already hand HTTPS downloads to the browser.
-      location.assign(result.url);
+      await saveNativeImage(blob, filename, controller.signal);
     } catch (error) { if (!controller.signal.aborted) notify(error.message || '保存失败，请重试', 'error'); }
     finally { save.disabled = false; save.textContent = '保存图片'; }
   });

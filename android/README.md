@@ -30,3 +30,5 @@ node scripts/build-android-web.mjs
 这是打开 App 时检查并自动下载，应用关闭期间不运行后台推送服务。安卓安装包更新与页面资源更新分别使用 android-release.json、web-release.json，发布时均先上传不可变文件，最后更新对应清单。
 
 后续版本沿用原有签名密钥 app/.local/android/test-signing.jks。密钥仅保存在本机。覆盖安装保留应用数据。
+
+从 0.3.2 起，分享图片在 App 内直接保存。Android 10 及以上写入相册 Pictures/铁有，不申请存储权限；Android 8–9 使用系统文件保存窗口。图片由页面生成后传入本机保存，不经服务器上传或外部浏览器。
