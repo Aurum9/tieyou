@@ -18,6 +18,7 @@ import { appendManaText, manaCost } from './lib/mana-symbols.js';
 import { wireAccount } from './lib/account-ui.js';
 import { initFeedbackUI } from './lib/feedback-ui.js';
 import { initClientUsage } from './lib/client-usage.js';
+import { showSharedDeck } from './lib/shared-deck-ui.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -44,6 +45,8 @@ let resultView = 'grid';
 let detailCard = null;
 let detailVersion = null;
 let detailContext = null;
+let sharedController = null;
+const initialShareToken = location.pathname.match(/^\/s\/([A-Za-z0-9_-]+)\/?$/)?.[1] || null;
 let detailLanguage = 'zh';
 let previousFocus = null;
 let searchTimer = null;
@@ -438,6 +441,11 @@ function showAdvancedFilters() {
 }
 
 function switchView(view) {
+  if (currentView === 'shared' && view !== 'shared') {
+    sharedController?.abort();
+    history.replaceState(null, '', '/');
+    document.title = '铁有 · 万智牌 EDH 组牌工具';
+  }
   if (['scoreboard', 'records'].includes(currentView) && view !== currentView) { scoreboardRevision++; scoreboardUI?.close(); }
   if (currentView === 'catalog' && view !== 'catalog') cancelCatalogSearch();
   if (currentView === 'decks' && view !== 'decks') {
@@ -452,6 +460,7 @@ function switchView(view) {
   document.body.classList.toggle('is-scoreboard', view === 'scoreboard');
   $('#catalog-view').hidden = view !== 'catalog';
   $('#deck-view').hidden = view !== 'decks';
+  $('#shared-deck-view').hidden = view !== 'shared';
   $('#playtest-view').hidden = view !== 'playtest';
   $('#feedback-view').hidden = view !== 'feedback';
   $('#scoreboard-view').hidden = !['scoreboard', 'records'].includes(view);
@@ -466,6 +475,9 @@ function switchView(view) {
   if (view === 'decks') {
     if (deckUI) deckUI.render();
     else initializeDeckWorkspace();
+  } else if (view === 'shared') {
+    sharedController?.abort(); sharedController = new AbortController();
+    void showSharedDeck({ container: $('#shared-deck-view'), token: initialShareToken, catalog: remoteCatalog, onInspect: openDetail, onBack: () => switchView('decks'), notify, signal: sharedController.signal });
   } else if (view === 'catalog') {
     runSearch();
   } else if (['scoreboard', 'records'].includes(view)) {
@@ -539,7 +551,7 @@ async function openPlaytest(deck) {
 }
 
 async function addCard(card, version, { skipExisting = false } = {}) {
-  if (currentView === 'playtest') return;
+  if (['playtest', 'shared'].includes(currentView)) return;
   if (!deckUI) { notify('卡组工作台暂时不可用，请刷新后重试。', 'error'); return; }
   const view = currentView;
   const targetId = view === 'decks' ? deckUI.getSelectedDeckId() : catalogTargetId;
@@ -771,7 +783,7 @@ function renderDetail() {
   root.append(node('section', { class: 'version-section' }, [node('label', { class: 'version-heading', for: 'detail-version' }, ['印刷版本', node('span', { text: fmt(versions.length) + ' 个已收录版本' })]), versionSelect]));
   const addTarget = detailContext ? deckUI?.getDeck(detailContext.deckId) : currentAddTarget();
   const existing = detailDeckEntry(addTarget, card.id, detailContext);
-  if (currentView !== 'playtest') {
+  if (!['playtest', 'shared'].includes(currentView)) {
     const zoneName = { main: '主牌区', commander: '统帅区', considering: '候选区' }[existing?.zone] || '主牌区';
     root.append(node('button', { class: 'button button-primary detail-add', type: 'button', disabled: !!existing || !!detailContext, onClick: () => addCard(card, detailVersion || versions[0], { skipExisting: true }) }, [existing ? '已加入「' + addTarget.name + '」' + zoneName : detailContext ? '此牌已移出卡组' : addTarget ? '加入「' + addTarget.name + '」主牌区' : '选择卡组并加入']));
     if (detailContext && existing && detailVersion && detailVersion.id !== existing.versionId) {
@@ -903,11 +915,12 @@ function ensureMetadata() {
 wireEvents();
 showIdleCatalog();
 initializeDeckWorkspace();
-switchView('decks');
+switchView(initialShareToken ? 'shared' : 'decks');
 wireAccount({ flushDecks: () => deckUI?.flushCloudDecks() });
 initClientUsage();
 
 if (androidApp) window.tieyouHandleBack = () => {
+  if (currentView === 'shared' && !detailCard) { switchView('decks'); return true; }
   if (['scoreboard', 'records'].includes(currentView)) return scoreboardUI?.back() ?? true;
   if (currentView === 'tools') { switchView('decks'); return true; }
   const dialog = $('dialog[open]');

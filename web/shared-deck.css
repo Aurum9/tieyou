@@ -1,0 +1,31 @@
+#shared-deck-view { padding: 20px 12px 40px; min-width: 0; }
+.shared-deck-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
+.shared-deck-heading > div { min-width: 0; }
+.shared-deck-heading h1 { font-size: clamp(24px, 3vw, 36px); margin: 6px 0; line-height: 1.2; overflow-wrap: anywhere; }
+.shared-deck-heading .deck-muted { margin: 6px 0; }
+.shared-deck-description { max-width: 800px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.shared-deck-zone { margin-top: 18px; }
+.shared-deck-zone h2 { font-size: 17px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.shared-deck-zone h3 { margin: 14px 0 6px; }
+.shared-deck-entries { display: grid; gap: 8px; }
+.shared-deck-entries.is-cards { grid-template-columns: repeat(auto-fill, minmax(135px, 180px)); align-items: start; }
+.shared-deck-card { position: relative; min-width: 0; }
+.shared-deck-quantity { position: absolute; top: 6px; right: 6px; pointer-events: none; }
+.shared-deck-entries.is-text { grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 3px 12px; }
+.shared-deck-entries.is-text .shared-deck-card { display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--surface); border-radius: 5px; }
+.shared-deck-text-quantity { width: 24px; text-align: center; flex: none; }
+.shared-deck-entries.is-text .deck-card-link { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shared-deck-entries.is-text .mana-symbols { flex: none; }
+.deck-share-dialog .deck-actions { margin-top: 12px; }
+@media (max-width: 700px) {
+  #shared-deck-view { padding: 10px 10px 24px; font-size: 12px; }
+  .shared-deck-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .shared-deck-heading h1 { font-size: 22px; }
+  .shared-deck-heading .button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+  .shared-deck-heading .deck-muted, .shared-deck-description { font-size: 12px; }
+  .shared-deck-entries.is-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .shared-deck-zone { margin-top: 12px; }
+  .shared-deck-zone h2 { font-size: 15px; padding-bottom: 5px; }
+}
+
+.shared-image-pending .deck-editor-image-label { position: absolute; inset: 0; display: grid; place-items: center; padding: 8px; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }

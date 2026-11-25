@@ -12,6 +12,7 @@ import { createStandaloneAuth } from './standalone-auth.mjs';
 import { createFeedbackService } from './standalone-feedback.mjs';
 import { createClientUsage } from './client-usage.mjs';
 import { createScoreboardService } from './standalone-scoreboard.mjs';
+import { createDeckShareService } from './standalone-deck-shares.mjs';
 import { isPublicDownload, downloadResponse } from './download-response.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,6 +56,7 @@ if (source && activeAtStart !== source.version) {
 const auth = previewAccount ? null : await createStandaloneAuth(db);
 const feedback = createFeedbackService(db, auth);
 const scoreboard = createScoreboardService(db, auth);
+const deckShares = createDeckShareService(db, auth, { readIndex: () => readFile(resolve(root, 'index.html'), 'utf8') });
 const usageDB = openLocalD1(resolve(stateRoot, 'client-usage.sqlite'));
 const clientUsage = await createClientUsage(usageDB, { policyPath: resolve(process.env.EDH_CLIENT_POLICY_PATH || resolve(stateRoot, 'client-policy.json')), releasePath: resolve(root, 'downloads/android-release.json') });
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.md': 'text/plain; charset=utf-8' };
@@ -99,6 +101,7 @@ const server = createServer(async (req, res) => {
     if (!response) response = await auth?.handle(request, { clientAddress });
     if (!response) response = await feedback.handle(request);
     if (!response) response = await scoreboard.handle(request);
+    if (!response) response = await deckShares.handle(request);
     if (!response) {
       if (auth && url.pathname === '/api/deck-library') {
         const visitor = await auth.visitorId(request);

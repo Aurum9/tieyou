@@ -233,6 +233,60 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     line.append(node, retry, refresh);
     return line;
   }
+  async function shareDialog(deck) {
+    const current = dialog('分享卡组');
+    current.panel.classList.add('deck-share-dialog');
+    const info = el('p', 'deck-muted', '开启后，持有链接的人可查看主牌、统帅和卡组说明。候选牌及单卡备注不公开。');
+    const state = el('p', 'deck-muted', '正在读取分享状态…'); state.setAttribute('role', 'status');
+    const link = input(''); link.readOnly = true; link.hidden = true; link.setAttribute('aria-label', '卡组分享链接');
+    link.addEventListener('focus', () => link.select());
+    const error = el('p', 'deck-form-error'); error.hidden = true;
+    const actions = el('div', 'deck-actions');
+    let owner = null, shareURL = null, busy = false;
+    const request = async (method = 'GET') => {
+      const response = await fetch('/api/deck-shares/' + encodeURIComponent(deck.id), {
+        method, credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(15000),
+        headers: owner ? { 'X-Tieyou-Share-Owner': encodeURIComponent(owner) } : {},
+      });
+      const result = await response.json();
+      if (!response.ok) { const failure = new Error(result.error?.message || '分享暂时无法使用'); failure.status = response.status; throw failure; }
+      return result;
+    };
+    const copyLink = async () => {
+      try { await navigator.clipboard.writeText(shareURL); onNotify('分享链接已复制', 'success'); }
+      catch { link.focus(); link.select(); onNotify('请复制分享链接'); }
+    };
+    const refresh = () => {
+      link.hidden = !shareURL; link.value = shareURL || '';
+      state.textContent = shareURL ? '分享已开启，牌表同步后链接会随之更新。' : '分享未开启';
+      enable.textContent = shareURL ? '复制链接' : '开启分享并复制链接';
+      enable.disabled = busy || !owner; stop.hidden = !shareURL; stop.disabled = busy;
+    };
+    const enable = button('开启分享并复制链接', async () => {
+      if (busy) return; busy = true; error.hidden = true; refresh();
+      try { if (!shareURL) shareURL = (await request('POST')).url; if (current.panel.isConnected) { refresh(); await copyLink(); } }
+      catch (failure) { error.textContent = failure.message; error.hidden = false; }
+      finally { busy = false; refresh(); }
+    }, 'button button-primary'); enable.disabled = true;
+    const stop = button('关闭分享', async () => {
+      if (busy) return; busy = true; error.hidden = true; refresh();
+      try { await request('DELETE'); shareURL = null; onNotify('分享已关闭，原链接已失效'); }
+      catch (failure) { error.textContent = failure.message; error.hidden = false; }
+      finally { busy = false; refresh(); }
+    }, 'button deck-danger'); stop.hidden = true;
+    actions.append(enable, stop); current.panel.append(info, state, link, error, actions);
+    try {
+      if (staleDeckId) throw new Error('请先重新打开卡组，再进行分享');
+      await syncController?.sync(false);
+      if (syncController?.status.state === 'error') throw new Error(syncController.status.message);
+      const result = await request(); owner = result.username; shareURL = result.url;
+      if (current.panel.isConnected) refresh();
+    } catch (failure) {
+      state.textContent = ''; error.textContent = failure.message; error.hidden = false;
+      if (failure.status === 401) actions.append(button('登录', () => { current.close(); document.querySelector('.account-open')?.click(); }));
+    }
+  }
+
   function createDialog() {
     const current = dialog('新建卡组'); const name = input(''); name.placeholder = '卡组名称'; name.maxLength = 200;
     const error = el('p', 'deck-form-error'); error.hidden = true;
@@ -526,7 +580,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       container.querySelector('.deck-analysis-heading')?.querySelector('button')?.focus();
     });
     analyze.setAttribute('data-deck-analysis', '');
-    actions.append(analyze, button('手动测试 ↗', () => { const fresh = store.get(deck.id); if (fresh) onPlaytest(fresh); else onNotify('卡组已不存在，请重新选择', 'error'); }, 'button button-primary'), button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
+    actions.append(analyze, button('手动测试 ↗', () => { const fresh = store.get(deck.id); if (fresh) onPlaytest(fresh); else onNotify('卡组已不存在，请重新选择', 'error'); }, 'button button-primary'), button('复制', () => { const copy = run(() => store.copy(deck.id), { refresh: false }); if (copy) { selectedId = copy.id; render(); onNotify('已创建独立副本', 'success'); } }), button('导出', () => exportDialog(deck)), button('分享', () => shareDialog(deck)), button('删除', () => deleteDialog(deck), 'button deck-danger'));
     header.append(title, actions); container.append(header, status());
     const stats = validateDeck(deck, cards); const statsGrid = el('div', 'deck-stats');
     for (const [value, label] of [[`${stats.count} / 100`, '正式卡组'], [stats.commanderCount, '统帅'], [stats.consideringCount, '候选牌'], [stats.colorIdentity.join(' · ') || '—', '统帅标识色']]) { const box = el('div'); box.append(el('strong', '', value), el('span', '', label)); statsGrid.append(box); }
