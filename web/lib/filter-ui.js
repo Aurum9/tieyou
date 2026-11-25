@@ -154,7 +154,11 @@ function createRepeatingFilter(container, label, changed, initialOptions) {
   }
   function setOptions(values) {
     options = values.map(option => ({ ...option, terms: [...new Set([option.label, option.value, ...(Array.isArray(option.aliases) ? option.aliases : [])].map(normalizeText))] }));
-    for (const row of rows) if (document.activeElement === row.input) row.suggest();
+    for (const row of rows) {
+      const selected = row.selection && options.find(option => option.value === row.selection.value);
+      if (selected) { row.selection = selected; row.input.value = selected.label; }
+      if (document.activeElement === row.input) row.suggest();
+    }
   }
   function clear() {
     rows = [];
@@ -181,6 +185,7 @@ export function initSearchFilters({ onChange }) {
   let filters = defaults();
   let conditionRoot = createGroup();
   let vocabularyPromise;
+  let vocabularyRows = [];
   const datalist = el('datalist', { id: 'tag-vocabulary' });
   const setlist = el('datalist', { id: 'set-vocabulary' });
   document.body.append(datalist, setlist);
@@ -212,12 +217,18 @@ export function initSearchFilters({ onChange }) {
   }
   function loadVocabulary() {
     vocabularyPromise ??= loadTagVocabulary().then(rows => {
+      vocabularyRows = rows;
       const options = tagOptions(rows);
       tags.setOptions(options);
       datalist.replaceChildren(...options.map(option => el('option', { value: option.value, label: option.label })));
     }).catch(() => { vocabularyPromise = null; });
     return vocabularyPromise;
   }
+  globalThis.window?.addEventListener('tag-settings-changed', () => {
+    const options = tagOptions(vocabularyRows);
+    tags.setOptions(options);
+    datalist.replaceChildren(...options.map(option => el('option', { value: option.value, label: option.label })));
+  });
   function makeExclude(model, label) {
     const wrap = el('label', { class: 'condition-exclude' });
     const input = el('input', { type: 'checkbox', 'aria-label': label });

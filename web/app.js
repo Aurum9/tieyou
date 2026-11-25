@@ -10,7 +10,7 @@ import { initSearchFilters } from './lib/filter-ui.js';
 import { getCommanderIdentity } from './lib/decks.js';
 import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from './lib/deck-target.js';
 import { buildDeckMembership } from './lib/deck-membership.js';
-import { LAND_TAG_NAMES, visibleTagLabel } from './lib/tag-vocabulary.js';
+import { LAND_TAG_NAMES, visibleTagLabel, canonicalTagSlug } from './lib/tag-vocabulary.js';
 import { clauseRange, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
 import { hasCatalogQueryIntent } from './lib/catalog-query-policy.js';
 import { PlaytestStorage } from './lib/playtest-storage.js';
@@ -19,6 +19,7 @@ import { wireAccount } from './lib/account-ui.js';
 import { initFeedbackUI } from './lib/feedback-ui.js';
 import { initClientUsage } from './lib/client-usage.js';
 import { showSharedDeck } from './lib/shared-deck-ui.js';
+import { refreshTagSettings } from './lib/tag-settings.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -35,6 +36,8 @@ let matchedCards = [];
 let renderedCount = 0;
 let currentView = 'decks';
 let feedbackUI;
+let tagAdminUI;
+const initialTagAdmin = new URL(location.href).searchParams.get('view') === 'tags';
 let scoreboardUI;
 let scoreboardModule;
 let scoreboardRevision = 0;
@@ -441,6 +444,8 @@ function showAdvancedFilters() {
 }
 
 function switchView(view) {
+  if (view === 'tag-admin') history.replaceState(null, '', '/?view=tags');
+  else if (currentView === 'tag-admin') history.replaceState(null, '', '/');
   if (currentView === 'shared' && view !== 'shared') {
     sharedController?.abort();
     history.replaceState(null, '', '/');
@@ -465,9 +470,10 @@ function switchView(view) {
   $('#feedback-view').hidden = view !== 'feedback';
   $('#scoreboard-view').hidden = !['scoreboard', 'records'].includes(view);
   $('#tools-view').hidden = view !== 'tools';
+  $('#tag-admin-view').hidden = view !== 'tag-admin';
   $('.header-feedback').setAttribute('aria-pressed', String(view === 'feedback'));
   $$('.nav-item').forEach((button) => {
-    const active = button.dataset.view === (view === 'playtest' ? 'decks' : ['scoreboard', 'records'].includes(view) ? 'tools' : view);
+    const active = button.dataset.view === (view === 'playtest' ? 'decks' : ['scoreboard', 'records', 'tag-admin'].includes(view) ? 'tools' : view);
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
@@ -488,6 +494,16 @@ function switchView(view) {
       scoreboardUI ||= createScoreboardUI({ container: $('#scoreboard-view'), catalog: remoteCatalog, notify, onBack: () => switchView('tools'), onOpenTable: () => switchView('scoreboard') });
       void scoreboardUI.open({ historyOnly: view === 'records' });
     }).catch(() => { notify('计分板暂时无法打开，请重试', 'error'); switchView('decks'); });
+  } else if (view === 'tag-admin') {
+    void import('./lib/tag-admin-ui.js').then(({ createTagAdminUI }) => {
+      tagAdminUI ||= createTagAdminUI({ container: $('#tag-admin-view'), onBack: () => switchView('tools'), onAccount: () => $('#account-open').click(), onCatalog: slug => {
+        filterUI.clear({ commanderOnly: false, silent: true }); generatedClause = ''; scopeClause = ''; catalogScopeEnabled = false;
+        $('#search-input').value = 'otag:' + slug; switchView('catalog');
+      } });
+      return tagAdminUI.show();
+    }).catch(() => notify('标签管理暂时无法打开，请重试', 'error'));
+  } else if (view === 'tools') {
+    void refreshAdminAccess();
   } else if (view === 'feedback') {
     if (!feedbackUI) feedbackUI = initFeedbackUI({
       container: $('#feedback-view'),
@@ -753,7 +769,7 @@ function renderDetail() {
   const legality = card.legalities?.commander;
   const legalityLabel = legality === 'legal' ? 'EDH 合法' : legality === 'banned' ? 'EDH 禁用' : legality === 'not_legal' ? 'EDH 不合法' : legality === 'restricted' ? 'EDH 限制' : 'EDH 合法性未知';
   meta.append(node('span', { class: 'legality-pill' + (legality === 'legal' ? '' : legality ? ' bad' : ' unknown') }, [icon(legality === 'legal' ? 'check' : 'info'), legalityLabel]));
-  const visibleTags = [...new Set((card.tags || []).map(tag => typeof tag === 'string' ? tag : tag?.slug || tag?.id || tag?.label || tag?.name))]
+  const visibleTags = [...new Set((card.tags || []).map(tag => canonicalTagSlug(typeof tag === 'string' ? tag : tag?.slug || tag?.id || tag?.label || tag?.name)))]
     .filter(slug => visibleTagLabel(slug));
   if (visibleTags.length) {
     const landTags = visibleTags.filter(tag => Object.hasOwn(LAND_TAG_NAMES, tag))
@@ -915,9 +931,22 @@ function ensureMetadata() {
 wireEvents();
 showIdleCatalog();
 initializeDeckWorkspace();
-switchView(initialShareToken ? 'shared' : 'decks');
+switchView(initialShareToken ? 'shared' : initialTagAdmin ? 'tag-admin' : 'decks');
 wireAccount({ flushDecks: () => deckUI?.flushCloudDecks() });
 initClientUsage();
+async function refreshAdminAccess() {
+  try {
+    const response = await fetch('/api/admin/tags/access', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    const access = await response.json(); $('#tag-admin-open').hidden = !response.ok || !access.allowed;
+  } catch { $('#tag-admin-open').hidden = true; }
+}
+void refreshAdminAccess();
+void refreshTagSettings();
+window.addEventListener('focus', () => { void refreshTagSettings(); });
+window.addEventListener('tag-settings-changed', () => {
+  if (detailCard && !detailLoading) renderDetail();
+  if (currentView === 'decks' && $('#deck-view .deck-analysis')) deckUI?.render();
+});
 
 if (androidApp) window.tieyouHandleBack = () => {
   if (currentView === 'shared' && !detailCard) { switchView('decks'); return true; }
@@ -932,6 +961,7 @@ if (androidApp) window.tieyouHandleBack = () => {
   if (currentView === 'playtest') { $('.pt-back')?.click(); return true; }
   if (currentView === 'catalog') { switchView('decks'); return true; }
   if (currentView === 'feedback') { switchView('decks'); return true; }
+  if (currentView === 'tag-admin') { switchView('tools'); return true; }
   if (!deckUI?.getSelectedDeckId()) return false;
   const closeCardMenu = $('#deck-view .deck-entry-actions[open] .deck-entry-menu-close');
   if (closeCardMenu) {

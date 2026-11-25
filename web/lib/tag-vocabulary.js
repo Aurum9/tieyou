@@ -1,4 +1,5 @@
-export { LAND_TAG_NAMES, TAG_NAMES, visibleTagLabel, localizedTagSlugs } from './tag-names.js';
+export { LAND_TAG_NAMES, TAG_NAMES, visibleTagLabel, localizedTagSlugs, canonicalTagSlug } from './tag-names.js';
+import { refreshTagSettings } from './tag-settings.js';
 
 let request;
 
@@ -7,6 +8,7 @@ export function loadTagVocabulary() {
     if (!response.ok) throw new Error('标签词表暂时无法载入');
     const rows = await response.json();
     if (!Array.isArray(rows)) throw new Error('标签词表格式无效');
+    await refreshTagSettings();
     return rows;
   }).catch(error => {
     request = undefined;

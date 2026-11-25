@@ -1,0 +1,142 @@
+import { applyTagSettings } from './tag-settings.js';
+
+const el = (tag, className = '', text = '') => { const item = document.createElement(tag); item.className = className; item.textContent = text; return item; };
+const button = (text, action, className = 'button') => { const item = el('button', className, text); item.type = 'button'; item.addEventListener('click', action); return item; };
+const normalize = value => String(value).normalize('NFKC').toLowerCase().trim();
+const same = (a, b) => a.label === b.label && a.visible === b.visible;
+
+export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
+  let rows = [], children = new Map(), revision = 0, loaded = false, busy = false;
+  let page = 0, parent = null, query = '', filter = 'all';
+  const base = new Map(), edits = new Map(), pageSize = 50;
+  const effective = slug => edits.get(slug) || base.get(slug) || { label: '', visible: false };
+  const label = slug => effective(slug).label || slug;
+  const error = el('p', 'deck-form-error'); error.hidden = true; error.setAttribute('role', 'alert');
+  const status = el('span', 'tag-admin-status'); status.setAttribute('role', 'status');
+  const save = button('保存修改', saveChanges, 'button button-primary');
+  const reset = button('撤销未保存修改', () => { edits.clear(); renderRows(); });
+  const retry = button('重新载入', () => { edits.clear(); void load(); }); retry.hidden = true;
+  const search = el('input', 'deck-input tag-admin-search'); search.type = 'search'; search.placeholder = '英文标签、中文译名或解释'; search.setAttribute('aria-label', '搜索标签');
+  const visibility = el('select', 'deck-input'); visibility.setAttribute('aria-label', '标签筛选');
+  for (const [value, title] of [['all', '全部标签'], ['visible', '显示'], ['hidden', '隐藏'], ['untranslated', '未填写译名'], ['translated', '已填写译名'], ['edited', '未保存修改']]) { const option = el('option', '', title); option.value = value; visibility.append(option); }
+  const trail = el('div', 'tag-admin-trail');
+  const table = el('table', 'tag-admin-table');
+  const head = el('thead'), tr = el('tr');
+  for (const title of ['英文标签 / 解释', '中文译名', '可见', '上级 / 下级']) { const th = el('th', '', title); th.scope = 'col'; tr.append(th); }
+  head.append(tr); const body = el('tbody'); table.append(head, body);
+  const count = el('span', 'tag-admin-count');
+  const previous = button('上一页', () => { page--; renderRows(); });
+  const next = button('下一页', () => { page++; renderRows(); });
+  function updateStatus() {
+    status.textContent = busy ? (loaded ? '正在保存…' : '正在载入…') : edits.size ? edits.size + ' 项未保存' : '已保存';
+    save.disabled = busy || !edits.size; reset.disabled = busy || !edits.size;
+    for (const input of body.querySelectorAll('input')) input.disabled = busy;
+  }
+  function edit(row, value, element) {
+    if (same(value, base.get(row.slug))) edits.delete(row.slug); else edits.set(row.slug, value);
+    element.classList.toggle('is-dirty', edits.has(row.slug)); updateStatus();
+  }
+  function goParent(slug) { parent = slug; query = ''; search.value = ''; page = 0; renderRows(); }
+  function renderRows() {
+    const needle = normalize(query);
+    const found = rows.filter(row => {
+      const value = effective(row.slug);
+      return (!parent || row.parentSlugs.includes(parent))
+        && (filter === 'all' || filter === 'visible' && value.visible || filter === 'hidden' && !value.visible || filter === 'untranslated' && !value.label || filter === 'translated' && !!value.label || filter === 'edited' && edits.has(row.slug))
+        && (!needle || normalize([row.slug, row.englishLabel, row.description, value.label, ...row.aliases].join(' ')).includes(needle));
+    });
+    if (needle) {
+      const rank = row => {
+        const terms = [row.slug, effective(row.slug).label, row.englishLabel, ...row.aliases].map(normalize);
+        return terms.includes(needle) ? 0 : terms.some(term => term.startsWith(needle)) ? 1 : terms.some(term => term.includes(needle)) ? 2 : 3;
+      };
+      found.sort((a, b) => rank(a) - rank(b) || a.slug.localeCompare(b.slug, 'en'));
+    }
+    page = Math.max(0, Math.min(page, Math.ceil(found.length / pageSize) - 1));
+    body.replaceChildren(); trail.replaceChildren();
+    if (parent) trail.append(button('全部标签', () => goParent(null), 'text-button'), document.createTextNode(' / ' + label(parent)));
+    for (const row of found.slice(page * pageSize, (page + 1) * pageSize)) {
+      const item = el('tr', 'tag-admin-row' + (edits.has(row.slug) ? ' is-dirty' : '')); item.dataset.slug = row.slug;
+      const english = el('td', 'tag-admin-english'), details = el('details'), summary = el('summary', '', row.slug);
+      details.append(summary);
+      if (row.englishLabel !== row.slug) details.append(el('p', 'tag-admin-english-label', row.englishLabel));
+      if (row.description) details.append(el('p', 'tag-admin-description', row.description));
+      if (row.aliases.length) details.append(el('p', 'tag-admin-aliases', '别名：' + row.aliases.join(' / ')));
+      const more = el('div', 'tag-admin-row-links');
+      const source = el('a', '', 'Scryfall'); source.href = 'https://tagger.scryfall.com/tags/card/' + encodeURIComponent(row.slug); source.target = '_blank'; source.rel = 'noreferrer';
+      more.append(button('查看卡牌', () => onCatalog(row.slug), 'text-button'), source); details.append(more);
+      english.append(details, el('small', 'tag-admin-card-count', row.cardCount + ' 张'));
+      const name = el('td', 'tag-admin-name'), input = el('input', 'deck-input tag-admin-label'); input.type = 'text'; input.value = effective(row.slug).label; input.placeholder = '未填写'; input.maxLength = 100; input.setAttribute('aria-label', row.slug + ' 中文译名');
+      input.addEventListener('input', () => edit(row, { ...effective(row.slug), label: input.value }, item)); name.append(input);
+      const visible = el('td', 'tag-admin-visible'), toggle = el('label'), checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = effective(row.slug).visible; checkbox.setAttribute('aria-label', row.slug + ' 显示');
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked && !effective(row.slug).label.trim()) { checkbox.checked = false; input.focus(); return; }
+        edit(row, { ...effective(row.slug), visible: checkbox.checked }, item);
+      }); toggle.append(checkbox, document.createTextNode('显示')); visible.append(toggle);
+      const parents = el('td', 'tag-admin-parents');
+      if (row.parentSlugs.length) {
+        parents.append(el('span', 'tag-admin-parent-caption', '上级：'));
+        for (const slug of row.parentSlugs) { const parentLink = button(label(slug), () => goParent(slug), 'text-button'); parentLink.title = slug; parents.append(parentLink); }
+      }
+      if (children.has(row.slug)) parents.append(button('下级 ' + children.get(row.slug), () => goParent(row.slug), 'text-button tag-admin-children'));
+      item.append(english, name, visible, parents); body.append(item);
+    }
+    if (!found.length) { const row = el('tr'), cell = el('td', 'deck-muted', '没有匹配的标签'); cell.colSpan = 4; row.append(cell); body.append(row); }
+    previous.disabled = page === 0; next.disabled = (page + 1) * pageSize >= found.length;
+    count.textContent = found.length ? `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, found.length)} / ${found.length}` : '0';
+    updateStatus();
+  }
+  async function request(options) {
+    const response = await fetch('/api/admin/tags', { credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(20000), ...options });
+    const result = await response.json(); if (!response.ok) { const failure = new Error(result.error?.message || '标签管理暂时无法使用'); failure.status = response.status; throw failure; } return result;
+  }
+  async function load() {
+    busy = true; error.hidden = true; retry.hidden = true; status.textContent = '正在载入…'; updateStatus();
+    try {
+      const data = await request(); rows = data.rows; revision = data.revision; children = new Map(); base.clear();
+      for (const row of rows) {
+        base.set(row.slug, data.overrides[row.slug] || { label: row.defaultLabel, visible: !!row.defaultLabel });
+        for (const parentSlug of row.parentSlugs) children.set(parentSlug, (children.get(parentSlug) || 0) + 1);
+      }
+      rows.sort((a, b) => a.slug.localeCompare(b.slug, 'en')); loaded = true;
+      applyTagSettings({ revision: data.revision, overrides: data.overrides, aliases: data.aliases }); renderRows();
+    } catch (failure) {
+      error.textContent = failure.message; error.hidden = false; retry.hidden = false;
+      if (failure.status === 403) error.append(' ', button('账号', onAccount));
+    } finally { busy = false; updateStatus(); }
+  }
+  async function saveChanges() {
+    if (busy || !edits.size) return;
+    const changes = [...edits].map(([slug, value]) => ({ slug, label: value.label.trim(), visible: value.visible }));
+    const missing = changes.find(row => row.visible && !row.label);
+    if (missing) { error.textContent = '请先填写 ' + missing.slug + ' 的译名，或取消显示'; error.hidden = false; return; }
+    busy = true; error.hidden = true; updateStatus();
+    try {
+      let start = 0;
+      while (start < changes.length) {
+        const batch = []; let bytes = 100;
+        while (start < changes.length && batch.length < 500) {
+          const itemBytes = new TextEncoder().encode(JSON.stringify(changes[start])).length + 1;
+          if (batch.length && bytes + itemBytes > 120 * 1024) break;
+          batch.push(changes[start++]); bytes += itemBytes;
+        }
+        const result = await request({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, changes: batch }) });
+        revision = result.revision;
+        for (const change of batch) { base.set(change.slug, { label: change.label, visible: change.visible }); edits.delete(change.slug); }
+        applyTagSettings(result);
+      }
+      renderRows();
+    } catch (failure) { error.textContent = failure.message; error.hidden = false; retry.hidden = false; retry.textContent = failure.status === 409 ? '放弃修改并重新载入' : '重新载入'; renderRows(); }
+    finally { busy = false; updateStatus(); }
+  }
+  search.addEventListener('input', () => { query = search.value; page = 0; renderRows(); });
+  visibility.addEventListener('change', () => { filter = visibility.value; page = 0; renderRows(); });
+  const toolbar = el('div', 'tag-admin-toolbar'), title = el('div', 'tag-admin-title'); title.append(button('←', onBack, 'button button-quiet'), el('h1', '', '标签管理'));
+  const actions = el('div', 'tag-admin-actions'); actions.append(status, reset, save); toolbar.append(title, actions);
+  const filters = el('div', 'tag-admin-filters'); filters.append(search, visibility);
+  const pager = el('div', 'tag-admin-pager'); pager.append(count, previous, next);
+  container.replaceChildren(toolbar, filters, trail, error, retry, table, pager);
+  function headerSize() { container.style.setProperty('--tag-admin-header-height', (document.querySelector('.app-header')?.getBoundingClientRect().height || 0) + 'px'); }
+  window.addEventListener('resize', headerSize);
+  return { async show() { headerSize(); if (!loaded) await load(); }, refresh: load };
+}

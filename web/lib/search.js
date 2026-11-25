@@ -1,5 +1,5 @@
 import { usdToCny } from './catalog-price.js';
-import { localizedTagSlugs } from './tag-names.js';
+import { searchTagSlugs } from './tag-names.js';
 
 const textCache = new WeakMap();
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
@@ -257,7 +257,8 @@ function compile(node, hasTags) {
   }
   if (field === 'tag') {
     if (!hasTags) throw new QueryError('当前卡库尚未载入功能标签', position);
-    const candidates = tagAliases[value] || localizedTagSlugs(value) || [value, value.replace(/ /g, '-')];
+    const translated = [...new Set([...(tagAliases[value] || []), ...searchTagSlugs(value)])];
+      const candidates = translated.length ? translated : [value, value.replace(/ /g, '-')];
     return card => (card.tags || []).some(tag => candidates.includes(normalizeText(typeof tag === 'string' ? tag : tag.slug || tag.name)));
   }
   if (field === 'm') {

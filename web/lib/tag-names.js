@@ -112,8 +112,10 @@ export const TAG_NAMES = {
   ...LAND_TAG_NAMES,
   'castable-from-graveyard': '可从坟场施放',
 };
+export const DEFAULT_TAG_NAMES = Object.freeze({ ...TAG_NAMES });
 
 export function visibleTagLabel(slug) {
+  slug = canonicalTagSlug(slug);
   return Object.hasOwn(TAG_NAMES, slug) ? TAG_NAMES[slug] : '';
 }
 
@@ -142,5 +144,40 @@ for (const [label, slugs] of Object.entries(localizedAliases)) localizedTags.set
 
 export function localizedTagSlugs(value) {
   return localizedTags.get(normalizeLabel(value));
+}
+
+const canonicalAliases = new Map(), searchAliases = new Map();
+export function applyTagAliases(aliases = {}) {
+  canonicalAliases.clear(); searchAliases.clear();
+  for (const [slug, values] of Object.entries(aliases)) {
+    if (!Array.isArray(values)) continue;
+    searchAliases.set(slug, [...new Set([slug, ...values.filter(value => typeof value === 'string')].map(normalizeLabel))]);
+    canonicalAliases.set(normalizeLabel(slug), slug);
+  }
+  for (const [slug, values] of searchAliases) for (const value of values) if (!canonicalAliases.has(value)) canonicalAliases.set(value, slug);
+}
+export function canonicalTagSlug(value) { return canonicalAliases.get(normalizeLabel(value)) || value; }
+export function searchTagSlugs(value) {
+  const translated = localizedTagSlugs(value) || [canonicalTagSlug(value)];
+  return [...new Set(translated.flatMap(slug => searchAliases.get(slug) || [slug, String(slug).replace(/ /g, '-')]))];
+}
+
+/** UI visibility never removes the underlying tag or its explicit search syntax. */
+export function applyTagOverrides(overrides = {}) {
+  for (const slug of Object.keys(TAG_NAMES)) delete TAG_NAMES[slug];
+  Object.assign(TAG_NAMES, DEFAULT_TAG_NAMES);
+  localizedTags.clear();
+  const addAlias = (label, slug) => {
+    const key = normalizeLabel(label); if (!key) return;
+    localizedTags.set(key, [...new Set([...(localizedTags.get(key) || []), slug])]);
+  };
+  for (const [slug, label] of Object.entries(DEFAULT_TAG_NAMES)) addAlias(label, slug);
+  for (const [label, slugs] of Object.entries(localizedAliases)) for (const slug of slugs) addAlias(label, slug);
+  for (const [slug, item] of Object.entries(overrides)) {
+    if (!slug || slug.length > 200 || /[\u0000-\u001f\u007f]/u.test(slug) || ['__proto__', 'prototype', 'constructor'].includes(slug) || !item || typeof item.label !== 'string' || typeof item.visible !== 'boolean') continue;
+    if (item.visible && item.label.trim()) TAG_NAMES[slug] = item.label.trim();
+    else delete TAG_NAMES[slug];
+    addAlias(item.label, slug);
+  }
 }
 

@@ -2,7 +2,7 @@ import { CNY_FEN_PER_USD, usdToCny } from '../web/lib/catalog-price.js';
 import { parseQuery, extractSearchOptions, validateSearch, normalizeText, normalizeManaCost, QueryError } from '../web/lib/search.js';
 import { parseDeckText } from '../web/lib/decks.js';
 import { commanderScopeQuery, deckTagQuery } from '../web/lib/deck-target.js';
-import { localizedTagSlugs } from '../web/lib/tag-names.js';
+import { searchTagSlugs } from '../web/lib/tag-names.js';
 
 // Values share the public query language. The parser itself stays in search.js.
 const typeAliases = { 生物: 'creature', 地: 'land', 地牌: 'land', 神器: 'artifact', 结界: 'enchantment', 瞬间: 'instant', 法术: 'sorcery', 鹏洛客: 'planeswalker', 战役: 'battle', 亲缘: 'kindred', 部族: 'tribal', 传奇: 'legendary', 基本: 'basic', 雪境: 'snow', 雪: 'snow', 世界: 'world', 持续: 'ongoing', 人类: 'human', 精灵: 'elf', 妖精: 'elf', 龙: 'dragon', 灵俑: 'zombie', 地精: 'goblin' };
@@ -161,7 +161,8 @@ export function compileCatalogQuery(query = '', { sort = 'name', commanderOnly =
     if (field === 'is') return `c.translated=${value === 'translated' ? 1 : 0}`;
     if (field === 'tag') {
       tagPosition ??= node.position;
-      const candidates = tagAliases[value] || localizedTagSlugs(value) || [value, value.replace(/ /g, '-')];
+      const translated = [...new Set([...(tagAliases[value] || []), ...searchTagSlugs(value)])];
+      const candidates = translated.length ? translated : [value, value.replace(/ /g, '-')];
       return `EXISTS (SELECT 1 FROM catalog_tags tg WHERE tg.version=c.version AND tg.card_id=c.id AND tg.slug IN (SELECT value FROM json_each(${params.add(json(candidates))})))`;
     }
     const column = { set: 'set_code', cn: 'collector_number', lang: 'lang', r: 'rarity' }[field];
