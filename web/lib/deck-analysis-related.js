@@ -1,5 +1,5 @@
 import { normalizeText } from './search.js';
-import { visibleTagLabel, loadTagVocabulary, canonicalTagSlug, getTagDescription } from './tag-vocabulary.js';
+import { visibleTagLabel, loadTagVocabulary, canonicalTagSlug, getTagDescription, tagIncludedInAnalysis } from './tag-vocabulary.js';
 import { linkedTokens, loadTokenCatalog, tokenLabel } from './playtest-token-catalog.js';
 
 export { loadTagVocabulary, loadTokenCatalog };
@@ -31,7 +31,7 @@ export function analyzeDeckRelated(deck, cards, { tagVocabulary = [], tokenCatal
       const tag = tagsByName.get(key);
       const slug = canonicalTagSlug(tag?.slug || key);
       const label = visibleTagLabel(slug);
-      if (!label || seen.has(slug)) continue;
+      if (!label || !tagIncludedInAnalysis(slug) || seen.has(slug)) continue;
       seen.add(slug);
       addSource(tags, slug, entry, { slug, label, aliases: tag?.aliases || [], ...(getTagDescription(slug) ? { description: getTagDescription(slug) } : {}) });
     }

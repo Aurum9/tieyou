@@ -1,5 +1,5 @@
 export { LAND_TAG_NAMES, TAG_NAMES, visibleTagLabel, localizedTagSlugs, canonicalTagSlug } from './tag-names.js';
-export { getTagDescription } from './tag-settings.js';
+export { getTagDescription, tagIncludedInAnalysis } from './tag-settings.js';
 import { refreshTagSettings } from './tag-settings.js';
 
 let request;

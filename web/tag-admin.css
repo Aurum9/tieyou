@@ -59,3 +59,11 @@
 .tag-admin-description-zh{resize:vertical;min-height:84px;font-size:13px;line-height:1.5}
 .tag-admin-row.is-dirty .tag-admin-description-zh{border-color:#b48c35}
 @supports(-webkit-touch-callout:none){@media(max-width:700px){.tag-admin-description-zh{font-size:16px}}}
+
+.tag-admin-table th:nth-child(4){width:100px}
+.tag-admin-analysis label{display:flex;gap:5px;align-items:center;min-height:32px;white-space:nowrap;cursor:pointer}
+.tag-admin-analysis input{accent-color:var(--accent)}
+@media(max-width:700px){
+ .tag-admin-row{grid-template-columns:minmax(0,1fr) 52px 52px}
+ .tag-admin-analysis{grid-column:3;grid-row:1;justify-self:end}
+}

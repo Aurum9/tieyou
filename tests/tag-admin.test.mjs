@@ -13,6 +13,7 @@ async function setup(t, local = false) {
   const auth = await createStandaloneAuth(db);
   await db.exec(await readFile(new URL('../drizzle/0006_tag_settings.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../drizzle/0007_tag_descriptions.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../drizzle/0008_tag_analysis.sql', import.meta.url), 'utf8'));
   await db.exec("CREATE TABLE catalog_state(id INTEGER,active_version TEXT); INSERT INTO catalog_state VALUES(1,'snapshot'); CREATE TABLE catalog_tags(version TEXT,card_id TEXT,slug TEXT); INSERT INTO catalog_tags VALUES('snapshot','card-a','ramp'),('snapshot','card-b','ramp'),('snapshot','card-a','extra-tag'),('snapshot','card-c','tag-a'),('snapshot','card-c','tag alias');");
   const cookies = [];
   for (const username of ['黄金九', '其他玩家']) {
@@ -87,4 +88,18 @@ test('Chinese explanations persist separately, preserve English and survive edit
   assert.equal((await update(2,{slug:'tag-a',label:'新的译名',visible:true,descriptionZh:'非法\u0000字符'})).status,400);
   assert.equal((await update(2,{slug:'tag-a',label:'新的译名',visible:true,descriptionZh:''})).status,200);
   assert.equal((await(await service.handle(request('/api/tag-settings'))).json()).overrides['tag-a'].descriptionZh,'');
+});
+
+test('analysis preference is independently persisted and older clients cannot reset it', async t => {
+  const { service, request, db, auth, readVocabulary } = await setup(t);
+  const put = (revision, change, who = 0) => service.handle(request('/api/admin/tags', { who, method: 'PUT', body: { revision, changes: [change] } }));
+  assert.equal((await put(0, { slug: 'tag-a', label: '标签甲', visible: true, descriptionZh: '保留释义', includeInAnalysis: false })).status, 200);
+  assert.equal((await put(1, { slug: 'tag-a', label: '新译名', visible: true })).status, 200);
+  const restarted = await createTagAdminService(db, auth, { readVocabulary });
+  let saved = await (await restarted.handle(request('/api/tag-settings'))).json();
+  assert.equal(saved.overrides['tag-a'].visible, true); assert.equal(saved.overrides['tag-a'].includeInAnalysis, false); assert.equal(saved.overrides['tag-a'].descriptionZh, '保留释义');
+  assert.equal((await put(2, { slug: 'tag-a', label: '新译名', visible: true, includeInAnalysis: 'yes' })).status, 400);
+  assert.equal((await put(2, { slug: 'tag-a', label: '新译名', visible: true, includeInAnalysis: true }, 1)).status, 403);
+  assert.equal((await put(2, { slug: 'tag-a', label: '新译名', visible: true, includeInAnalysis: true })).status, 200);
+  saved = await (await service.handle(request('/api/tag-settings'))).json(); assert.equal(saved.overrides['tag-a'].includeInAnalysis, true);
 });
