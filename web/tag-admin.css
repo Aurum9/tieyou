@@ -49,3 +49,13 @@
 @supports(-webkit-touch-callout:none) { @media(max-width:700px) { .tag-admin-row .tag-admin-label,.tag-admin-search { font-size: 16px; } } }
 
 #tag-admin-open[hidden],#tag-admin-view[hidden]{display:none!important}
+
+.tag-admin-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.tag-admin-meta .tag-admin-card-count{margin:0}
+.tag-admin-meta .tag-admin-translate{padding:0;font-size:11px;min-height:20px}
+.tag-admin-source-caption{display:block;font-size:11px;color:var(--muted);margin-top:10px}
+.tag-admin-description-editor{display:grid;gap:5px;margin-top:8px;font-size:11px;color:var(--muted)}
+.tag-admin-description-editor[hidden]{display:none!important}
+.tag-admin-description-zh{resize:vertical;min-height:84px;font-size:13px;line-height:1.5}
+.tag-admin-row.is-dirty .tag-admin-description-zh{border-color:#b48c35}
+@supports(-webkit-touch-callout:none){@media(max-width:700px){.tag-admin-description-zh{font-size:16px}}}

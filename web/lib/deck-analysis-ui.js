@@ -141,6 +141,7 @@ function renderBars(list, rows, details, { unit = '张', colors = false } = {}) 
   list.replaceChildren(...rows.map(row => {
     const control = el('button', 'deck-analysis-bar');
     control.type = 'button';
+    if (row.description) control.title = row.description;
     control.disabled = row.count === 0;
     const label = el('span', 'deck-analysis-bar-label');
     if (colors) label.append(colorSwatch(row.key));
@@ -154,7 +155,7 @@ function renderBars(list, rows, details, { unit = '张', colors = false } = {}) 
     const title = `${row.label} · ${row.count} ${unit}`;
     control.setAttribute('aria-label', row.slug && row.slug !== row.label ? `${title}（${row.slug}）` : title);
     control.append(label, track, el('strong', 'deck-analysis-bar-count', row.count));
-    details.select(control, title, row.entryIds);
+    details.select(control, title, row.entryIds, row.description);
     return control;
   }));
 }

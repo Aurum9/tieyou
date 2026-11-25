@@ -2,7 +2,7 @@ import { CNY_PER_USD, FIVE_DH_BUDGET } from './catalog-price.js';
 import { CONDITION_FIELDS, createCondition, createGroup, buildConditionQuery, buildFilterQuery } from './query-builder.js';
 import { TYPE_NAMES, SUPERTYPE_NAMES } from './type-vocabulary.js';
 import { normalizeText } from './search.js';
-import { loadTagVocabulary, TAG_NAMES, visibleTagLabel } from './tag-vocabulary.js';
+import { loadTagVocabulary, TAG_NAMES, visibleTagLabel, getTagDescription } from './tag-vocabulary.js';
 
 const COLOR_NAMES = { W: '白', U: '蓝', B: '黑', R: '红', G: '绿', C: '无色' };
 function el(tag, attrs = {}, text) {
@@ -39,11 +39,11 @@ const typeOptions = [
   ...Object.entries(SUPERTYPE_NAMES).map(([value, label]) => ({ value, label, detail: '超类别' })),
 ];
 const tagOptions = rows => {
-  const options = new Map(Object.entries(TAG_NAMES).map(([value, label]) => [value, { value, label, detail: value }]));
+  const options = new Map(Object.entries(TAG_NAMES).map(([value, label]) => [value, { value, label, detail: value, description: getTagDescription(value) }]));
   for (const tag of rows) {
     const value = tag.slug;
     const label = visibleTagLabel(value);
-    if (label) options.set(value, { value, label, aliases: tag.aliases, detail: value });
+    if (label) options.set(value, { value, label, aliases: tag.aliases, detail: value, description: getTagDescription(value) });
   }
   return [...options.values()];
 };
@@ -110,6 +110,7 @@ function createRepeatingFilter(container, label, changed, initialOptions) {
         const item = button('', () => selectOption(option), 'filter-suggestion');
         item.id = id + '-' + index;
         item.tabIndex = -1;
+        if (option.description) item.title = option.description;
         item.setAttribute('role', 'option');
         item.setAttribute('aria-selected', 'false');
         item.append(el('span', {}, option.label));

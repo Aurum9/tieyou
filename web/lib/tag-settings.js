@@ -1,12 +1,15 @@
-import { applyTagOverrides, applyTagAliases } from './tag-names.js';
+import { applyTagOverrides, applyTagAliases, canonicalTagSlug } from './tag-names.js';
 
 const key = 'tieyou.tag-settings.v1';
 let revision = -1, lastRead = 0, pending;
+let descriptions = {};
+export function getTagDescription(slug) { const value = descriptions[canonicalTagSlug(slug)]; return typeof value === 'string' ? value : ''; }
 export function applyTagSettings(settings) {
   if (!settings || !Number.isSafeInteger(settings.revision) || !settings.overrides || typeof settings.overrides !== 'object') throw new Error('标签设置格式无效');
   if (settings.revision < revision) return;
   const changed = revision !== settings.revision;
   applyTagAliases(settings.aliases || {}); applyTagOverrides(settings.overrides); revision = settings.revision;
+  descriptions = Object.fromEntries(Object.entries(settings.overrides).filter(([, value]) => typeof value.descriptionZh === 'string').map(([slug, value]) => [slug, value.descriptionZh]));
   try { localStorage.setItem(key, JSON.stringify(settings)); } catch { /* Offline caching is optional. */ }
   if (changed && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tag-settings-changed'));
 }

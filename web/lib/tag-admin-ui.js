@@ -3,13 +3,13 @@ import { applyTagSettings } from './tag-settings.js';
 const el = (tag, className = '', text = '') => { const item = document.createElement(tag); item.className = className; item.textContent = text; return item; };
 const button = (text, action, className = 'button') => { const item = el('button', className, text); item.type = 'button'; item.addEventListener('click', action); return item; };
 const normalize = value => String(value).normalize('NFKC').toLowerCase().trim();
-const same = (a, b) => a.label === b.label && a.visible === b.visible;
+const same = (a, b) => a.label === b.label && a.visible === b.visible && (a.descriptionZh || '') === (b.descriptionZh || '');
 
 export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   let rows = [], children = new Map(), revision = 0, loaded = false, busy = false;
   let page = 0, parent = null, query = '', filter = 'all';
-  const base = new Map(), edits = new Map(), pageSize = 50;
-  const effective = slug => edits.get(slug) || base.get(slug) || { label: '', visible: false };
+  const base = new Map(), edits = new Map(), expanded = new Set(), pageSize = 50;
+  const effective = slug => edits.get(slug) || base.get(slug) || { label: '', visible: false, descriptionZh: '' };
   const label = slug => effective(slug).label || slug;
   const error = el('p', 'deck-form-error'); error.hidden = true; error.setAttribute('role', 'alert');
   const status = el('span', 'tag-admin-status'); status.setAttribute('role', 'status');
@@ -18,7 +18,7 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   const retry = button('重新载入', () => { edits.clear(); void load(); }); retry.hidden = true;
   const search = el('input', 'deck-input tag-admin-search'); search.type = 'search'; search.placeholder = '英文标签、中文译名或解释'; search.setAttribute('aria-label', '搜索标签');
   const visibility = el('select', 'deck-input'); visibility.setAttribute('aria-label', '标签筛选');
-  for (const [value, title] of [['all', '全部标签'], ['visible', '显示'], ['hidden', '隐藏'], ['untranslated', '未填写译名'], ['translated', '已填写译名'], ['edited', '未保存修改']]) { const option = el('option', '', title); option.value = value; visibility.append(option); }
+  for (const [value, title] of [['all', '全部标签'], ['visible', '显示'], ['hidden', '隐藏'], ['untranslated', '未填写译名'], ['translated', '已填写译名'], ['description-missing', '未译释义'], ['description-done', '已译释义'], ['edited', '未保存修改']]) { const option = el('option', '', title); option.value = value; visibility.append(option); }
   const trail = el('div', 'tag-admin-trail');
   const table = el('table', 'tag-admin-table');
   const head = el('thead'), tr = el('tr');
@@ -30,7 +30,7 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   function updateStatus() {
     status.textContent = busy ? (loaded ? '正在保存…' : '正在载入…') : edits.size ? edits.size + ' 项未保存' : '已保存';
     save.disabled = busy || !edits.size; reset.disabled = busy || !edits.size;
-    for (const input of body.querySelectorAll('input')) input.disabled = busy;
+    for (const input of body.querySelectorAll('input,textarea')) input.disabled = busy;
   }
   function edit(row, value, element) {
     if (same(value, base.get(row.slug))) edits.delete(row.slug); else edits.set(row.slug, value);
@@ -42,8 +42,8 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
     const found = rows.filter(row => {
       const value = effective(row.slug);
       return (!parent || row.parentSlugs.includes(parent))
-        && (filter === 'all' || filter === 'visible' && value.visible || filter === 'hidden' && !value.visible || filter === 'untranslated' && !value.label || filter === 'translated' && !!value.label || filter === 'edited' && edits.has(row.slug))
-        && (!needle || normalize([row.slug, row.englishLabel, row.description, value.label, ...row.aliases].join(' ')).includes(needle));
+        && (filter === 'all' || filter === 'visible' && value.visible || filter === 'hidden' && !value.visible || filter === 'untranslated' && !value.label || filter === 'translated' && !!value.label || filter === 'description-missing' && !!row.description && !value.descriptionZh || filter === 'description-done' && !!value.descriptionZh || filter === 'edited' && edits.has(row.slug))
+        && (!needle || normalize([row.slug, row.englishLabel, row.description, value.descriptionZh || '', value.label, ...row.aliases].join(' ')).includes(needle));
     });
     if (needle) {
       const rank = row => {
@@ -58,16 +58,23 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
     for (const row of found.slice(page * pageSize, (page + 1) * pageSize)) {
       const item = el('tr', 'tag-admin-row' + (edits.has(row.slug) ? ' is-dirty' : '')); item.dataset.slug = row.slug;
       const english = el('td', 'tag-admin-english'), details = el('details'), summary = el('summary', '', row.slug);
-      details.append(summary);
+      details.append(summary); details.open = expanded.has(row.slug);
       if (row.englishLabel !== row.slug) details.append(el('p', 'tag-admin-english-label', row.englishLabel));
-      if (row.description) details.append(el('p', 'tag-admin-description', row.description));
+      if (row.description) details.append(el('span', 'tag-admin-source-caption', '英文释义'), el('p', 'tag-admin-description', row.description));
       if (row.aliases.length) details.append(el('p', 'tag-admin-aliases', '别名：' + row.aliases.join(' / ')));
       const more = el('div', 'tag-admin-row-links');
       const source = el('a', '', 'Scryfall'); source.href = 'https://tagger.scryfall.com/tags/card/' + encodeURIComponent(row.slug); source.target = '_blank'; source.rel = 'noreferrer';
       more.append(button('查看卡牌', () => onCatalog(row.slug), 'text-button'), source); details.append(more);
-      english.append(details, el('small', 'tag-admin-card-count', row.cardCount + ' 张'));
+      const meta = el('div', 'tag-admin-meta');
+      const translate = button(effective(row.slug).descriptionZh ? '编辑释义' : '翻译释义', () => { details.open = true; descriptionWrap.hidden = false; expanded.add(row.slug); description.focus(); }, 'text-button tag-admin-translate');
+      meta.append(el('small', 'tag-admin-card-count', row.cardCount + ' 张'), translate); english.append(details, meta);
       const name = el('td', 'tag-admin-name'), input = el('input', 'deck-input tag-admin-label'); input.type = 'text'; input.value = effective(row.slug).label; input.placeholder = '未填写'; input.maxLength = 100; input.setAttribute('aria-label', row.slug + ' 中文译名');
       input.addEventListener('input', () => edit(row, { ...effective(row.slug), label: input.value }, item)); name.append(input);
+      const descriptionWrap = el('label', 'tag-admin-description-editor'); descriptionWrap.hidden = !details.open;
+      const description = el('textarea', 'deck-input tag-admin-description-zh'); description.rows = 3; description.maxLength = 4000; description.placeholder = '中文释义'; description.value = effective(row.slug).descriptionZh || ''; description.setAttribute('aria-label', row.slug + ' 中文释义');
+      description.addEventListener('input', () => { edit(row, { ...effective(row.slug), descriptionZh: description.value }, item); translate.textContent = description.value ? '编辑释义' : '翻译释义'; });
+      descriptionWrap.append(el('span', '', '中文释义'), description); name.append(descriptionWrap);
+      details.addEventListener('toggle', () => { descriptionWrap.hidden = !details.open; if (details.open) expanded.add(row.slug); else expanded.delete(row.slug); });
       const visible = el('td', 'tag-admin-visible'), toggle = el('label'), checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = effective(row.slug).visible; checkbox.setAttribute('aria-label', row.slug + ' 显示');
       checkbox.addEventListener('change', () => {
         if (checkbox.checked && !effective(row.slug).label.trim()) { checkbox.checked = false; input.focus(); return; }
@@ -95,7 +102,7 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
     try {
       const data = await request(); rows = data.rows; revision = data.revision; children = new Map(); base.clear();
       for (const row of rows) {
-        base.set(row.slug, data.overrides[row.slug] || { label: row.defaultLabel, visible: !!row.defaultLabel });
+        base.set(row.slug, data.overrides[row.slug] || { label: row.defaultLabel, visible: !!row.defaultLabel, descriptionZh: '' });
         for (const parentSlug of row.parentSlugs) children.set(parentSlug, (children.get(parentSlug) || 0) + 1);
       }
       rows.sort((a, b) => a.slug.localeCompare(b.slug, 'en')); loaded = true;
@@ -107,7 +114,7 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   }
   async function saveChanges() {
     if (busy || !edits.size) return;
-    const changes = [...edits].map(([slug, value]) => ({ slug, label: value.label.trim(), visible: value.visible }));
+    const changes = [...edits].map(([slug, value]) => ({ slug, label: value.label.trim(), visible: value.visible, descriptionZh: (value.descriptionZh || '').replace(/\r\n?/g, '\n').trim() }));
     const missing = changes.find(row => row.visible && !row.label);
     if (missing) { error.textContent = '请先填写 ' + missing.slug + ' 的译名，或取消显示'; error.hidden = false; return; }
     busy = true; error.hidden = true; updateStatus();
@@ -122,7 +129,7 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
         }
         const result = await request({ method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision, changes: batch }) });
         revision = result.revision;
-        for (const change of batch) { base.set(change.slug, { label: change.label, visible: change.visible }); edits.delete(change.slug); }
+        for (const change of batch) { base.set(change.slug, { label: change.label, visible: change.visible, descriptionZh: change.descriptionZh }); edits.delete(change.slug); }
         applyTagSettings(result);
       }
       renderRows();

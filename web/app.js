@@ -10,7 +10,7 @@ import { initSearchFilters } from './lib/filter-ui.js';
 import { getCommanderIdentity } from './lib/decks.js';
 import { resolveDeckTarget, catalogQueryFromDeckSearch, commanderScopeQuery } from './lib/deck-target.js';
 import { buildDeckMembership } from './lib/deck-membership.js';
-import { LAND_TAG_NAMES, visibleTagLabel, canonicalTagSlug } from './lib/tag-vocabulary.js';
+import { LAND_TAG_NAMES, visibleTagLabel, canonicalTagSlug, getTagDescription } from './lib/tag-vocabulary.js';
 import { clauseRange, syncQueryClauses, SORT_QUERIES } from './lib/query-sync.js';
 import { hasCatalogQueryIntent } from './lib/catalog-query-policy.js';
 import { PlaytestStorage } from './lib/playtest-storage.js';
@@ -775,7 +775,7 @@ function renderDetail() {
     const landTags = visibleTags.filter(tag => Object.hasOwn(LAND_TAG_NAMES, tag))
       .sort((a, b) => b.split('-').length - a.split('-').length);
     const preview = [...new Set([...landTags, ...visibleTags])].slice(0, 4);
-    const chip = tag => node('span', { text: visibleTagLabel(tag) });
+    const chip = tag => node('span', { text: visibleTagLabel(tag), title: getTagDescription(tag) || undefined });
     meta.append(node('div', { class: 'detail-tags' }, preview.map(chip)));
     if (visibleTags.length > preview.length) {
       meta.append(node('details', { class: 'detail-more-tags' }, [

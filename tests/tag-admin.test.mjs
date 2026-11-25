@@ -12,6 +12,7 @@ async function setup(t, local = false) {
   const db = openLocalD1(); t.after(() => { db.close(); applyTagOverrides({}); applyTagAliases({}); });
   const auth = await createStandaloneAuth(db);
   await db.exec(await readFile(new URL('../drizzle/0006_tag_settings.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../drizzle/0007_tag_descriptions.sql', import.meta.url), 'utf8'));
   await db.exec("CREATE TABLE catalog_state(id INTEGER,active_version TEXT); INSERT INTO catalog_state VALUES(1,'snapshot'); CREATE TABLE catalog_tags(version TEXT,card_id TEXT,slug TEXT); INSERT INTO catalog_tags VALUES('snapshot','card-a','ramp'),('snapshot','card-b','ramp'),('snapshot','card-a','extra-tag'),('snapshot','card-c','tag-a'),('snapshot','card-c','tag alias');");
   const cookies = [];
   for (const username of ['黄金九', '其他玩家']) {
@@ -68,4 +69,22 @@ test('renaming and hiding change all public labels without breaking explicit Eng
     assert.equal(searchCards(cards, 'otag:ramp').cards.length, 1);
     assert.equal(searchCards(cards, 'otag:新加速译名').cards.length, 1);
   } finally { applyTagOverrides({}); }
+});
+
+test('Chinese explanations persist separately, preserve English and survive edits from older clients', async t => {
+  const { db, auth, service, request, readVocabulary } = await setup(t);
+  const path='/api/admin/tags';
+  const update=(revision,change,who=0)=>service.handle(request(path,{who,method:'PUT',body:{revision,changes:[change]}}));
+  const original=(await(await service.handle(request(path,{who:0}))).json()).rows.find(r=>r.slug==='tag-a').description;
+  assert.equal((await update(0,{slug:'tag-a',label:'标签甲',visible:true,descriptionZh:'中文释义第一行。\n第二行。'})).status,200);
+  assert.equal((await update(1,{slug:'tag-a',label:'新的译名',visible:true})).status,200);
+  const restarted=await createTagAdminService(db,auth,{readVocabulary});
+  const saved=await(await restarted.handle(request(path,{who:0}))).json();
+  assert.equal(saved.overrides['tag-a'].descriptionZh,'中文释义第一行。\n第二行。');
+  assert.equal(saved.rows.find(r=>r.slug==='tag-a').description,original);
+  assert.equal((await update(2,{slug:'tag-a',label:'新的译名',visible:true,descriptionZh:'伪造修改'},1)).status,403);
+  assert.equal((await update(2,{slug:'tag-a',label:'新的译名',visible:true,descriptionZh:'x'.repeat(4001)})).status,400);
+  assert.equal((await update(2,{slug:'tag-a',label:'新的译名',visible:true,descriptionZh:'非法\u0000字符'})).status,400);
+  assert.equal((await update(2,{slug:'tag-a',label:'新的译名',visible:true,descriptionZh:''})).status,200);
+  assert.equal((await(await service.handle(request('/api/tag-settings'))).json()).overrides['tag-a'].descriptionZh,'');
 });

@@ -10,8 +10,8 @@ export async function createTagAdminService(db, auth, { local = false, readVocab
   const administrator = local ? null : await db.prepare('SELECT id FROM standalone_auth_accounts WHERE username_key=?').bind('黄金九').first();
   async function settings() {
     const state = await db.prepare('SELECT revision FROM tag_settings_state WHERE id=1').first();
-    const { results } = await db.prepare('SELECT slug,label,visible FROM tag_label_overrides ORDER BY slug').all();
-    const overrides = Object.fromEntries(results.map(row => [row.slug, { label: row.label, visible: !!row.visible }]));
+    const { results } = await db.prepare('SELECT slug,label,visible,description_zh FROM tag_label_overrides ORDER BY slug').all();
+    const overrides = Object.fromEntries(results.map(row => [row.slug, { label: row.label, visible: !!row.visible, descriptionZh: row.description_zh }]));
     const included = new Set([...Object.keys(DEFAULT_TAG_NAMES), ...Object.keys(overrides)]);
     const aliases = Object.fromEntries((await readVocabulary()).filter(row => included.has(row.slug)).map(row => [row.slug, [row.label || row.slug, ...(row.aliases || [])]]));
     for (const slug of included) if (!Object.hasOwn(aliases, slug)) aliases[slug] = [slug];
@@ -72,13 +72,15 @@ export async function createTagAdminService(db, auth, { local = false, readVocab
       const allowed = new Set((await vocabulary()).map(row => row.slug)), seen = new Set();
       for (const item of body.changes) {
         if (!item || !allowed.has(item.slug) || seen.has(item.slug) || typeof item.label !== 'string' || item.label.length > 100 || /[\u0000-\u001f\u007f]/u.test(item.label) || typeof item.visible !== 'boolean' || item.visible && !item.label.trim()) return reply({ error: { message: '标签内容无效，显示的标签需要填写译名' } }, 400);
+        if (item.descriptionZh !== undefined && (typeof item.descriptionZh !== 'string' || item.descriptionZh.length > 4000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(item.descriptionZh))) return reply({ error: { message: '中文释义格式无效或超过 4000 字' } }, 400);
         seen.add(item.slug);
       }
       const mutation = randomUUID(), next = body.revision + 1;
       const writes = [db.prepare('UPDATE tag_settings_state SET revision=?,mutation=? WHERE id=1 AND revision=?').bind(next, mutation, body.revision)];
-      for (const item of body.changes) writes.push(db.prepare(`INSERT INTO tag_label_overrides(slug,label,visible)
-        SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM tag_settings_state WHERE id=1 AND revision=? AND mutation=?)
-        ON CONFLICT(slug) DO UPDATE SET label=excluded.label,visible=excluded.visible`).bind(item.slug, item.label.trim(), item.visible ? 1 : 0, next, mutation));
+      for (const item of body.changes) writes.push(db.prepare(`INSERT INTO tag_label_overrides(slug,label,visible,description_zh)
+        SELECT ?,?,?,coalesce(?,(SELECT description_zh FROM tag_label_overrides WHERE slug=?),'')
+        WHERE EXISTS(SELECT 1 FROM tag_settings_state WHERE id=1 AND revision=? AND mutation=?)
+        ON CONFLICT(slug) DO UPDATE SET label=excluded.label,visible=excluded.visible,description_zh=excluded.description_zh`).bind(item.slug, item.label.trim(), item.visible ? 1 : 0, item.descriptionZh === undefined ? null : item.descriptionZh.replace(/\r\n?/g, '\n').trim(), item.slug, next, mutation));
       const result = await db.batch(writes);
       if (!result[0].meta.changes) return reply({ error: { message: '标签已在其他页面修改，请重新载入后保存' } }, 409);
       const saved = await settings(); publish(saved); return reply(saved);
