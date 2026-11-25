@@ -95,6 +95,26 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   let foldId = 0;
   const openModals = new Set();
   const coverRequests = new Map();
+  function closeCardMenus(except = null, restoreFocus = false) {
+    let closed = false;
+    for (const menu of container.querySelectorAll('.deck-entry-actions[open]')) {
+      if (menu === except) continue;
+      menu.open = false;
+      if (restoreFocus) menu.querySelector('summary')?.focus({ preventScroll: true });
+      closed = true;
+    }
+    return closed;
+  }
+  function dismissCardMenus(event) {
+    const menu = event.target.closest?.('.deck-entry-actions');
+    closeCardMenus(menu && container.contains(menu) ? menu : null);
+  }
+  function escapeCardMenu(event) {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    if (closeCardMenus(null, true)) { event.preventDefault(); event.stopPropagation(); }
+  }
+  document.addEventListener('pointerdown', dismissCardMenus, true);
+  document.addEventListener('keydown', escapeCardMenu, true);
   const store = new DeckStore({ key: syncDeckLibrary ? deviceDeckStorageKey() : undefined, onChange: updateStatus });
   const syncController = syncDeckLibrary ? createDeckSync(store, {
     onStatusChange: updateStatus,
@@ -809,8 +829,11 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const remove = button('移除', () => run(() => { const deck = store.get(selectedId); deck.entries = deck.entries.filter(item => item.id !== entry.id); return store.save(deck); }), 'button deck-danger');
     remove.setAttribute('aria-label', `移除 ${name}`);
     const actions = el('details', 'deck-entry-actions');
+    actions.setAttribute('name', 'tieyou-deck-card-actions');
+    actions.addEventListener('toggle', () => { if (actions.open) closeCardMenus(actions); });
     const trigger = el('summary', 'deck-entry-menu-trigger', '…');
     trigger.setAttribute('aria-label', `操作 ${name}`); trigger.title = '卡牌操作';
+    trigger.addEventListener('click', () => closeCardMenus(actions));
     const menu = el('div', 'deck-entry-menu');
     const close = button('×', () => {
       actions.open = false;
@@ -1273,6 +1296,8 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   render();
   if (syncController) void syncController.start();
   function destroy() {
+    document.removeEventListener('pointerdown', dismissCardMenus, true);
+    document.removeEventListener('keydown', escapeCardMenu, true);
     ++openRequest;
     syncController?.dispose();
     deferredLibraryRefresh = false;
