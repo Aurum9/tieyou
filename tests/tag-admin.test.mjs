@@ -49,6 +49,7 @@ test('local development permits logged-out editing, preserves hierarchy and coun
   const restarted = await createTagAdminService(db, auth, { local: true, readVocabulary });
   const saved = await (await restarted.handle(request('/api/tag-settings'))).json(); assert.equal(saved.revision, 1); assert.equal(saved.overrides['tag-a'].label, '手工译名');
   assert.equal(saved.overrides.ramp.visible, false);
+  assert.equal(saved.overrides['tag-a'].includeInAnalysis, false);
 });
 test('stale saves never partly overwrite other tags; malformed, unknown and cross-site changes are rejected', async t => {
   const { service, request } = await setup(t);
@@ -56,7 +57,7 @@ test('stale saves never partly overwrite other tags; malformed, unknown and cros
   assert.equal((await put(0, [{ slug: 'tag-a', label: '甲', visible: true }])).status, 200);
   assert.equal((await put(0, [{ slug: 'tag-b', label: '不应写入', visible: true }])).status, 409);
   const saved = await (await service.handle(request('/api/tag-settings'))).json(); assert.equal(saved.overrides['tag-b'], undefined);
-  for (const change of [{ slug: 'unknown', label: '甲', visible: true }, { slug: 'tag-b', label: '', visible: true }, { slug: 'tag-b', label: 'x'.repeat(101), visible: false }, { slug: 'tag-b', label: '甲\n乙', visible: false }]) assert.equal((await put(1, [change])).status, 400);
+  for (const change of [{ slug: 'unknown', label: '甲', visible: true }, { slug: 'tag-b', label: 'x'.repeat(101), visible: false }, { slug: 'tag-b', label: '甲\n乙', visible: false }]) assert.equal((await put(1, [change])).status, 400);
   assert.equal((await put(1, [{ slug: 'tag-b', label: '甲', visible: true }], { Origin: 'https://other.test' })).status, 403);
   assert.equal((await service.handle(request('/api/admin/tags', { who: 1, method: 'PUT', body: { revision: 1, changes: [{ slug: 'ramp', label: '伪造', visible: true }] } }))).status, 403);
 });
@@ -102,4 +103,12 @@ test('analysis preference is independently persisted and older clients cannot re
   assert.equal((await put(2, { slug: 'tag-a', label: '新译名', visible: true, includeInAnalysis: true }, 1)).status, 403);
   assert.equal((await put(2, { slug: 'tag-a', label: '新译名', visible: true, includeInAnalysis: true })).status, 200);
   saved = await (await service.handle(request('/api/tag-settings'))).json(); assert.equal(saved.overrides['tag-a'].includeInAnalysis, true);
+});
+
+test('untranslated tags may remain visible and new overrides default to no analysis', async t => {
+  const { service, request } = await setup(t, true);
+  assert.equal(visibleTagLabel('tag-b'), 'tag-b');
+  const response = await service.handle(request('/api/admin/tags', { method: 'PUT', body: { revision: 0, changes: [{slug:'tag-b',label:'',visible:true}] } }));
+  const saved = await response.json(); assert.equal(response.status,200);
+  assert.equal(saved.overrides['tag-b'].includeInAnalysis,false); assert.equal(visibleTagLabel('tag-b'),'tag-b');
 });

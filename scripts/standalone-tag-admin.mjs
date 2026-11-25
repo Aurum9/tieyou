@@ -71,7 +71,7 @@ export async function createTagAdminService(db, auth, { local = false, readVocab
       if (!Number.isSafeInteger(body?.revision) || body.revision < 0 || body.revision >= Number.MAX_SAFE_INTEGER || !Array.isArray(body.changes) || !body.changes.length || body.changes.length > 500) return reply({ error: { message: '请一次保存 1–500 个标签' } }, 400);
       const allowed = new Set((await vocabulary()).map(row => row.slug)), seen = new Set();
       for (const item of body.changes) {
-        if (!item || !allowed.has(item.slug) || seen.has(item.slug) || typeof item.label !== 'string' || item.label.length > 100 || /[\u0000-\u001f\u007f]/u.test(item.label) || typeof item.visible !== 'boolean' || item.visible && !item.label.trim()) return reply({ error: { message: '标签内容无效，显示的标签需要填写译名' } }, 400);
+        if (!item || !allowed.has(item.slug) || seen.has(item.slug) || typeof item.label !== 'string' || item.label.length > 100 || /[\u0000-\u001f\u007f]/u.test(item.label) || typeof item.visible !== 'boolean') return reply({ error: { message: '标签内容无效' } }, 400);
         if (item.descriptionZh !== undefined && (typeof item.descriptionZh !== 'string' || item.descriptionZh.length > 4000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(item.descriptionZh))) return reply({ error: { message: '中文释义格式无效或超过 4000 字' } }, 400);
         if (item.includeInAnalysis !== undefined && typeof item.includeInAnalysis !== 'boolean') return reply({ error: { message: '卡组统计开关无效' } }, 400);
         seen.add(item.slug);
@@ -79,7 +79,7 @@ export async function createTagAdminService(db, auth, { local = false, readVocab
       const mutation = randomUUID(), next = body.revision + 1;
       const writes = [db.prepare('UPDATE tag_settings_state SET revision=?,mutation=? WHERE id=1 AND revision=?').bind(next, mutation, body.revision)];
       for (const item of body.changes) writes.push(db.prepare(`INSERT INTO tag_label_overrides(slug,label,visible,description_zh,include_in_analysis)
-        SELECT ?,?,?,coalesce(?,(SELECT description_zh FROM tag_label_overrides WHERE slug=?),''),coalesce(?,(SELECT include_in_analysis FROM tag_label_overrides WHERE slug=?),1)
+        SELECT ?,?,?,coalesce(?,(SELECT description_zh FROM tag_label_overrides WHERE slug=?),''),coalesce(?,(SELECT include_in_analysis FROM tag_label_overrides WHERE slug=?),0)
         WHERE EXISTS(SELECT 1 FROM tag_settings_state WHERE id=1 AND revision=? AND mutation=?)
         ON CONFLICT(slug) DO UPDATE SET label=excluded.label,visible=excluded.visible,description_zh=excluded.description_zh,include_in_analysis=excluded.include_in_analysis`).bind(item.slug, item.label.trim(), item.visible ? 1 : 0, item.descriptionZh === undefined ? null : item.descriptionZh.replace(/\r\n?/g, '\n').trim(), item.slug, item.includeInAnalysis === undefined ? null : item.includeInAnalysis ? 1 : 0, item.slug, next, mutation));
       const result = await db.batch(writes);

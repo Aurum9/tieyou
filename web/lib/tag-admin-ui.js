@@ -3,13 +3,13 @@ import { applyTagSettings } from './tag-settings.js';
 const el = (tag, className = '', text = '') => { const item = document.createElement(tag); item.className = className; item.textContent = text; return item; };
 const button = (text, action, className = 'button') => { const item = el('button', className, text); item.type = 'button'; item.addEventListener('click', action); return item; };
 const normalize = value => String(value).normalize('NFKC').toLowerCase().trim();
-const same = (a, b) => a.label === b.label && a.visible === b.visible && (a.descriptionZh || '') === (b.descriptionZh || '') && (a.includeInAnalysis !== false) === (b.includeInAnalysis !== false);
+const same = (a, b) => a.label === b.label && a.visible === b.visible && (a.descriptionZh || '') === (b.descriptionZh || '') && (a.includeInAnalysis === true) === (b.includeInAnalysis === true);
 
 export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   let rows = [], children = new Map(), revision = 0, loaded = false, busy = false;
-  let page = 0, parent = null, query = '', filter = 'all';
+  let page = 0, parent = null, query = '', filter = 'all', order = 'count-desc', pageRows = [];
   const base = new Map(), edits = new Map(), expanded = new Set(), pageSize = 50;
-  const effective = slug => edits.get(slug) || base.get(slug) || { label: '', visible: false, descriptionZh: '', includeInAnalysis: true };
+  const effective = slug => edits.get(slug) || base.get(slug) || { label: '', visible: true, descriptionZh: '', includeInAnalysis: false };
   const label = slug => effective(slug).label || slug;
   const error = el('p', 'deck-form-error'); error.hidden = true; error.setAttribute('role', 'alert');
   const status = el('span', 'tag-admin-status'); status.setAttribute('role', 'status');
@@ -19,6 +19,18 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   const search = el('input', 'deck-input tag-admin-search'); search.type = 'search'; search.placeholder = '英文标签、中文译名或解释'; search.setAttribute('aria-label', '搜索标签');
   const visibility = el('select', 'deck-input'); visibility.setAttribute('aria-label', '标签筛选');
   for (const [value, title] of [['all', '全部标签'], ['visible', '显示'], ['hidden', '隐藏'], ['untranslated', '未填写译名'], ['translated', '已填写译名'], ['description-missing', '未译释义'], ['description-done', '已译释义'], ['analysis', '计入卡组统计'], ['no-analysis', '不计入卡组统计'], ['edited', '未保存修改']]) { const option = el('option', '', title); option.value = value; visibility.append(option); }
+  const ordering = el('select', 'deck-input'); ordering.setAttribute('aria-label', '标签排序');
+  for (const [value, title] of [['count-desc', '卡牌数量 ↓'], ['count-asc', '卡牌数量 ↑'], ['name', '英文名称']]) { const option = el('option', '', title); option.value = value; ordering.append(option); }
+  const bulk = el('div', 'tag-admin-bulk'); bulk.append(el('span', '', '本页批量'));
+  const bulkInputs = new Map();
+  for (const [field, title] of [['visible', '可见'], ['includeInAnalysis', '统计']]) {
+    const label = el('label'), input = el('input'); input.type = 'checkbox'; input.setAttribute('aria-label', '本页全部' + title);
+    input.addEventListener('change', () => {
+      for (const row of pageRows) { const value = { ...effective(row.slug), [field]: input.checked }; if (same(value, base.get(row.slug))) edits.delete(row.slug); else edits.set(row.slug, value); }
+      renderRows();
+    }); label.append(input, document.createTextNode(title)); bulk.append(label); bulkInputs.set(field, input);
+  }
+  function updateBulk() { for (const [field, input] of bulkInputs) { const n = pageRows.filter(row => effective(row.slug)[field] === true).length; input.checked = !!pageRows.length && n === pageRows.length; input.indeterminate = n > 0 && n < pageRows.length; input.disabled = busy || !pageRows.length; } }
   const trail = el('div', 'tag-admin-trail');
   const table = el('table', 'tag-admin-table');
   const head = el('thead'), tr = el('tr');
@@ -29,6 +41,7 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   const next = button('下一页', () => { page++; renderRows(); });
   function updateStatus() {
     status.textContent = busy ? (loaded ? '正在保存…' : '正在载入…') : edits.size ? edits.size + ' 项未保存' : '已保存';
+    updateBulk();
     save.disabled = busy || !edits.size; reset.disabled = busy || !edits.size;
     for (const input of body.querySelectorAll('input,textarea')) input.disabled = busy;
   }
@@ -42,20 +55,23 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
     const found = rows.filter(row => {
       const value = effective(row.slug);
       return (!parent || row.parentSlugs.includes(parent))
-        && (filter === 'all' || filter === 'visible' && value.visible || filter === 'hidden' && !value.visible || filter === 'untranslated' && !value.label || filter === 'translated' && !!value.label || filter === 'description-missing' && !!row.description && !value.descriptionZh || filter === 'description-done' && !!value.descriptionZh || filter === 'analysis' && value.includeInAnalysis !== false || filter === 'no-analysis' && value.includeInAnalysis === false || filter === 'edited' && edits.has(row.slug))
+        && (filter === 'all' || filter === 'visible' && value.visible || filter === 'hidden' && !value.visible || filter === 'untranslated' && !value.label || filter === 'translated' && !!value.label || filter === 'description-missing' && !!row.description && !value.descriptionZh || filter === 'description-done' && !!value.descriptionZh || filter === 'analysis' && value.includeInAnalysis === true || filter === 'no-analysis' && value.includeInAnalysis !== true || filter === 'edited' && edits.has(row.slug))
         && (!needle || normalize([row.slug, row.englishLabel, row.description, value.descriptionZh || '', value.label, ...row.aliases].join(' ')).includes(needle));
     });
+    const compare = (a, b) => (order === 'name' ? 0 : (order === 'count-asc' ? 1 : -1) * (a.cardCount - b.cardCount)) || a.slug.localeCompare(b.slug, 'en');
+    found.sort(compare);
     if (needle) {
       const rank = row => {
         const terms = [row.slug, effective(row.slug).label, row.englishLabel, ...row.aliases].map(normalize);
         return terms.includes(needle) ? 0 : terms.some(term => term.startsWith(needle)) ? 1 : terms.some(term => term.includes(needle)) ? 2 : 3;
       };
-      found.sort((a, b) => rank(a) - rank(b) || a.slug.localeCompare(b.slug, 'en'));
+      found.sort((a, b) => rank(a) - rank(b) || compare(a, b));
     }
     page = Math.max(0, Math.min(page, Math.ceil(found.length / pageSize) - 1));
     body.replaceChildren(); trail.replaceChildren();
     if (parent) trail.append(button('全部标签', () => goParent(null), 'text-button'), document.createTextNode(' / ' + label(parent)));
-    for (const row of found.slice(page * pageSize, (page + 1) * pageSize)) {
+    pageRows = found.slice(page * pageSize, (page + 1) * pageSize);
+    for (const row of pageRows) {
       const item = el('tr', 'tag-admin-row' + (edits.has(row.slug) ? ' is-dirty' : '')); item.dataset.slug = row.slug;
       const english = el('td', 'tag-admin-english'), details = el('details'), summary = el('summary', '', row.slug);
       details.append(summary); details.open = expanded.has(row.slug);
@@ -77,11 +93,10 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
       details.addEventListener('toggle', () => { descriptionWrap.hidden = !details.open; if (details.open) expanded.add(row.slug); else expanded.delete(row.slug); });
       const visible = el('td', 'tag-admin-visible'), toggle = el('label'), checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = effective(row.slug).visible; checkbox.setAttribute('aria-label', row.slug + ' 显示');
       checkbox.addEventListener('change', () => {
-        if (checkbox.checked && !effective(row.slug).label.trim()) { checkbox.checked = false; input.focus(); return; }
         edit(row, { ...effective(row.slug), visible: checkbox.checked }, item);
       }); toggle.append(checkbox, document.createTextNode('显示')); visible.append(toggle);
       const analysis = el('td', 'tag-admin-analysis'), analysisLabel = el('label'), analysisInput = el('input');
-      analysisInput.type = 'checkbox'; analysisInput.checked = effective(row.slug).includeInAnalysis !== false; analysisInput.setAttribute('aria-label', row.slug + ' 计入卡组统计');
+      analysisInput.type = 'checkbox'; analysisInput.checked = effective(row.slug).includeInAnalysis === true; analysisInput.setAttribute('aria-label', row.slug + ' 计入卡组统计');
       analysisInput.addEventListener('change', () => edit(row, { ...effective(row.slug), includeInAnalysis: analysisInput.checked }, item));
       analysisLabel.append(analysisInput, document.createTextNode('统计')); analysis.append(analysisLabel);
       const parents = el('td', 'tag-admin-parents');
@@ -106,7 +121,7 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
     try {
       const data = await request(); rows = data.rows; revision = data.revision; children = new Map(); base.clear();
       for (const row of rows) {
-        base.set(row.slug, data.overrides[row.slug] || { label: row.defaultLabel, visible: !!row.defaultLabel, descriptionZh: '', includeInAnalysis: true });
+        base.set(row.slug, data.overrides[row.slug] || { label: row.defaultLabel, visible: true, descriptionZh: '', includeInAnalysis: false });
         for (const parentSlug of row.parentSlugs) children.set(parentSlug, (children.get(parentSlug) || 0) + 1);
       }
       rows.sort((a, b) => a.slug.localeCompare(b.slug, 'en')); loaded = true;
@@ -118,9 +133,7 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   }
   async function saveChanges() {
     if (busy || !edits.size) return;
-    const changes = [...edits].map(([slug, value]) => ({ slug, label: value.label.trim(), visible: value.visible, descriptionZh: (value.descriptionZh || '').replace(/\r\n?/g, '\n').trim(), includeInAnalysis: value.includeInAnalysis !== false }));
-    const missing = changes.find(row => row.visible && !row.label);
-    if (missing) { error.textContent = '请先填写 ' + missing.slug + ' 的译名，或取消显示'; error.hidden = false; return; }
+    const changes = [...edits].map(([slug, value]) => ({ slug, label: value.label.trim(), visible: value.visible, descriptionZh: (value.descriptionZh || '').replace(/\r\n?/g, '\n').trim(), includeInAnalysis: value.includeInAnalysis === true }));
     busy = true; error.hidden = true; updateStatus();
     try {
       let start = 0;
@@ -142,11 +155,12 @@ export function createTagAdminUI({ container, onBack, onAccount, onCatalog }) {
   }
   search.addEventListener('input', () => { query = search.value; page = 0; renderRows(); });
   visibility.addEventListener('change', () => { filter = visibility.value; page = 0; renderRows(); });
+  ordering.addEventListener('change', () => { order = ordering.value; page = 0; renderRows(); });
   const toolbar = el('div', 'tag-admin-toolbar'), title = el('div', 'tag-admin-title'); title.append(button('←', onBack, 'button button-quiet'), el('h1', '', '标签管理'));
   const actions = el('div', 'tag-admin-actions'); actions.append(status, reset, save); toolbar.append(title, actions);
-  const filters = el('div', 'tag-admin-filters'); filters.append(search, visibility);
+  const filters = el('div', 'tag-admin-filters'); filters.append(search, visibility, ordering);
   const pager = el('div', 'tag-admin-pager'); pager.append(count, previous, next);
-  container.replaceChildren(toolbar, filters, trail, error, retry, table, pager);
+  container.replaceChildren(toolbar, filters, bulk, trail, error, retry, table, pager);
   function headerSize() { container.style.setProperty('--tag-admin-header-height', (document.querySelector('.app-header')?.getBoundingClientRect().height || 0) + 'px'); }
   window.addEventListener('resize', headerSize);
   return { async show() { headerSize(); if (!loaded) await load(); }, refresh: load };

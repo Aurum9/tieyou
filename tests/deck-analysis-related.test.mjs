@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { applyTagSettings } from '../web/lib/tag-settings.js';
 import { analyzeDeckRelated } from '../web/lib/deck-analysis-related.js';
 
 const deck = { entries: [
@@ -19,6 +20,7 @@ test('tag counts merge canonical slugs and aliases while retaining all contribut
     { slug: 'mana-rock', label: 'mana rock', aliases: ['mana rock', 'manarock'] },
     { slug: 'combat-trick', label: 'combat trick', aliases: [] },
   ];
+  applyTagSettings({ revision: 1, overrides: Object.fromEntries(['mana-rock','landfall'].map(slug => [slug,{ label: slug === 'mana-rock' ? '法术力石' : '地落', visible:true,includeInAnalysis:true }])) });
   const { tags } = analyzeDeckRelated(deck, cards, { tagVocabulary });
   assert.deepEqual(tags[0], {
     slug: 'mana-rock', label: '法术力石', aliases: ['mana rock', 'manarock'],

@@ -14,9 +14,9 @@ test('analysis exclusion leaves tag display, Chinese/English searches and explan
   assert.equal(visibleTagLabel('mana ramp'), '加速'); assert.equal(TAG_NAMES.ramp, '加速');
   assert.equal(tagIncludedInAnalysis('mana ramp'), false); assert.equal(getTagDescription('ramp'), '增加可用法术力。');
   assert.equal(searchCards(cards, 'otag:ramp').cards.length, 1); assert.equal(searchCards(cards, 'otag:加速').cards.length, 1);
-  assert.deepEqual(analyzeDeckRelated(deck, cards, { tagVocabulary: vocabulary }).tags.map(row => row.slug), ['draw']);
+  assert.deepEqual(analyzeDeckRelated(deck, cards, { tagVocabulary: vocabulary }).tags.map(row => row.slug), []);
   applyTagSettings({ revision: 2, aliases, overrides: { ramp: { label: '加速', visible: true, includeInAnalysis: true } } });
   assert.equal(analyzeDeckRelated(deck, cards, { tagVocabulary: vocabulary }).tags.find(row => row.slug === 'ramp').count, 2);
   applyTagSettings({ revision: 3, aliases, overrides: { ramp: { label: '加速', visible: true } } });
-  assert.equal(tagIncludedInAnalysis('ramp'), true, 'Existing settings remain included by default');
+  assert.equal(tagIncludedInAnalysis('ramp'), false, 'Unset analysis options default to excluded');
 });

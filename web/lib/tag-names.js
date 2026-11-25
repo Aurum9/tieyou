@@ -114,9 +114,10 @@ export const TAG_NAMES = {
 };
 export const DEFAULT_TAG_NAMES = Object.freeze({ ...TAG_NAMES });
 
+const hiddenTags = new Set();
 export function visibleTagLabel(slug) {
   slug = canonicalTagSlug(slug);
-  return Object.hasOwn(TAG_NAMES, slug) ? TAG_NAMES[slug] : '';
+  return hiddenTags.has(slug) ? '' : Object.hasOwn(TAG_NAMES, slug) ? TAG_NAMES[slug] : String(slug || '');
 }
 
 const normalizeLabel = label => String(label ?? '').normalize('NFKC').toLocaleLowerCase('en').replace(/\s+/g, ' ').trim();
@@ -166,7 +167,7 @@ export function searchTagSlugs(value) {
 export function applyTagOverrides(overrides = {}) {
   for (const slug of Object.keys(TAG_NAMES)) delete TAG_NAMES[slug];
   Object.assign(TAG_NAMES, DEFAULT_TAG_NAMES);
-  localizedTags.clear();
+  localizedTags.clear(); hiddenTags.clear();
   const addAlias = (label, slug) => {
     const key = normalizeLabel(label); if (!key) return;
     localizedTags.set(key, [...new Set([...(localizedTags.get(key) || []), slug])]);
@@ -177,6 +178,7 @@ export function applyTagOverrides(overrides = {}) {
     if (!slug || slug.length > 200 || /[\u0000-\u001f\u007f]/u.test(slug) || ['__proto__', 'prototype', 'constructor'].includes(slug) || !item || typeof item.label !== 'string' || typeof item.visible !== 'boolean') continue;
     if (item.visible && item.label.trim()) TAG_NAMES[slug] = item.label.trim();
     else delete TAG_NAMES[slug];
+    if (!item.visible) hiddenTags.add(slug);
     addAlias(item.label, slug);
   }
 }
