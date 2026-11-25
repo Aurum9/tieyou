@@ -821,3 +821,56 @@
 .deck-list-title .deck-five-dh-toggle{display:inline-flex;gap:6px;margin:0;padding:5px 9px;border:1px solid var(--line);border-radius:20px;font-size:11px;min-height:30px;background:var(--surface);white-space:nowrap}
 .deck-list-title .deck-five-dh-toggle:has(input:checked){border-color:#88a184;background:#e5efdf;color:var(--accent)}
 .deck-list-title .deck-five-dh-toggle input{width:13px;height:13px;margin:0;accent-color:var(--accent)}
+
+/* Full-art cards keep controls on the artwork, without a footer. */
+#deck-view .deck-editor-view-cards .deck-entry-main {
+  position: absolute;
+  inset: 0;
+  display: block;
+  min-height: 0;
+  padding: 0;
+  pointer-events: none;
+}
+.deck-editor-view-cards .deck-entry-main > .deck-entry-actions {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  pointer-events: auto;
+}
+#deck-view .deck-editor-view-cards .deck-entry-menu-trigger {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 1px solid #ffffff80;
+  border-radius: 5px;
+  background: #183c32dc;
+  color: #fff;
+  font-size: 19px;
+  line-height: 1;
+  box-shadow: 0 1px 4px #0003;
+}
+.deck-editor-view-cards .deck-entry > .deck-entry-quantity-badge {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  right: 5px;
+  pointer-events: none;
+}
+.deck-editor-view-cards .deck-entry > .deck-budget-price {
+  position: absolute;
+  z-index: 1;
+  bottom: 5px;
+  right: 5px;
+  pointer-events: none;
+}
+.deck-budget-price.is-icon-only { padding: 2px; border-radius: 50%; }
+.deck-editor-view-cards .deck-entry-main > .deck-entry-issues {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  max-width: calc(100% - 48px);
+  pointer-events: auto;
+}

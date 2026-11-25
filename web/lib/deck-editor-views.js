@@ -81,7 +81,7 @@ function createDeckPriceIcon(missing) {
   return icon;
 }
 
-export function createDeckPriceBadge(card, { highlight = true } = {}) {
+export function createDeckPriceBadge(card, { highlight = true, showPrice = true } = {}) {
   const price = lowestCardPriceInCny(card);
   const badge = document.createElement('span');
   badge.className = 'deck-budget-price';
@@ -99,6 +99,8 @@ export function createDeckPriceBadge(card, { highlight = true } = {}) {
     }
     badge.append(createDeckPriceIcon(false));
   }
-  badge.append(document.createTextNode(price === null ? '无报价' : '¥' + price.toFixed(2)));
+  if (showPrice) badge.append(document.createTextNode(price === null ? '无报价' : '¥' + price.toFixed(2)));
+  else if (!badge.childNodes.length) return null;
+  else badge.classList.add('is-icon-only');
   return badge;
 }

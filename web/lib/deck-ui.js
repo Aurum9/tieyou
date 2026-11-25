@@ -761,7 +761,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     wrapper.setAttribute('data-entry-id', entry.id);
     applyDeckCardColor(wrapper, card);
     const priceBadge = fiveDhDecks.has(selectedId)
-      ? createDeckPriceBadge(card, { highlight: viewMode !== 'stack' }) : null;
+      ? createDeckPriceBadge(card, { showPrice: viewMode === 'text' }) : null;
     const title = el('div', 'deck-entry-card');
     const inspectButton = button(name, inspect, 'deck-card-link deck-entry-name');
     inspectButton.title = name;
@@ -844,9 +844,9 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
       wrapper.append(image);
       if (entry.quantity > 1) {
         const badge = el('span', 'deck-entry-quantity-badge', `×${entry.quantity}`);
-        (viewMode === 'stack' ? wrapper : row).append(badge);
+        wrapper.append(badge);
       }
-      if (priceBadge) (viewMode === 'stack' ? wrapper : row).append(priceBadge);
+      if (priceBadge) wrapper.append(priceBadge);
       if (badges) row.append(badges);
       row.append(actions);
     }
