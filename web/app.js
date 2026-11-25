@@ -1,4 +1,5 @@
 import './lib/browser-compat.js';
+import { faceCharacteristics, detailDeckEntry } from './lib/card-detail-state.js';
 import { createDeckPriceBadge } from './lib/deck-editor-views.js';
 import { CNY_PER_USD, FIVE_DH_BUDGET } from './lib/catalog-price.js';
 import { createRemoteCatalog } from './lib/remote-catalog.js';
@@ -42,6 +43,7 @@ let knownSetCodes = new Set();
 let resultView = 'grid';
 let detailCard = null;
 let detailVersion = null;
+let detailContext = null;
 let detailLanguage = 'zh';
 let previousFocus = null;
 let searchTimer = null;
@@ -590,8 +592,7 @@ function refreshCatalogTarget() {
     picker.value = target.id;
   }
   updateCommanderScope();
-  const detailTarget = currentAddTarget();
-  $$('.detail-add').forEach(button => { button.textContent = detailTarget ? '加入「' + detailTarget.name + '」主牌区' : '选择卡组并加入'; });
+  if (detailCard && !detailLoading) renderDetail();
   catalogMembership = target ? buildDeckMembership(decks, target.id) : new Map();
   refreshCatalogAddButtons(target);
   synchronizeQuery();
@@ -628,11 +629,12 @@ async function openCatalogFromDeck({ deckId, query = '', restrictIdentity = true
   if (!window.matchMedia('(max-width: 700px)').matches) $('#search-input').focus();
 }
 
-async function openDetail(card, version = null) {
+async function openDetail(card, version = null, context = null) {
   if (!card) return;
   const revision = ++detailRevision;
   previousFocus = document.activeElement;
   detailCard = card;
+  detailContext = context;
   detailLoading = !card.versionsComplete;
   detailVersion = version || selectedVersionFor(card);
   detailLanguage = 'zh';
@@ -650,7 +652,7 @@ async function openDetail(card, version = null) {
   } catch (error) {
     if (revision !== detailRevision || !detailCard) return;
     const pending = $('#detail-pending'); if (pending) pending.textContent = '详情未载入';
-    $('#detail-content').append(node('div', { class: 'inline-error', role: 'alert' }, [error.message || '详情加载失败。', node('button', { class: 'button', text: '重试', onClick: () => openDetail(card, version) })]));
+    $('#detail-content').append(node('div', { class: 'inline-error', role: 'alert' }, [error.message || '详情加载失败。', node('button', { class: 'button', text: '重试', onClick: () => openDetail(card, version, context) })]));
   }
 }
 
@@ -662,6 +664,7 @@ function closeDetail() {
   detailCard = null;
   detailLoading = false;
   detailVersion = null;
+  detailContext = null;
 }
 
 function translationNote(face) {
@@ -681,6 +684,7 @@ function renderFaceRules(face, index, multiple) {
   if (multiple) content.append(node('h4', { class: 'face-rule-title' }, [node('span', { text: (isEnglish ? face.name : face.zhName || face.name) || '牌面 ' + (index + 1) }), manaCost(face.manaCost)]));
   const type = isEnglish ? face.typeLine : face.zhTypeLine || face.typeLine;
   if (type) content.append(node('p', { class: 'face-rule-type', text: type }));
+  if (multiple && faceCharacteristics(face).length) content.append(characteristicFacts(face));
   if (isEnglish) {
     content.append(face.oracleText ? ruleText(face.oracleText) : node('p', { class: 'detail-empty-text', text: 'No Oracle rules text.' }));
   } else {
@@ -690,6 +694,10 @@ function renderFaceRules(face, index, multiple) {
     if (detailLanguage === 'compare' && face.zhText && face.oracleText) content.append(node('div', { class: 'translation-separator' }), node('p', { class: 'rule-language-label', text: 'ORACLE · ENGLISH' }), ruleText(face.oracleText, 'rule-text-en'));
   }
   return content;
+}
+
+function characteristicFacts(face) {
+  return node('dl', { class: 'detail-facts detail-characteristics' }, faceCharacteristics(face).map(([label, value]) => node('div', {}, [node('dt', { text: label }), node('dd', { text: value })])));
 }
 
 function renderDetail() {
@@ -729,6 +737,7 @@ function renderDetail() {
   const colors = (card.colorIdentity || []).map((color) => COLOR_NAMES[color] || color).join(' / ') || '无色';
   facts.append(node('div', {}, [node('dt', { text: '标识色' }), node('dd', { text: colors })]));
   meta.append(facts);
+  if (faces.length === 1 && faceCharacteristics(faces[0]).length) meta.append(characteristicFacts(faces[0]));
   const legality = card.legalities?.commander;
   const legalityLabel = legality === 'legal' ? 'EDH 合法' : legality === 'banned' ? 'EDH 禁用' : legality === 'not_legal' ? 'EDH 不合法' : legality === 'restricted' ? 'EDH 限制' : 'EDH 合法性未知';
   meta.append(node('span', { class: 'legality-pill' + (legality === 'legal' ? '' : legality ? ' bad' : ' unknown') }, [icon(legality === 'legal' ? 'check' : 'info'), legalityLabel]));
@@ -760,8 +769,19 @@ function renderDetail() {
   versionSelect.value = String(Math.max(0, versionIndex));
   versionSelect.addEventListener('change', () => { detailVersion = versions[Number(versionSelect.value)]; renderDetail(); });
   root.append(node('section', { class: 'version-section' }, [node('label', { class: 'version-heading', for: 'detail-version' }, ['印刷版本', node('span', { text: fmt(versions.length) + ' 个已收录版本' })]), versionSelect]));
-  const addTarget = currentAddTarget();
-  if (currentView !== 'playtest') root.append(node('button', { class: 'button button-primary detail-add', type: 'button', onClick: () => addCard(card, detailVersion || versions[0]) }, [icon('plus'), addTarget ? '加入「' + addTarget.name + '」主牌区' : '选择卡组并加入']));
+  const addTarget = detailContext ? deckUI?.getDeck(detailContext.deckId) : currentAddTarget();
+  const existing = detailDeckEntry(addTarget, card.id, detailContext);
+  if (currentView !== 'playtest') {
+    const zoneName = { main: '主牌区', commander: '统帅区', considering: '候选区' }[existing?.zone] || '主牌区';
+    root.append(node('button', { class: 'button button-primary detail-add', type: 'button', disabled: !!existing || !!detailContext, onClick: () => addCard(card, detailVersion || versions[0], { skipExisting: true }) }, [existing ? '已加入「' + addTarget.name + '」' + zoneName : detailContext ? '此牌已移出卡组' : addTarget ? '加入「' + addTarget.name + '」主牌区' : '选择卡组并加入']));
+    if (detailContext && existing && detailVersion && detailVersion.id !== existing.versionId) {
+      const context = { ...detailContext }, selectedVersion = detailVersion;
+      root.append(node('button', { class: 'button button-primary detail-change-version', type: 'button', text: '切换版本', onClick: () => {
+        if (deckUI.changeEntryVersion(context, card, selectedVersion)) notify('印刷版本已切换', 'success');
+        renderDetail();
+      } }));
+    }
+  }
   root.append(node('details', { class: 'detail-data-sources' }, [node('summary', { text: '数据来源' }), ...faces.map(translationNote), node('p', { class: 'data-note' }, ['Oracle 与卡图：', node('a', { href: 'https://scryfall.com', target: '_blank', rel: 'noreferrer', text: 'Scryfall' })])]));
   root.scrollTop = oldScroll;
 }

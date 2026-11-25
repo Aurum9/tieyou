@@ -337,6 +337,18 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     }, { errorTarget });
   }
 
+  function changeEntryVersion(context, card, version) {
+    return run(() => {
+      const deck = store.get(context.deckId);
+      const entry = deck?.entries.find(item => item.id === context.entryId && item.cardId === card.id);
+      if (!entry) throw new Error('这张牌已移出卡组');
+      if (!card.versions?.some(item => item.id === version.id)) throw new Error('印刷版本不存在，请重新打开详情');
+      index.set(card.id, card);
+      entry.versionId = version.id;
+      return store.save(deck);
+    });
+  }
+
   function moveEntry(entryId, destination, fromDrag = false) {
     const deck = store.get(selectedId);
     const entry = deck?.entries.find(item => item.id === entryId);
@@ -745,7 +757,7 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const card = index.get(entry.cardId); const wrapper = el('article', 'deck-entry'); const row = el('div', 'deck-entry-main');
     const name = card?.zhName || card?.name || `缺失卡牌 ${entry.cardId}`;
     const version = card ? getVersion(card, entry.versionId) : null;
-    const inspect = () => card && onInspect(card, version);
+    const inspect = () => card && onInspect(card, version, { deckId: selectedId, entryId: entry.id });
     wrapper.setAttribute('data-entry-id', entry.id);
     applyDeckCardColor(wrapper, card);
     const priceBadge = fiveDhDecks.has(selectedId)
@@ -1270,5 +1282,5 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     for (const current of [...openModals]) current.close();
     container.replaceChildren();
   }
-  return { render, addCard, quickAddCard, isFiveDhEnabled: id => fiveDhDecks.has(id), showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, cancelEditorDrag: () => editorDrag?.cancel(), stopDeckDemo: () => deckDemo?.stop(), flushCloudDecks: () => syncController?.sync(false), destroy };
+  return { render, addCard, quickAddCard, changeEntryVersion, isFiveDhEnabled: id => fiveDhDecks.has(id), showLibrary, setCards, openDeck, listDecks: () => store.list(), getDeck: id => store.get(id), getSelectedDeckId: () => selectedId, cancelEditorDrag: () => editorDrag?.cancel(), stopDeckDemo: () => deckDemo?.stop(), flushCloudDecks: () => syncController?.sync(false), destroy };
 }

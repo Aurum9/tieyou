@@ -571,7 +571,8 @@ def main() -> None:
             face_image = face_images[face_index] if face_index < len(face_images) else version["image"]
             faces.append({"id": face_id, "name": name, "zhName": zh_name, "typeLine": face.get("type_line", ""),
                           "zhTypeLine": zh_type, "manaCost": face.get("mana_cost", ""), "oracleText": english,
-                          "zhText": zh_text, "image": face_image, "translation": translation})
+                          "zhText": zh_text, "image": face_image, "translation": translation,
+                          **{key: face[key] for key in ("power", "toughness", "loyalty", "defense") if key in face}})
         face_count += len(faces)
         front = faces[0]
         card_translation = dict(front["translation"])

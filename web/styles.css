@@ -168,3 +168,5 @@ body:has(.deck-modal-overlay){overflow:hidden}
 @media (max-width: 350px) {
   .brand-subtitle { display: none; }
 }
+
+.detail-add:disabled{background:#e5e9e2;color:#697267;cursor:default;box-shadow:none}.detail-change-version{width:100%;margin-top:8px}.detail-characteristics dd{font-weight:700}
