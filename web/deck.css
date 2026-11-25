@@ -160,3 +160,13 @@
     min-height: 44px;
   }
 }
+
+/* Align desktop workshop panels with a shared page gutter. */
+@media (min-width:701px) {
+  #deck-view:has(.deck-workshop-heading) { padding: 0 max(12px, env(safe-area-inset-right)) 40px max(12px, env(safe-area-inset-left)); }
+  #deck-view .deck-workshop-heading { margin: 6px 0 8px; }
+  #deck-view:has(.deck-workshop-heading) > .deck-save-status { margin: 8px 0; }
+  #deck-view:has(.deck-workshop-heading) > .deck-stats { margin: 6px 0; }
+  #deck-view:has(.deck-workshop-heading) > .deck-checks { margin-bottom: 6px; }
+  #deck-view:has(.deck-workshop-heading) > .deck-add-section { margin-top: 6px; }
+}
