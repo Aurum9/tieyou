@@ -39246,9 +39246,9 @@
     },
     {
       "slug": "tutor-land-any",
-      "label": "任意牌导师",
+      "label": "任意地导师",
       "visible": true,
-      "descriptionZh": "从牌库中搜寻符合任意牌条件的牌。",
+      "descriptionZh": "可以搜寻任意地牌，不局限于基本地或某种地类别。",
       "includeInAnalysis": false,
       "cardCount": 45,
       "parentSlugs": [

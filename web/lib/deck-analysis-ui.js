@@ -135,7 +135,19 @@ function renderCurve(stats, details) {
   return section;
 }
 
-function renderBars(list, rows, details, { unit = '张', colors = false } = {}) {
+let explanationId=0;
+function explanationControl(label, description, region, onReveal) {
+  region.id=`composition-explanation-${++explanationId}`;
+  const control=button('i',event=>{
+    event.preventDefault();event.stopPropagation();region.hidden=!region.hidden;
+    control.setAttribute('aria-expanded',String(!region.hidden));
+    if(!region.hidden)onReveal?.();
+  },'deck-composition-info');
+  control.title=description;control.setAttribute('aria-label',`查看${label}释义`);
+  control.setAttribute('aria-controls',region.id);control.setAttribute('aria-expanded','false');return control;
+}
+
+function renderBars(list, rows, details, { unit = '张', colors = false, explanations = false } = {}) {
   const max = Math.max(1, ...rows.map(row => row.count));
   list.replaceChildren(...rows.map(row => {
     const control = el('button', 'deck-analysis-bar');
@@ -155,7 +167,10 @@ function renderBars(list, rows, details, { unit = '张', colors = false } = {}) 
     control.setAttribute('aria-label', row.slug && row.slug !== row.label ? `${title}（${row.slug}）` : title);
     control.append(label, track, el('strong', 'deck-analysis-bar-count', row.count));
     details.select(control, title, row.entryIds, row.description);
-    return control;
+    if(!explanations || !row.description)return control;
+    const wrapper=el('div','deck-composition-detail-row');
+    const explanation=el('p','deck-composition-description',row.description);explanation.hidden=true;
+    wrapper.append(control,explanationControl(row.label,row.description,explanation),explanation);return wrapper;
   }));
 }
 
@@ -184,14 +199,18 @@ function renderComposition(parent, groups, makeDetails) {
     disclosure.dataset.role=group.slug;
     const summary=el('summary','deck-composition-summary');
     const label=el('span','deck-composition-label',group.label);
+    const explanation=el('p','deck-composition-description',group.description);explanation.hidden=true;
+    if(group.description)label.append(explanationControl(group.label,group.description,explanation,()=>{disclosure.open=true;}));
     const track=el('span','deck-analysis-bar-track'),fill=el('span','deck-analysis-bar-fill');
     fill.style.setProperty('--share',`${group.count/max*100}%`);track.append(fill);
-    summary.append(label,track,el('strong','',group.count));disclosure.append(summary);
     const content=el('div','deck-composition-content'),detail=makeDetails(path),rows=el('div','deck-analysis-bars');
-    const choices=[{label:'全部',count:group.count,entryIds:group.entryIds}];
-    if(group.repeatable?.count) choices.push({label:'其中可重复',...group.repeatable});
+    const count=button(String(group.count),event=>{event.preventDefault();event.stopPropagation();disclosure.open=true;},'deck-composition-count');
+    count.disabled=group.count===0;count.setAttribute('aria-label',`查看${group.label}的${group.count}张牌`);
+    detail.select(count,`${group.label} · ${group.count} 张`,group.entryIds,group.description);
+    summary.append(label,track,count);disclosure.append(summary);
+    const choices=[];
     for(const child of group.children.filter(child=>child.count>0 && !child.children.length))choices.push({...child,slug:undefined});
-    renderBars(rows,choices,detail);content.append(rows);
+    renderBars(rows,choices,detail,{explanations:true});content.append(explanation,rows);
     for(const child of group.children.filter(child=>child.count>0 && child.children.length))content.append(renderGroup(child,path+'-'+child.slug,true));
     content.append(detail.region);disclosure.append(content);return disclosure;
   }

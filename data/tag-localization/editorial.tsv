@@ -961,3 +961,4 @@ tutor-creature-power	力量条件生物导师	搜寻力量符合特定条件的�
 tutor-creature-toughness	防御力条件生物导师	搜寻防御力符合特定条件的生物牌。
 gives-castable-from-library	给予从牌库施放	允许你从牌库施放牌。
 tutor-creature-specific	指定名称生物导师	搜寻特定名称的生物牌。
+tutor-land-any	任意地导师	可以搜寻任意地牌，不局限于基本地或某种地类别。

@@ -19,6 +19,7 @@ test('translation batch preserves manual terminology, settings and land cycles w
   assert.equal(bySlug.get('namesake-spell').label,'冠名咒语');assert.equal(bySlug.get('namesake-spell').visible,false);
   assert.equal(bySlug.get('precognition-engine').label,'私看牌库顶引擎');assert.equal(bySlug.get('future-sight-engine').label,'展示牌库顶引擎');
   assert.equal(bySlug.get('pillage-effect').label,'换牌造宝');assert.equal(bySlug.get('genesis-effect').label,'牌库顶生物进场');
+  assert.equal(bySlug.get('tutor-card').label,'任意牌导师');assert.equal(bySlug.get('tutor-land-any').label,'任意地导师');
   assert.equal(bySlug.get('typal-dragon').visible,true);assert.equal(bySlug.get('grave-pact').visible,true);
 });
 test('the saved translation order follows descending card counts and depth-first children, retaining multiple parents',()=>{
