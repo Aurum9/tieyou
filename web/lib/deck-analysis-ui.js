@@ -1,7 +1,6 @@
 import { analyzeDeckMana } from './deck-analysis.js';
 import { analyzeDeckRelated, loadTagVocabulary, loadTokenCatalog } from './deck-analysis-related.js';
 import { getVersion } from './decks.js';
-import { normalizeText } from './search.js';
 import { createDeckProbability } from './deck-probability-ui.js';
 import { appendManaText } from './mana-symbols.js';
 
@@ -177,28 +176,27 @@ function renderSources(lands, details) {
   return section;
 }
 
-function renderTags(parent, tags, details) {
-  if (!tags.length) { parent.replaceChildren(el('p', 'deck-analysis-empty', '这副卡组暂无功能标签')); return; }
-  const tools = el('div', 'deck-analysis-tag-tools');
-  const search = el('input', 'deck-input');
-  search.type = 'search';
-  search.placeholder = '搜索标签或 otag';
-  search.setAttribute('aria-label', '搜索功能标签');
-  const count = el('span', 'deck-analysis-note');
-  const list = el('div', 'deck-analysis-bars is-scrollable');
-  tools.append(search, count);
-  function refresh() {
-    details.clear();
-    const query = normalizeText(search.value || '').replace(/^otag\s*:\s*/, '');
-    const rows = tags.filter(tag => [tag.label, tag.slug, ...tag.aliases].some(value => normalizeText(value).includes(query)));
-    count.textContent = `${rows.length} 个标签`;
-    if (rows.length) renderBars(list, rows, details);
-    else list.replaceChildren(el('p', 'deck-analysis-empty', '没有匹配的标签'));
-    list.scrollTop = 0;
+function renderComposition(parent, groups, makeDetails) {
+  const list=el('div','deck-composition');
+  const max=Math.max(1,...groups.map(group=>group.count));
+  function renderGroup(group, path, nested=false) {
+    const disclosure=el('details','deck-composition-group'+(nested?' is-nested':''));
+    disclosure.dataset.role=group.slug;
+    const summary=el('summary','deck-composition-summary');
+    const label=el('span','deck-composition-label',group.label);
+    const track=el('span','deck-analysis-bar-track'),fill=el('span','deck-analysis-bar-fill');
+    fill.style.setProperty('--share',`${group.count/max*100}%`);track.append(fill);
+    summary.append(label,track,el('strong','',group.count));disclosure.append(summary);
+    const content=el('div','deck-composition-content'),detail=makeDetails(path),rows=el('div','deck-analysis-bars');
+    const choices=[{label:'全部',count:group.count,entryIds:group.entryIds}];
+    if(group.repeatable?.count) choices.push({label:'其中可重复',...group.repeatable});
+    for(const child of group.children.filter(child=>child.count>0 && !child.children.length))choices.push({...child,slug:undefined});
+    renderBars(rows,choices,detail);content.append(rows);
+    for(const child of group.children.filter(child=>child.count>0 && child.children.length))content.append(renderGroup(child,path+'-'+child.slug,true));
+    content.append(detail.region);disclosure.append(content);return disclosure;
   }
-  search.addEventListener('input', refresh);
-  refresh();
-  parent.replaceChildren(tools, list, el('p', 'deck-analysis-note', '按关联牌张数统计，包含上级标签。'), details.region);
+  for(const group of groups)list.append(renderGroup(group,'composition-'+group.slug));
+  parent.replaceChildren(list);
 }
 
 function renderTokens(parent, tokens, details) {
@@ -276,21 +274,27 @@ export function createDeckAnalysis({ deck, cards, onBack, onInspect }) {
     coloredPanel('地牌产色', stats.lands.colors, details('land-colors'), '统计直接产费地。同一张多色地可以计入多个颜色。', '张'),
     renderSources(stats.lands, details('sources')),
   );
-  const tags = panel('Scryfall 功能标签', true), tokens = panel('关联衍生物', true);
+  const tags = panel('套牌构成', true), tokens = panel('关联衍生物', true);
   const tagBody = el('div'), tokenBody = el('div');
   tags.section.append(tagBody);
   tokens.section.append(tokenBody);
-  grid.append(tags.section, tokens.section, probability);
+  grid.prepend(tags.section);
+  grid.append(tokens.section, probability);
   root.append(heading, kpis);
   if (stats.counts.unknown) root.append(el('p', 'deck-analysis-note', `${stats.counts.unknown} 张牌缺少卡牌数据。`));
   root.append(grid);
   if (stats.counts.main + stats.counts.commander === 0) {
-    renderTags(tagBody, []);
+    loadSection(tagBody, loadTagVocabulary, tagVocabulary => {
+      const { composition }=analyzeDeckRelated(deck,cards,{tagVocabulary});
+      renderComposition(tagBody,composition,details);
+    });
     renderTokens(tokenBody, []);
   } else {
     loadSection(tagBody, loadTagVocabulary, tagVocabulary => {
-      const { tags } = analyzeDeckRelated(deck, cards, { tagVocabulary });
-      renderTags(tagBody, tags, details('tags'));
+      const { composition, tags: selectedTags } = analyzeDeckRelated(deck, cards, { tagVocabulary });
+      const grouped=new Set(composition.map(group=>group.slug));
+      const extra=selectedTags.filter(tag=>!grouped.has(tag.slug) && !tag.slug.startsWith('repeatable-')).map(tag=>({...tag,children:[]}));
+      renderComposition(tagBody, [...composition,...extra], details);
     });
     loadSection(tokenBody, loadTokenCatalog, tokenCatalog => {
       const { tokens } = analyzeDeckRelated(deck, cards, { tokenCatalog });

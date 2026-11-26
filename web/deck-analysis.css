@@ -619,3 +619,16 @@ button.deck-analysis-token {
     min-height: 44px;
   }
 }
+
+.deck-composition{display:grid;gap:4px}
+.deck-composition-group{min-width:0;border-bottom:1px solid var(--line)}
+.deck-composition-summary{display:grid;grid-template-columns:minmax(105px,1fr) minmax(40px,2fr) 30px;gap:10px;align-items:center;min-height:38px;cursor:pointer;list-style:none;font-size:13px}
+.deck-composition-summary::-webkit-details-marker{display:none}
+.deck-composition-label{display:flex;align-items:center;gap:6px}
+.deck-composition-label::before{content:'▸';color:var(--muted);width:9px;flex-shrink:0}
+.deck-composition-group[open]>.deck-composition-summary .deck-composition-label::before{content:'▾'}
+.deck-composition-summary>strong{text-align:right;font-variant-numeric:tabular-nums}
+.deck-composition-content{padding:4px 0 10px 14px}
+.deck-composition-group.is-nested{border:0;margin-top:4px}
+.deck-composition-content .deck-analysis-bar{font-size:12px}
+@media(max-width:700px){.deck-composition-summary{min-height:34px;gap:7px;font-size:12px;grid-template-columns:minmax(95px,1fr) minmax(35px,1.5fr) 25px}.deck-composition-content{padding-left:9px}}

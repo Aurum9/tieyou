@@ -1,6 +1,7 @@
 import { normalizeText } from './search.js';
 import { visibleTagLabel, loadTagVocabulary, canonicalTagSlug, getTagDescription, tagIncludedInAnalysis } from './tag-vocabulary.js';
 import { linkedTokens, loadTokenCatalog, tokenLabel } from './playtest-token-catalog.js';
+import { analyzeDeckComposition } from './deck-composition.js';
 
 export { loadTagVocabulary, loadTokenCatalog };
 
@@ -43,6 +44,7 @@ export function analyzeDeckRelated(deck, cards, { tagVocabulary = [], tokenCatal
   }
   const byFrequency = (a, b) => b.count - a.count || sortNames.compare(a.label, b.label);
   return {
+    composition: analyzeDeckComposition(deck, index, { tagVocabulary }),
     tags: [...tags.values()].sort((a, b) => byFrequency(a, b) || sortNames.compare(a.slug, b.slug)),
     tokens: [...tokens.values()].sort((a, b) => byFrequency(a, b) || sortNames.compare(a.id, b.id)),
   };
