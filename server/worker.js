@@ -1,5 +1,6 @@
 import { createCatalogService, importCatalogBatch, activateCatalogVersion } from './catalog-db.js';
 import { validateDeckLibrary } from '../web/lib/decks.js';
+import { createBracketEstimator, normalizeBracketDeck } from './bracket-estimator.js';
 
 const JSON_LIMIT = 2 * 1024 * 1024;
 const DECK_LIBRARY_LIMIT = 1536 * 1024;
@@ -109,7 +110,7 @@ async function deckLibraryResponse(request, url, db) {
 /** The deployed Site remains owner-private. Sites dispatch authenticates all requests,
  * including service requests, before this Worker runs. Import is a maintenance API;
  * no credential or import action is included in browser code. */
-export function createWorker({ assets = {}, serveAsset } = {}) {
+export function createWorker({ assets = {}, serveAsset, estimateBracket = createBracketEstimator() } = {}) {
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
@@ -127,6 +128,16 @@ export function createWorker({ assets = {}, serveAsset } = {}) {
           });
         }
         if (url.pathname === DECK_LIBRARY_PATH) return await deckLibraryResponse(request, url, env?.DB);
+        if (url.pathname === '/api/deck/bracket') {
+          if (request.method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '请求方式无效');
+          rejectCrossOrigin(request, url);
+          const body = await readJSON(request, 64 * 1024);
+          let deck;
+          try { deck = normalizeBracketDeck(body); }
+          catch (error) { throw new HttpError(400, 'INVALID_PARAMETER', error.message); }
+          try { return json(await estimateBracket(deck)); }
+          catch { return json({ error: 'Commander Spellbook 暂不可用' }, 502); }
+        }
         if (!env?.DB) throw new HttpError(503, 'CATALOG_NOT_READY', '卡库暂时不可用');
         const service = createCatalogService(env.DB);
         if (url.pathname === '/api/catalog/meta' && request.method === 'GET') return json(await service.meta());
