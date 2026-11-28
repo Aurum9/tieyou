@@ -36,6 +36,10 @@ function validateRecord(deck, cards) {
     customCategories: [...new Set(customCategories.map(category => str(category, '个人分类', 100, false).trim()))], entries: []
   };
   if (!Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.updatedAt))) fail('卡组时间格式不正确');
+  if (deck.targetBracket != null && deck.targetBracket !== '') {
+    if (!Number.isInteger(deck.targetBracket) || deck.targetBracket < 1 || deck.targetBracket > 5) fail('目标 Bracket 必须为 1–5');
+    record.targetBracket = deck.targetBracket;
+  }
   if (deck.editorPreferences !== undefined) record.editorPreferences = validateDeckEditorPreferences(deck.editorPreferences);
   if (!Array.isArray(deck.entries) || deck.entries.length > 10000) fail('卡组条目格式不正确或超过上限');
   const ids = new Set();
@@ -182,8 +186,8 @@ export class DeckStore {
     this.commit({ ...this.state, decks: [...this.state.decks, ...imported] });
     return clone(imported);
   }
-  importEntries(name, entries) {
-    const deck = { ...createDeck(name), entries: entries.map(entry => ({ ...entry, id: newId() })) };
+  importEntries(name, entries, { targetBracket } = {}) {
+    const deck = { ...createDeck(name), ...(targetBracket == null ? {} : { targetBracket }), entries: entries.map(entry => ({ ...entry, id: newId() })) };
     this.commit({ ...this.state, decks: [...this.state.decks, validateRecord(deck)] });
     return clone(deck);
   }
