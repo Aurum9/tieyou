@@ -874,3 +874,9 @@
   max-width: calc(100% - 48px);
   pointer-events: auto;
 }
+
+/* Compact deck-list utility group; more tools can be added without moving the title. */
+.deck-list-tools { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.deck-list-title .deck-list-tools .deck-five-dh-toggle { border-radius:999px; background:transparent; padding:5px 10px; border-color:var(--line); }
+.deck-list-title .deck-list-tools .deck-five-dh-toggle:has(input:checked) { background:#e5efdf; border-color:#88a184; color:var(--accent); }
+.deck-list-tools .deck-five-dh-toggle:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
