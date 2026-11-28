@@ -13,6 +13,7 @@ import { drawGuideMark, createDeckDemo } from './deck-onboarding.js';
 const zoneNames = { commander: '统帅', main: '主牌', considering: '候选牌' };
 const editorZones = { commander: '指挥官', main: '主牌', considering: '备牌' };
 const deckViews = [['text', '文本'], ['cards', '卡图'], ['stack', '叠放']];
+const bracketOptions = [['', '未设置'], ['1', 'Bracket 1 · 展示'], ['2', 'Bracket 2 · 核心'], ['3', 'Bracket 3 · 强化'], ['4', 'Bracket 4 · 优化'], ['5', 'Bracket 5 · cEDH']];
 const entryIssueLabels = {
   duplicate: '重复',
   quantity: '数量无效',
@@ -308,10 +309,60 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
   function createDialog() {
     const current = dialog('新建卡组'); const name = input(''); name.placeholder = '卡组名称'; name.maxLength = 200;
     const error = el('p', 'deck-form-error'); error.hidden = true;
-    const form = el('form', 'deck-stack'); form.append(field('卡组名称', name), error);
+    const form = el('form', 'deck-stack');
+    const bracket = select(bracketOptions, '');
+    const query = input(''); query.placeholder = '搜索中英文主将名称';
+    query.setAttribute('aria-label', '搜索主将');
+    const selected = [], selectedList = el('div', 'deck-stack'), results = el('div', 'deck-add-results');
+    let timer, request = 0;
     const submit = button('创建卡组', () => {}, 'button button-primary'); submit.type = 'submit';
+    function refreshSelected() {
+      selectedList.replaceChildren();
+      for (const card of selected) {
+        const row = el('div', 'deck-search-result');
+        row.append(el('span', '', card.zhName || card.name), button('移除', () => {
+          selected.splice(selected.indexOf(card), 1); refreshSelected(); search();
+        }));
+        selectedList.append(row);
+      }
+      submit.disabled = !selected.length;
+    }
+    function search() {
+      clearTimeout(timer);
+      const id = ++request, text = query.value.trim();
+      results.replaceChildren();
+      if (!text || selected.length >= 2) return;
+      timer = setTimeout(async () => {
+        try {
+          const result = findCandidates ? await findCandidates(text, { limit: 20 }) : findCardCandidates(text, cards);
+          if (!query.isConnected || id !== request) return;
+          const candidates = (Array.isArray(result) ? result : result.cards || []).filter(card => {
+            const front = card.faces?.[0] || card, type = front.typeLine || card.typeLine || '', oracle = front.oracleText || card.oracleText || '';
+            return !selected.some(item => item.id === card.id) && !['banned', 'not_legal'].includes(card.legalities?.commander) && !/can't be your commander/i.test(oracle) &&
+              (/\bLegendary\b/i.test(type) && /\bCreature\b/i.test(type) || /can be your commander/i.test(oracle) || selected.length && /\bBackground\b/i.test(type));
+          }).slice(0, 8);
+          if (!candidates.length) results.append(el('p', 'deck-muted', '未找到可选主将'));
+          for (const card of candidates) {
+            results.append(button(card.zhName ? card.zhName + ' · ' + card.name : card.name, () => {
+              if (selected.length >= 2) return;
+              selected.push(card); setCards([card]); query.value = ''; ++request; results.replaceChildren(); refreshSelected();
+            }, 'button button-quiet'));
+          }
+        } catch (failure) {
+          if (query.isConnected && id === request) results.append(el('p', 'deck-form-error', failure.message || '主将搜索失败'));
+        }
+      }, 300);
+    }
+    query.addEventListener('input', search);
+    form.append(field('卡组名称', name), field('主将（必选）', query), selectedList, results,
+      el('p', 'deck-muted', '最多选择两张主将；双主将搭配资格需人工确认。'),
+      field('目标分级（选填）', bracket), error);
+    refreshSelected();
     form.append(submit); form.addEventListener('submit', event => {
-      event.preventDefault(); const deck = run(() => store.importEntries(name.value.trim() || '未命名卡组', []), { refresh: false, errorTarget: error });
+      event.preventDefault();
+      if (!selected.length) return;
+      const entries = selected.map(card => ({ cardId: card.id, versionId: defaultVersion(card), quantity: 1, zone: 'commander', categories: [], notes: '' }));
+      const deck = run(() => store.importEntries(name.value.trim() || '未命名卡组', entries, { targetBracket: bracket.value ? Number(bracket.value) : undefined }), { refresh: false, errorTarget: error });
       if (deck) { current.close(); void openDeck(deck.id); }
     }); current.panel.append(form); queueMicrotask(() => name.focus());
   }
@@ -603,6 +654,19 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     const stats = validateDeck(deck, cards); const statsGrid = el('div', 'deck-stats');
     for (const [value, label] of [[`${stats.count} / 100`, '正式卡组'], [stats.commanderCount, '统帅'], [stats.consideringCount, '候选牌'], [stats.colorIdentity.join(' · ') || '—', '统帅标识色']]) { const box = el('div'); box.append(el('strong', '', value), el('span', '', label)); statsGrid.append(box); }
     container.append(statsGrid);
+    const targetBracket = select(bracketOptions, String(deck.targetBracket ?? ''));
+    targetBracket.setAttribute('aria-label', '目标分级');
+    targetBracket.addEventListener('change', () => {
+      const latest = store.get(deck.id);
+      if (!latest) return;
+      if (!run(() => store.save({ ...latest, targetBracket: targetBracket.value ? Number(targetBracket.value) : undefined }))) targetBracket.value = String(deck.targetBracket ?? '');
+    });
+    const bracketField = el('div', 'deck-list-heading');
+    bracketField.append(field('目标分级（选填）', targetBracket));
+    const estimatePanel = el('div', 'deck-stack');
+    bracketField.append(estimatePanel);
+    container.append(bracketField);
+    showBracketEstimate(deck, estimatePanel);
     const issues = stats.issues.filter(issue => !['commander-combination', 'commander-eligibility'].includes(issue.code));
     const entryIssues = new Map(), entryRows = new Map();
     if (issues.length) {
@@ -670,6 +734,69 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     });
   }
 
+  const bracketRequests = new Map();
+  function showBracketEstimate(deck, panel) {
+    const groups = { commanders: [], main: [] };
+    for (const entry of deck.entries) {
+      if (entry.zone === 'considering') continue;
+      const card = index.get(entry.cardId);
+      if (!card?.name) { panel.textContent = '系统估算：等待卡牌资料'; return; }
+      groups[entry.zone === 'commander' ? 'commanders' : 'main'].push({ card: card.name, quantity: entry.quantity });
+    }
+    if (!groups.commanders.length) { panel.textContent = '系统估算：请先选择主将'; return; }
+    if (deck.entries.filter(e => e.zone !== 'considering').reduce((n, e) => n + e.quantity, 0) > 100) { panel.textContent = '系统估算：牌表超过100张'; return; }
+    for (const rows of Object.values(groups)) rows.sort((a, b) => a.card.localeCompare(b.card, 'en') || a.quantity - b.quantity);
+    const key = JSON.stringify(groups);
+    const labels = { E: [1, 1, 'B1+ · 展示'], C: [2, 2, 'B2+ · 核心'], O: [2, 3, 'B2–3+ · 难以分类'], P: [3, 3, 'B3+ · 强化'], S: [3, 4, 'B3–4+ · 可能超出强化级'], R: [4, 5, 'B4+ · 优化或竞技'] };
+    function paint(data) {
+      if (!panel.isConnected) return;
+      panel.replaceChildren();
+      const range = labels[data.bracketTag];
+      if (data.bracketTag === 'B') panel.append(el('strong', 'deck-form-error', '系统估算：存在禁牌'));
+      else if (range) {
+        panel.append(el('strong', '', '系统估算：' + range[2]));
+        panel.append(el('p', 'deck-muted', '基于 Commander Spellbook 的已知卡牌与组合技；未衡量实际制胜速度或构筑意图。'));
+        if (deck.targetBracket && range[0] > deck.targetBracket) panel.append(el('p', 'deck-form-error', '检测到可能超出目标 Bracket 的内容，请查看判定依据。'));
+        else if (deck.targetBracket && range[1] > deck.targetBracket) panel.append(el('p', 'deck-muted', '估算存在模糊地带，请核对组合技与目标分级。'));
+        else if (deck.targetBracket) panel.append(el('p', 'deck-muted', '未发现高于目标分级的明确估算结果；仍需人工核对。'));
+      } else { panel.append(el('p', 'deck-muted', '无法识别系统估算结果')); return; }
+      const details = el('details', 'deck-checks');
+      details.append(el('summary', '', '查看分级依据'));
+      const list = el('ul');
+      for (const card of data.cards || []) {
+        const reasons = [card.banned && '禁牌', card.gameChanger && 'Game Changer', card.massLandDenial && '大规模土地压制', card.extraTurn && '额外回合'].filter(Boolean);
+        list.append(el('li', '', (card.name || '未知卡牌') + '：' + reasons.join('、')));
+      }
+      for (const combo of data.combos || []) {
+        const reasons = [combo.definitelyTwoCard && '双卡组合技', !combo.definitelyTwoCard && combo.arguablyTwoCard && '可能的双卡组合技', combo.massLandDenial && '土地压制', combo.extraTurn && '额外回合', combo.lock && '锁场', combo.skipTurns && '跳过回合', (combo.controlAllOpponents || combo.controlSomeOpponents) && '操控对手回合'].filter(Boolean);
+        list.append(el('li', '', (combo.names?.join(' + ') || '组合技 ' + combo.id) + '：' + reasons.join('、')));
+      }
+      if (!list.children.length) list.append(el('li', '', '未发现上述特征'));
+      details.append(list); panel.append(details);
+    }
+    function request() {
+      if (!panel.isConnected) return;
+      panel.textContent = '系统估算：检测中…';
+      let cached = bracketRequests.get(key);
+      if (!cached || cached.expires <= Date.now()) {
+        const promise = fetch('/api/deck/bracket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: key }).then(response => {
+          if (!response.ok) throw new Error('检测服务暂不可用');
+          return response.json();
+        });
+        cached = { promise, expires: Date.now() + 86400000 };
+        if (bracketRequests.size >= 64) bracketRequests.delete(bracketRequests.keys().next().value);
+        bracketRequests.set(key, cached);
+        promise.catch(() => { if (bracketRequests.get(key) === cached) bracketRequests.delete(key); });
+      }
+      cached.promise.then(paint).catch(() => {
+        if (!panel.isConnected) return;
+        panel.replaceChildren(el('p', 'deck-muted', '系统估算：暂不可用'), button('重试', request));
+      });
+    }
+    panel.textContent = '系统估算：等待牌表更新…';
+    setTimeout(request, 800);
+  }
+
   function renderDeckBoard(deck, entryIssues, entryRows, expandAfterDrop, budgetOption) {
     const preferences = getDeckEditorPreferences(deck);
     const compareEntries = createDeckEntryComparator(deck, index, preferences);
@@ -713,7 +840,10 @@ export function initDeckUI({ container, cards = [], onInspect = () => {}, onNoti
     controls.append(views, grouping, sortControls);
     if (byCategory) controls.append(button('＋ 新建分类', () => editCategory(deck.id)));
     const heading = el('div', 'deck-list-title');
-    heading.append(el('h2', '', '卡组牌表'), budgetOption);
+    heading.append(el('h2', '', '卡组牌表'));
+    const tools = el('div', 'deck-list-tools');
+    tools.append(budgetOption);
+    heading.append(tools);
     listHeader.append(heading, controls);
     container.append(listHeader);
 
